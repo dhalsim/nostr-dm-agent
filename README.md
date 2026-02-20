@@ -28,7 +28,7 @@ Copy `.env.example` to `.env` and set:
 | `BOT_KEY` | Yes | Bot’s **private key in hex** (64 hex chars). Generate e.g. with `nak key` or any NIP-19/nostr key tool. |
 | `BOT_PUBKEY` | No | Bot’s public key (hex). Omitted = derived from `BOT_KEY`. Set it if you want to enforce a specific identity. |
 | `BOT_MASTER_PUBKEY` | Yes | **Your** (master’s) public key in hex. Only messages from this pubkey are processed and replied to. |
-| `BOT_RELAY` | Yes | Relay URL where the bot **listens** for DMs and **publishes** its own. Use the same relay you will advertise in the bot’s kind 10050 (see step 2). Example: `wss://auth.nostr1.com/` or `wss://relay.damus.io`. |
+| `BOT_RELAYS` | Yes | Comma-separated relay URLs where the bot **listens** for DMs and **publishes** its own. The first URL is the primary (e.g. for kind 10050). Example: `wss://auth.nostr1.com/,wss://relay.damus.io`. |
 | `DEBUG` | No | Set to `1` for extra logging (subscription filter, received events, send targets, AUTH). |
 
 Example `.env`:
@@ -36,7 +36,7 @@ Example `.env`:
 ```bash
 BOT_KEY=abc123...your_64_hex_private_key
 BOT_MASTER_PUBKEY=6e64b83c1f674fb00a5f19816c297b6414bf67f015894e04dd4c657e94102ee8
-BOT_RELAY=wss://auth.nostr1.com/
+BOT_RELAYS=wss://auth.nostr1.com/,wss://relay.damus.io
 # DEBUG=1
 ```
 
@@ -46,21 +46,22 @@ Clients (e.g. your phone app) look up **kind 10050** (Direct Message Relays) for
 
 **Option A – using nak (recommended)**
 
-Publish a replaceable kind 10050 event that advertises **one** relay (the bot’s inbox = `BOT_RELAY`), and publish that event to **several** relays so it’s discoverable:
+Publish a replaceable kind 10050 event that advertises **one** relay (the bot’s primary inbox = first URL in `BOT_RELAYS`), and publish that event to **several** relays so it’s discoverable:
 
 ```bash
-# Use the same relay in the tag as BOT_RELAY in .env (e.g. wss://auth.nostr1.com/)
+# Use the first URL from BOT_RELAYS in the tag (e.g. wss://auth.nostr1.com/)
 export NOSTR_SECRET_KEY="$BOT_KEY"
-nak event -k 10050 -t "relay=$BOT_RELAY" -c '' "$BOT_RELAY" wss://relay.0xchat.com wss://purplepag.es wss://relay.damus.io wss://relay.primal.net
+# Set BOT_RELAYS_FIRST to the first URL from your BOT_RELAYS in .env:
+nak event -k 10050 -t "relay=$BOT_RELAYS_FIRST" -c '' "$BOT_RELAYS_FIRST" wss://relay.0xchat.com wss://purplepag.es wss://relay.damus.io wss://relay.primal.net
 ```
 
 Or with explicit `--sec`:
 
 ```bash
-nak event -k 10050 -t "relay=$BOT_RELAY" -c '' --sec "$BOT_KEY" "$BOT_RELAY" wss://relay.0xchat.com wss://purplepag.es wss://relay.damus.io wss://relay.primal.net
+nak event -k 10050 -t "relay=$BOT_RELAYS_FIRST" -c '' --sec "$BOT_KEY" "$BOT_RELAYS_FIRST" wss://relay.0xchat.com wss://purplepag.es wss://relay.damus.io wss://relay.primal.net
 ```
 
-- **Tag `relay=...`**: the single relay where the bot receives DMs (must match `BOT_RELAY`).
+- **Tag `relay=...`**: the single relay where the bot receives DMs (must match the first URL in `BOT_RELAYS`).
 - **Positional relay URLs**: where this 10050 event is **published** (so your app can find it on purplepag.es, etc.).
 
 **Option B – implement in the script**
@@ -69,7 +70,7 @@ You can add a startup step in `index.ts` that builds and publishes a kind 10050 
 
 ### 3. Relays used by the bot (optional)
 
-- **`BOT_RELAY`** – Where the bot subscribes (kind 1059) and publishes. Must match the relay you put in the bot’s 10050 tag.
+- **`BOT_RELAYS`** – Comma-separated relays where the bot subscribes (kind 1059) and publishes. The first URL must match the relay you put in the bot’s 10050 tag.
 - **`PROFILE_RELAYS`** (in `index.ts`) – Relays queried to find the **master’s** kind 10050 when the bot **sends** a DM. Defaults include purplepag.es, relay.nos.social, etc. You can add or change these if your master 10050 is on other relays.
 
 ## Run
@@ -104,6 +105,7 @@ All commands are prefixed with `!`. The bot responds only to the master pubkey.
 | `!list-sessions` | List all sessions (id, date). Current session is marked. |
 | `!show-last-messages <id> [N]` | Show last N messages (default 5) for a session. |
 | `!status` | Bot status, relay, current session, and mode. |
+| `!version` | Show bot version (git hash of project). |
 | `!help` | List these commands. |
 | `!mode ask` \| `!mode plan` \| `!mode agent` | Set execution mode. Default is **ask** (read-only). **plan** = read-only planning. **agent** = full access (edits, shell). Shortcuts: `!plan`, `!agent`. |
 
@@ -111,8 +113,8 @@ All commands are prefixed with `!`. The bot responds only to the master pubkey.
 
 Use a NIP-17–compatible client (e.g. Damus, Coracle, 0xChat, or any app that supports NIP-17 DMs). Send an encrypted DM to the **bot’s pubkey** (hex or npub). The bot only reacts to messages from `BOT_MASTER_PUBKEY`.
 
-- If your app looks up kind 10050 for the bot, it will send to the relay you set in step 2 (`BOT_RELAY`).
-- Make sure that relay is the same one the bot is connected to (`BOT_RELAY` in `.env`).
+- If your app looks up kind 10050 for the bot, it will send to the relay you set in step 2 (the first in `BOT_RELAYS`).
+- Make sure that relay is the same as the first URL in `BOT_RELAYS` in `.env`.
 
 ## Troubleshooting
 
@@ -120,9 +122,20 @@ Use a NIP-17–compatible client (e.g. Damus, Coracle, 0xChat, or any app that s
   Your app may be reading DMs from relays listed in **your** kind 10050. The bot already discovers your 10050 and publishes there; ensure your app is connected to those relays.
 
 - **You send a reply but the bot never answers**  
-  1. The bot must advertise where to receive DMs: publish the bot’s **kind 10050** with tag `relay=<BOT_RELAY>` (step 2).  
-  2. `BOT_RELAY` in `.env` must be exactly that relay (same URL, including trailing slash if the relay uses it).  
+  1. The bot must advertise where to receive DMs: publish the bot’s **kind 10050** with tag `relay=<first BOT_RELAYS URL>` (step 2).  
+  2. The first URL in `BOT_RELAYS` in `.env` must match that relay (same URL, including trailing slash if the relay uses it).  
   3. Some relays (e.g. auth.nostr1.com) require NIP-42 AUTH; the bot signs AUTH when the relay challenges it. If your **phone app** fails to send, it may need to complete AUTH on that relay too.
 
 - **More visibility**  
   Run with `DEBUG=1` to see subscription filter, incoming events, where the bot publishes, and AUTH challenges.
+
+## For developers / AI agents
+
+When changing dm-bot code:
+
+- **File map**: Main logic is in `index.ts` (Nostr subscription, `!` commands in `handleBangCommand`, agent spawn, DM send). `run-with-restart.ts` watches for `restart.requested` and restarts the bot. `write-version.ts` generates `version.generated.ts` from git.
+- **State**: SQLite at `dm-bot.sqlite` (tables: `seen_events`, `sessions`, `session_messages`, `state`). See `index.ts` for schema.
+- **New commands**: Add a branch in `handleBangCommand` in `index.ts`.
+- **After edits**: Touch `restart.requested` in the dm-bot directory so the watcher restarts the bot (when using `bun run watch:restart`).
+
+Full codebase context and extension points are in **.cursor/rules/dm-bot-context.mdc** in this directory.

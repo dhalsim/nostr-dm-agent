@@ -6,8 +6,10 @@
  *   BOT_KEY           - Bot's private key (hex)
  *   BOT_PUBKEY        - Bot's public key (hex) - optional, derived from BOT_KEY if omitted
  *   BOT_MASTER_PUBKEY - Master's pubkey to listen to and reply to (hex)
- *   BOT_RELAY         - Relay URL (e.g. wss://relay.damus.io)
+ *   BOT_RELAYS        - Comma-separated relay URLs (e.g. wss://relay.damus.io,wss://relay.nos.social)
  *   DEBUG             - Set to 1 for extra logging (subscription, received events, send targets)
+ *
+ * Restart: when using watch:restart, touch restart.requested in this directory to restart the bot.
  */
 
 import { spawn, spawnSync } from "bun";
@@ -33,6 +35,15 @@ function requireEnv(name: string): string {
 function ensureWss(url: string): string {
   if (url.startsWith("wss://") || url.startsWith("ws://")) return url;
   return `wss://${url}`;
+}
+
+function parseRelayUrls(envValue: string): string[] {
+  const urls = envValue
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map(ensureWss);
+  return [...new Set(urls)];
 }
 
 const DEBUG = process.env.DEBUG === "1";
@@ -166,7 +177,7 @@ function chunkMessage(text: string): string[] {
   return chunks;
 }
 
-function handleBangCommand(input: string, relayUrl: string, db: Database, version: string): string | null {
+function handleBangCommand(input: string, relayUrls: string[], db: Database, version: string): string | null {
   const raw = input.trim();
   if (!raw.startsWith("!")) return null;
   const rest = raw.slice(1).trim();
@@ -233,7 +244,7 @@ function handleBangCommand(input: string, relayUrl: string, db: Database, versio
   if (cmd === "status") {
     const cur = getState(db, STATE_CURRENT_SESSION);
     const mode = getDefaultMode(db);
-    return `Bot running. Version: ${version}\nRelay: ${relayUrl}\nCurrent session: ${cur ?? "(none)"}\nMode: ${mode}.`;
+    return `Bot running. Version: ${version}\nRelays: ${relayUrls.join(", ")}\nCurrent session: ${cur ?? "(none)"}\nMode: ${mode}.`;
   }
 
   if (cmd === "version") {
@@ -293,7 +304,12 @@ function main() {
 
   const botKeyHex = requireEnv("BOT_KEY");
   const masterPubkey = requireEnv("BOT_MASTER_PUBKEY");
-  const relayUrl = ensureWss(requireEnv("BOT_RELAY"));
+  const relayUrls = parseRelayUrls(requireEnv("BOT_RELAYS"));
+  if (relayUrls.length === 0) {
+    console.error("BOT_RELAYS must contain at least one relay URL (comma-separated)");
+    process.exit(1);
+  }
+  const primaryRelay = relayUrls[0];
 
   const botSecretKey = hexToBytes(botKeyHex);
   const botPubkey = process.env.BOT_PUBKEY ?? getPublicKey(botSecretKey);
@@ -315,7 +331,7 @@ function main() {
 
   console.log(`Bot pubkey: ${botPubkey}`);
   console.log(`Master: ${masterPubkey}`);
-  console.log(`Relay: ${relayUrl}`);
+  console.log(`Relays: ${relayUrls.join(", ")}`);
   console.log(`Version: ${VERSION}`);
   console.log("Listening for DMs...\n");
 
@@ -331,12 +347,12 @@ function main() {
 
   debug("PWD:", pwdOutput);
 
-  sendDm(pool, relayUrl, botSecretKey, masterPubkey, `Agent is ready. PWD: ${pwdOutput}`, signAuthEvent).catch(
+  sendDm(pool, primaryRelay, botSecretKey, masterPubkey, `Agent is ready. PWD: ${pwdOutput}`, signAuthEvent).catch(
     (err) => console.error("Failed to send ready DM:", err)
   );
 
   pool.subscribe(
-    [relayUrl],
+    relayUrls,
     dmFilter,
     {
       onauth: signAuthEvent,
@@ -364,9 +380,9 @@ function main() {
           console.log(`[master] ${content}`);
 
           if (content.trim().startsWith("!")) {
-            const reply = handleBangCommand(content, relayUrl, seenDb, VERSION);
+            const reply = handleBangCommand(content, relayUrls, seenDb, VERSION);
             if (reply) {
-              await sendDm(pool, relayUrl, botSecretKey, masterPubkey, reply, signAuthEvent);
+              await sendDm(pool, primaryRelay, botSecretKey, masterPubkey, reply, signAuthEvent);
             }
             return;
           }
@@ -374,7 +390,7 @@ function main() {
           const sessionId = getOrCreateCurrentSession(seenDb);
           const mode = getDefaultMode(seenDb);
           const workspaceRoot = join(import.meta.dir ?? process.cwd(), "..");
-          const baseArgs = ["agent", "-p", "--model", "auto", "--workspace", workspaceRoot];
+          const baseArgs = ["agent", "-p", "--model", "auto", "--workspace", workspaceRoot, "--trust"];
           if (mode === "ask") baseArgs.push("--mode=ask");
           else if (mode === "plan") baseArgs.push("--mode=plan");
           else baseArgs.push("-f");
@@ -401,14 +417,14 @@ function main() {
             for (let i = 0; i < chunks.length; i++) {
               const chunk = total > 1 ? `(${i + 1}/${total}) ${chunks[i]}` : chunks[i];
               try {
-                await sendDm(pool, relayUrl, botSecretKey, masterPubkey, chunk, signAuthEvent);
+                await sendDm(pool, primaryRelay, botSecretKey, masterPubkey, chunk, signAuthEvent);
               } catch (e) {
                 console.error("Failed to send DM chunk:", e);
               }
             }
           }).catch((err) => {
             console.error("Agent process error:", err);
-            sendDm(pool, relayUrl, botSecretKey, masterPubkey, `<${mode}> Error: ${String(err)}`, signAuthEvent).catch(
+            sendDm(pool, primaryRelay, botSecretKey, masterPubkey, `<${mode}> Error: ${String(err)}`, signAuthEvent).catch(
               (e) => console.error("Failed to send error DM:", e)
             );
           });
@@ -431,7 +447,7 @@ export const PROFILE_RELAYS = new Set([
 ]);
 
 /** NIP-17: discover recipient's preferred DM relays from kind:10050 */
-async function getMasterInboxRelays(
+async function getMasterDmRelays(
   pool: SimplePool,
   botRelayUrl: string,
   masterPubkey: string
@@ -465,7 +481,7 @@ async function sendDm(
   message: string,
   signAuthEvent: (template: EventTemplate) => Promise<VerifiedEvent>
 ) {
-  const targetRelays = await getMasterInboxRelays(pool, botRelayUrl, recipientPubkey);
+  const targetRelays = await getMasterDmRelays(pool, botRelayUrl, recipientPubkey);
   const recipientRelayHint = targetRelays[0] ?? botRelayUrl;
 
   const giftWrap = wrapEvent(

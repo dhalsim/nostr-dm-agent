@@ -1,0 +1,50 @@
+---
+description: "dm-bot codebase context for AI agents: file map, architecture, extension points"
+alwaysApply: false
+---
+
+# dm-bot codebase context
+
+When editing or extending the dm-bot (NIP-17 DM bot), use this as the map. The bot is a Bun script that forwards Nostr DMs to the Cursor Agent CLI and sends replies back.
+
+## File map
+
+| File | Purpose |
+|------|--------|
+| `index.ts` | Main entry: env, SQLite, Nostr pool, subscription (kind 1059), command handling, agent invocation, DM sending. |
+| `run-with-restart.ts` | Watcher: runs the bot and restarts only when `restart.requested` is created/touched (for agent-driven code edits). |
+| `write-version.ts` | Writes `version.generated.ts` with repo git HEAD (run from parent dir). Used by npm scripts before start. |
+| `version.generated.ts` | Generated; exports `VERSION`. Do not edit by hand. |
+| `package.json` | Scripts: `start`/`bot`, `watch`, `watch:restart`. Deps: nostr-tools, @types/bun. |
+| `.env.example` | Template for BOT_KEY, BOT_MASTER_PUBKEY, BOT_RELAYS, DEBUG. |
+
+## State and persistence
+
+- **SQLite** at `dm-bot.sqlite` (same dir as `index.ts`):
+  - `seen_events(id)` – event ids already processed (avoids duplicate on restart).
+  - `sessions(id, created_at)` – Cursor agent session IDs.
+  - `session_messages(session_id, role, content, created_at)` – conversation history per session.
+  - `state(key, value)` – key/value; keys include `current_session_id`, `default_mode` (ask/plan/agent).
+- **Restart signal**: file `restart.requested` in the dm-bot dir. Created/touched to request restart; deleted on bot startup. The watcher in `run-with-restart.ts` reacts to this file.
+
+## Where to change what
+
+- **New `!` commands**: In `index.ts`, function `handleBangCommand`. Add a new `if (cmd === "my-cmd") { ... return "reply"; }`. Required env (e.g. relay list) is passed in; use `db` for state.
+- **Agent invocation**: In `index.ts`, inside `onevent`, where `agent` is spawned. Current: `agent -p --model auto --workspace <parent of dm-bot> --trust [--mode=ask|--mode=plan|-f] --resume <sessionId> <content>`. Workspace is `join(import.meta.dir, "..")`.
+- **Reply formatting / chunking**: In `index.ts`, `chunkMessage` (max length) and the prefix `<ask>`, `<plan>`, `<agent>` applied before sending.
+- **DM relay discovery**: In `index.ts`, `getMasterDmRelays` (kind 10050) and `PROFILE_RELAYS`. `sendDm` uses these to decide where to publish.
+- **Nostr subscription filter**: In `index.ts`, `dmFilter` (kinds, `#p`, `since`). NIP-42 `onauth` is set for relay AUTH.
+
+## After editing dm-bot code
+
+- Touch `dm-bot/restart.requested` so the watcher restarts the bot (if using `watch:restart`). The project rule in `.cursor/rules/agents.mdc` also requires this.
+
+## Workspace boundary
+
+- The Cursor agent is invoked with `--workspace` set to the **project root** (parent of dm-bot). You may create, edit, or delete files under that root, including everything under `dm-bot/`. Do not modify files outside the project root.
+
+## Environment (runtime)
+
+- Required: `BOT_KEY`, `BOT_MASTER_PUBKEY`, `BOT_RELAYS`.
+- Optional: `BOT_PUBKEY`, `DEBUG=1`.
+- See `index.ts` top comment and `.env.example`.
