@@ -362,7 +362,7 @@ function handleBangCommand(
 !status — bot status and current session/mode
 !version — show git hash (dm-bot project)
 !help — this message
-!mode ask | !mode plan | !mode agent — set mode (default: ask). !plan and !agent are shortcuts.
+!mode ask | !mode plan | !mode agent — set mode (default: ask). !ask, !plan, and !agent are shortcuts.
 
 Plain messages (no !) go to the agent in the current session (ask mode by default).`;
   }
@@ -393,6 +393,12 @@ Plain messages (no !) go to the agent in the current session (ask mode by defaul
 
   if (cmd === 'plan') {
     setDefaultMode(db, 'plan');
+
+    return null;
+  }
+
+  if (cmd === 'ask') {
+    setDefaultMode(db, 'ask');
 
     return null;
   }

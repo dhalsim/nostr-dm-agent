@@ -109,6 +109,7 @@ All commands are prefixed with `!`. The bot responds only to the master pubkey.
 | `!help` | List these commands. |
 | `!plan` | Shortcut for `!mode plan` (read-only planning). |
 | `!agent` | Shortcut for `!mode agent` (full access: edits, shell). |
+| `!ask` | Shortcut for `!mode ask` (read-only). |
 | `!mode ask` \| `!mode plan` \| `!mode agent` | Set execution mode. Default is **ask** (read-only). **plan** = read-only planning. **agent** = full access (edits, shell). |
 
 ## Sending a DM to the bot
