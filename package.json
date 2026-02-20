@@ -1,0 +1,17 @@
+{
+  "name": "nak-dm-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun run write-version.ts && bun run index.ts",
+    "bot": "bun run write-version.ts && bun run index.ts",
+    "watch": "bun run write-version.ts && bun --watch run index.ts",
+    "watch:restart": "bun run write-version.ts && bun run run-with-restart.ts"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.23.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.9"
+  }
+}

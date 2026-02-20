@@ -1,0 +1,36 @@
+---
+description: "Agent must ask permission before running CLI commands (except whitelist); workspace boundary; summarize long commands."
+alwaysApply: true
+---
+
+# CLI permission and workspace boundary
+
+## Before running terminal/shell commands
+
+- You MUST ask the user for explicit permission before running any terminal or shell command **except** those on the whitelist below. State the command you would run and ask them to confirm (e.g. "Reply with 'yes' or 'approve' to run this."). Do NOT run the command until the user has approved.
+- If the user has already approved a command in this conversation (e.g. replied "yes" or "approve"), you may run that specific command once.
+
+## Long commands
+
+- If the command is very long (e.g. a `cat` heredoc that writes a large file), summarize it without losing intent. For example write `CAT <new python script content>` or `WRITE <path> <description of content>` instead of pasting the full content. The user must still understand what would run.
+
+## Whitelist (no permission required)
+
+You may run these without asking. Everything else requires permission.
+
+- `bun test` (and `bun test --watch` when running tests)
+- `bun run lint` (or project-equivalent lint command)
+- `bun run typecheck` or `tsc --noEmit` (read-only type checking)
+- `bun --version`, `node --version` (version checks)
+- `ls`, `pwd`, `cat` for **reading** files (read-only)
+- `git status`, `git diff`, `git log` (read-only git)
+
+Add or adjust entries in this rule as the project evolves.
+
+## Destructive and sensitive commands
+
+- NEVER run destructive or sensitive commands (e.g. `rm -rf`, overwriting credentials, changing system config) without explicit user approval. Even `rm -rf` is allowed **after** the user approves. Do not run them until the user has confirmed.
+
+## Workspace boundary
+
+- You may only create, edit, or delete files under the **workspace** (project root). The workspace is set when the agent is invoked (e.g. one level up from the dm-bot directory). NEVER modify files outside that tree.
