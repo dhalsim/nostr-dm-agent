@@ -107,7 +107,9 @@ All commands are prefixed with `!`. The bot responds only to the master pubkey.
 | `!status` | Bot status, relay, current session, and mode. |
 | `!version` | Show bot version (git hash of project). |
 | `!help` | List these commands. |
-| `!mode ask` \| `!mode plan` \| `!mode agent` | Set execution mode. Default is **ask** (read-only). **plan** = read-only planning. **agent** = full access (edits, shell). Shortcuts: `!plan`, `!agent`. |
+| `!plan` | Shortcut for `!mode plan` (read-only planning). |
+| `!agent` | Shortcut for `!mode agent` (full access: edits, shell). |
+| `!mode ask` \| `!mode plan` \| `!mode agent` | Set execution mode. Default is **ask** (read-only). **plan** = read-only planning. **agent** = full access (edits, shell). |
 
 ## Sending a DM to the bot
 
@@ -133,9 +135,9 @@ Use a NIP-17–compatible client (e.g. Damus, Coracle, 0xChat, or any app that s
 
 When changing dm-bot code:
 
-- **File map**: Main logic is in `index.ts` (Nostr subscription, `!` commands in `handleBangCommand`, agent spawn, DM send). `run-with-restart.ts` watches for `restart.requested` and restarts the bot. `write-version.ts` generates `version.generated.ts` from git.
+- **File map**: Main logic is in `index.ts` (Nostr subscription, `!` commands in `handleBangCommand`, agent spawn, DM send). `run-with-restart.ts` watches for `restart.requested` and restarts the bot. Version is computed at startup with `git rev-parse HEAD` from the project root.
 - **State**: SQLite at `dm-bot.sqlite` (tables: `seen_events`, `sessions`, `session_messages`, `state`). See `index.ts` for schema.
 - **New commands**: Add a branch in `handleBangCommand` in `index.ts`.
-- **After edits**: Touch `restart.requested` in the dm-bot directory so the watcher restarts the bot (when using `bun run watch:restart`).
+- **After edits**: Touch `restart.requested` in the dm-bot directory so the watcher restarts the bot (when using `bun run watch:restart`). Run the linter with auto-fix: from project root `bun run lint`, or from dm-bot `bun run lint`.
 
 Full codebase context and extension points are in **.cursor/rules/dm-bot-context.mdc** in this directory.

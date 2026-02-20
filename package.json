@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "bun run write-version.ts && bun run index.ts",
-    "bot": "bun run write-version.ts && bun run index.ts",
-    "watch": "bun run write-version.ts && bun --watch run index.ts",
-    "watch:restart": "bun run write-version.ts && bun run run-with-restart.ts"
+    "start": "bun run index.ts",
+    "bot": "bun run index.ts",
+    "watch": "bun --watch run index.ts",
+    "watch:restart": "bun run run-with-restart.ts",
+    "lint": "bun run --cwd .. lint"
   },
   "dependencies": {
     "nostr-tools": "^2.23.0"
