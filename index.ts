@@ -373,19 +373,19 @@ Plain messages (no !) go to the agent in the current session (ask mode by defaul
     if (m === 'ask') {
       setDefaultMode(db, 'ask');
 
-      return 'Mode set to ask (read-only Q&A).';
+      return null;
     }
 
     if (m === 'plan') {
       setDefaultMode(db, 'plan');
 
-      return 'Mode set to plan (read-only planning).';
+      return null;
     }
 
     if (m === 'agent') {
       setDefaultMode(db, 'agent');
 
-      return 'Mode set to agent (full access: edits, shell).';
+      return null;
     }
 
     return 'Usage: !mode ask | !mode plan | !mode agent';
@@ -394,13 +394,13 @@ Plain messages (no !) go to the agent in the current session (ask mode by defaul
   if (cmd === 'plan') {
     setDefaultMode(db, 'plan');
 
-    return 'Mode set to plan.';
+    return null;
   }
 
   if (cmd === 'agent') {
     setDefaultMode(db, 'agent');
 
-    return 'Mode set to agent (full access).';
+    return null;
   }
 
   return `Unknown command: !${cmd}. Use !help for commands.`;
