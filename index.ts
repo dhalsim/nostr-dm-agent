@@ -199,7 +199,13 @@ function insertSessionMessage(
   );
 }
 
-const CHUNK_MAX = 3500;
+const CHUNK_MAX = 4200;
+const CHUNK_DELAY_BASE_MS = 1500;
+const CHUNK_DELAY_MAX_MS = 12000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function chunkMessage(text: string): string[] {
   if (text.length <= CHUNK_MAX) {
@@ -541,15 +547,6 @@ function main() {
 
         baseArgs.push('--resume', sessionId, content);
 
-        sendDm(
-          pool,
-          primaryRelay,
-          botSecretKey,
-          masterPubkey,
-          'Processing your message…',
-          signAuthEvent,
-        ).catch((e) => console.error('Failed to send processing DM:', e));
-
         console.log('Starting agent…\n');
 
         insertSessionMessage(seenDb, sessionId, 'user', content);
@@ -571,12 +568,21 @@ function main() {
             const fullReply = prefix + combined;
             const chunks = chunkMessage(fullReply);
             const total = chunks.length;
+            let delayMs = CHUNK_DELAY_BASE_MS;
             for (let i = 0; i < chunks.length; i++) {
-              const chunk = total > 1 ? `(${i + 1}/${total}) ${chunks[i]}` : chunks[i];
+              const hasNextChunk = i < chunks.length - 1;
+              const maybeNextPrompt = hasNextChunk ? '\n<CHECK NEXT MESSAGE>' : '';
+              const chunkBody = `${chunks[i]}${maybeNextPrompt}`;
+              const chunk = total > 1 ? `(${i + 1}/${total}) ${chunkBody}` : chunkBody;
               try {
                 await sendDm(pool, primaryRelay, botSecretKey, masterPubkey, chunk, signAuthEvent);
               } catch (e) {
                 console.error('Failed to send DM chunk:', e);
+              }
+
+              if (hasNextChunk) {
+                await sleep(delayMs);
+                delayMs = Math.min(delayMs * 2, CHUNK_DELAY_MAX_MS);
               }
             }
           })
@@ -659,7 +665,38 @@ async function sendDm(
   );
 
   debug('Publishing to relays:', targetRelays, 'event id:', giftWrap.id);
-  await Promise.all(pool.publish(targetRelays, giftWrap, { onauth: signAuthEvent }));
+  const publishResults = await Promise.allSettled(
+    pool.publish(targetRelays, giftWrap, { onauth: signAuthEvent }),
+  );
+  const successCount = publishResults.filter((r) => r.status === 'fulfilled').length;
+  const failed = publishResults
+    .map((r, idx) => ({ r, relay: targetRelays[idx] ?? 'unknown-relay' }))
+    .filter((x) => x.r.status === 'rejected');
+
+  if (failed.length > 0) {
+    for (const x of failed) {
+      const reason =
+        x.r.status === 'rejected'
+          ? x.r.reason instanceof Error
+            ? x.r.reason.message
+            : String(x.r.reason)
+          : 'unknown';
+      console.error(`Publish failed on relay ${x.relay}: ${reason}`);
+    }
+  }
+
+  if (successCount === 0) {
+    const reasons = failed
+      .map((x) =>
+        x.r.status === 'rejected'
+          ? x.r.reason instanceof Error
+            ? x.r.reason.message
+            : String(x.r.reason)
+          : 'unknown',
+      )
+      .join(' | ');
+    throw new Error(`DM publish failed on all relays: ${reasons || 'unknown error'}`);
+  }
 
   console.log(`[sent] ${message}`);
 }
