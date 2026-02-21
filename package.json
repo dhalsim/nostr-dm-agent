@@ -6,7 +6,7 @@
     "start": "bun run index.ts",
     "bot": "bun run index.ts",
     "watch": "bun run run-with-restart.ts",
-    "lint": "bun run --cwd .. lint"
+    "lint": "eslint . --fix"
   },
   "dependencies": {
     "nostr-tools": "^2.23.0"

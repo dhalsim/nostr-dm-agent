@@ -1,0 +1,19 @@
+---
+description: "Post-agent lint flow: run lint after agent mode responses and provide one lint-fix follow-up round on failure."
+alwaysApply: true
+---
+
+# Post-agent lint behavior (agent mode)
+
+When the bot runs in `agent` mode:
+
+- After each agent response, the bot runs `npm run lint` for the active workspace target (`parent` or `bot`).
+- The lint result is appended to the response sent to the user.
+- If lint fails, the bot performs one additional agent round and sends lint output as feedback.
+- The user receives the combined output after this lint step (and optional fix round).
+
+## Agent expectations
+
+- Assume lint may run immediately after your response in `agent` mode.
+- If you receive a follow-up message prefixed with `[Post-edit lint feedback]`, treat it as authoritative runtime feedback and fix issues directly.
+- Provide a concise final summary after applying lint-driven fixes.

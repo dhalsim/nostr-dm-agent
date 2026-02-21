@@ -13,7 +13,7 @@
  */
 
 import { existsSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { delimiter, join } from 'path';
 import readline from 'readline';
 
 import { spawn, spawnSync } from 'bun';
@@ -51,6 +51,15 @@ function parseRelayUrls(envValue: string): string[] {
     .map(ensureWss);
 
   return [...new Set(urls)];
+}
+
+function normalizePath(pathValue: string): string {
+  const parts = pathValue
+    .split(delimiter)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  return [...new Set(parts)].join(delimiter);
 }
 
 const DEBUG = process.env.DEBUG === '1';
@@ -109,13 +118,16 @@ function markSeen(db: Database, id: string): void {
 type AgentMode = 'ask' | 'plan' | 'agent';
 type MessageSource = 'nostr' | 'local';
 type ReplyTransport = 'remote' | 'local';
+type WorkspaceTarget = 'parent' | 'bot';
 let redrawPrompt: (() => void) | null = null;
 
 const DEFAULT_MODE: AgentMode = 'ask';
 const DEFAULT_REPLY_TRANSPORT: ReplyTransport = 'remote';
+const DEFAULT_WORKSPACE_TARGET: WorkspaceTarget = 'parent';
 const STATE_CURRENT_SESSION = 'current_session_id';
 const STATE_DEFAULT_MODE = 'default_mode';
 const STATE_REPLY_TRANSPORT = 'reply_transport';
+const STATE_WORKSPACE_TARGET = 'workspace_target';
 
 function getState(db: Database, key: string): string | null {
   const row = db.prepare('SELECT value FROM state WHERE key = ?').get(key) as
@@ -157,6 +169,36 @@ function setReplyTransport(db: Database, transport: ReplyTransport): void {
   setState(db, STATE_REPLY_TRANSPORT, transport);
 }
 
+function getWorkspaceTarget(db: Database): WorkspaceTarget {
+  const v = getState(db, STATE_WORKSPACE_TARGET);
+
+  if (v === 'parent' || v === 'bot') {
+    return v;
+  }
+
+  return DEFAULT_WORKSPACE_TARGET;
+}
+
+function setWorkspaceTarget(db: Database, target: WorkspaceTarget): void {
+  setState(db, STATE_WORKSPACE_TARGET, target);
+}
+
+function createNewSession(db: Database): string {
+  const proc = spawnSync(['agent', 'create-chat'], { stdout: 'pipe', stderr: 'pipe' });
+  const out = proc.stdout?.toString().trim() ?? '';
+  const id = out.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)?.[0];
+
+  if (!id) {
+    throw new Error(`agent create-chat failed or invalid output: ${out || proc.stderr?.toString() || 'no output'}`);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  db.run('INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)', [id, now]);
+  setState(db, STATE_CURRENT_SESSION, id);
+
+  return id;
+}
+
 function getLatestSession(db: Database): string | null {
   const row = db.prepare('SELECT id FROM sessions ORDER BY created_at DESC LIMIT 1').get() as
     | { id: string }
@@ -176,21 +218,7 @@ function getOrCreateCurrentSession(db: Database): string {
     }
   }
 
-  const proc = spawnSync(['agent', 'create-chat'], { stdout: 'pipe', stderr: 'pipe' });
-  const raw = proc.stdout?.toString().trim() ?? '';
-  const id = raw.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)?.[0];
-
-  if (!id) {
-    throw new Error(
-      `agent create-chat failed or invalid output: ${raw || proc.stderr?.toString() || 'no output'}`,
-    );
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  db.run('INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)', [id, now]);
-  setState(db, STATE_CURRENT_SESSION, id);
-
-  return id;
+  return createNewSession(db);
 }
 
 function setCurrentSession(db: Database, sessionId: string): boolean {
@@ -223,6 +251,15 @@ const CHUNK_MAX = 4200;
 const CHUNK_DELAY_BASE_MS = 1500;
 const CHUNK_DELAY_MAX_MS = 12000;
 const EXIT_COMMAND_SENTINEL = '__DM_BOT_EXIT__';
+const POST_AGENT_LINT_PROMPT_PREFIX = '[Post-edit lint feedback]';
+
+type LintResult = {
+  label: string;
+  available: boolean;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -251,6 +288,47 @@ function chunkMessage(text: string): string[] {
   return chunks;
 }
 
+function runPostAgentLint(cwd: string, label: string): LintResult {
+  const proc = spawnSync(['npm', 'run', 'lint'], {
+    cwd,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const stdout = proc.stdout?.toString().trim() ?? '';
+  const stderr = proc.stderr?.toString().trim() ?? '';
+  const exitCode = proc.exitCode ?? -1;
+  const lintCommandMissing =
+    exitCode === 127 &&
+    (stderr.includes('command not found: npm') ||
+      stderr.includes('No such file or directory') ||
+      stderr.includes('not found: npm'));
+
+  if (lintCommandMissing) {
+    return {
+      label,
+      available: false,
+      exitCode,
+      stdout,
+      stderr,
+    };
+  }
+
+  return {
+    label,
+    available: true,
+    exitCode,
+    stdout,
+    stderr,
+  };
+}
+
+function formatLintSummary(result: LintResult): string {
+  const stdoutPart = result.stdout || '(empty)';
+  const stderrPart = result.stderr || '(empty)';
+
+  return `[${result.label}] Post-edit lint (exit ${result.exitCode}):\n[stdout]\n${stdoutPart}\n\n[stderr]\n${stderrPart}`;
+}
+
 function handleBangCommand(
   input: string,
   relayUrls: string[],
@@ -269,20 +347,15 @@ function handleBangCommand(
   const args = parts.slice(1);
 
   if (cmd === 'new-session') {
-    const proc = spawnSync(['agent', 'create-chat'], { stdout: 'pipe', stderr: 'pipe' });
-    const out = proc.stdout?.toString().trim() ?? '';
-    const id = out.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)?.[0];
+    try {
+      const id = createNewSession(db);
+      const mode = getDefaultMode(db);
+      const workspace = getWorkspaceTarget(db);
 
-    if (!id) {
-      return `Failed to create session: ${out || proc.stderr?.toString() || 'no output'}`;
+      return `New session: ${id}\nMode: ${mode}\nWorkspace: ${workspace}.`;
+    } catch (err) {
+      return `Failed to create session: ${String(err)}`;
     }
-
-    const now = Math.floor(Date.now() / 1000);
-    db.run('INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)', [id, now]);
-    setState(db, STATE_CURRENT_SESSION, id);
-    const mode = getDefaultMode(db);
-
-    return `New session: ${id}\nMode: ${mode}.`;
   }
 
   if (cmd === 'resume-last-session') {
@@ -366,8 +439,9 @@ function handleBangCommand(
     const cur = getState(db, STATE_CURRENT_SESSION);
     const mode = getDefaultMode(db);
     const replyTransport = getReplyTransport(db);
+    const workspace = getWorkspaceTarget(db);
 
-    return `Bot running. Version: ${version}\nRelays: ${relayUrls.join(', ')}\nCurrent session: ${cur ?? '(none)'}\nMode: ${mode}\nReply transport: ${replyTransport}.`;
+    return `Bot running. Version: ${version}\nRelays: ${relayUrls.join(', ')}\nCurrent session: ${cur ?? '(none)'}\nMode: ${mode}\nWorkspace: ${workspace}\nReply transport: ${replyTransport}.`;
   }
 
   if (cmd === 'version') {
@@ -386,6 +460,7 @@ function handleBangCommand(
 !help — this message
 !local — keep running, but reply only in local terminal (no Nostr outgoing replies)
 !remote — resume sending replies over Nostr DMs
+!workspace [parent|bot] — show/set workspace target (auto-creates new session when changed)
 !exit — stop the bot process
 !mode ask | !mode plan | !mode agent — set mode (default: ask). !ask, !plan, and !agent are shortcuts.
 
@@ -402,6 +477,34 @@ Plain messages (no !) go to the agent in the current session (ask mode by defaul
     setReplyTransport(db, 'remote');
 
     return 'Reply transport switched to remote. Outgoing replies will be sent over Nostr DMs.';
+  }
+
+  if (cmd === 'workspace') {
+    const selected = (args[0] ?? '').toLowerCase();
+
+    if (!selected) {
+      return `Workspace: ${getWorkspaceTarget(db)}.`;
+    }
+
+    if (selected !== 'parent' && selected !== 'bot') {
+      return 'Usage: !workspace [parent|bot]';
+    }
+
+    const nextTarget = selected as WorkspaceTarget;
+    const prevTarget = getWorkspaceTarget(db);
+
+    if (nextTarget === prevTarget) {
+      return `Workspace unchanged: ${nextTarget}.`;
+    }
+
+    setWorkspaceTarget(db, nextTarget);
+
+    try {
+      const sessionId = createNewSession(db);
+      return `Workspace switched: ${prevTarget} -> ${nextTarget}\nNew session: ${sessionId}`;
+    } catch (err) {
+      return `Workspace switched to ${nextTarget}, but failed to auto-create session: ${String(err)}`;
+    }
   }
 
   if (cmd === 'mode') {
@@ -485,7 +588,13 @@ function main() {
 
   const seenDb = openSeenDb();
 
-  const workspaceRoot = join(import.meta.dir ?? process.cwd(), '..');
+  const dmBotRoot = import.meta.dir ?? process.cwd();
+  const workspaceRoot = join(dmBotRoot, '..');
+  const agentPath = normalizePath(process.env.BOT_AGENT_PATH ?? process.env.PATH ?? '');
+  const agentEnv = {
+    ...process.env,
+    PATH: agentPath,
+  };
 
   const versionProc = spawnSync(['git', 'rev-parse', 'HEAD'], {
     cwd: workspaceRoot,
@@ -521,6 +630,7 @@ function main() {
 
   const defaultMode = getDefaultMode(seenDb);
   const defaultReplyTransport = getReplyTransport(seenDb);
+  const defaultWorkspace = getWorkspaceTarget(seenDb);
 
   debug('PWD:', pwdOutput);
 
@@ -532,6 +642,7 @@ function main() {
     `Agent is ready.
 PWD: ${pwdOutput}
 Mode: ${defaultMode}
+Workspace: ${defaultWorkspace}
 Reply transport: ${defaultReplyTransport}`,
     signAuthEvent,
   ).catch((err) => console.error('Failed to send ready DM:', err));
@@ -574,74 +685,112 @@ Reply transport: ${defaultReplyTransport}`,
     const sessionId = getOrCreateCurrentSession(seenDb);
     const mode = getDefaultMode(seenDb);
 
-    const baseArgs = [
-      'agent',
-      '-p',
-      '--model',
-      'auto',
-      '--workspace',
-      workspaceRoot,
-      '--trust',
-      '--yolo',
-    ];
-
-    if (mode === 'ask') {
-      baseArgs.push('--mode=ask');
-    } else if (mode === 'plan') {
-      baseArgs.push('--mode=plan');
-    } else {
-      baseArgs.push('-f');
-    }
-
-    baseArgs.push('--resume', sessionId, content);
-
-    console.log('Starting agent…\n');
-
     insertSessionMessage(seenDb, sessionId, 'user', content);
 
-    const proc = spawn({
-      cmd: baseArgs,
-      stdout: 'pipe',
-      stderr: 'pipe',
-      stdin: 'ignore',
-    });
+    const runAgentRound = async (roundContent: string, startLog: string): Promise<string> => {
+      const currentWorkspace = getWorkspaceTarget(seenDb);
+      const selectedWorkspaceRoot = currentWorkspace === 'bot' ? dmBotRoot : workspaceRoot;
+      const baseArgs = [
+        'agent',
+        '-p',
+        '--model',
+        'auto',
+        '--workspace',
+        selectedWorkspaceRoot,
+        '--trust',
+        '--yolo',
+      ];
 
-    proc.exited
-      .then(async () => {
-        const out = await new Response(proc.stdout).text();
-        const err = await new Response(proc.stderr).text();
-        const combined = (out + (err ? '\n' + err : '')).trim() || '(no output)';
-        insertSessionMessage(seenDb, sessionId, 'assistant', combined);
-        const prefix = `<${mode}> `;
-        const fullReply = prefix + combined;
-        const chunks = chunkMessage(fullReply);
-        const total = chunks.length;
-        let delayMs = CHUNK_DELAY_BASE_MS;
-        for (let i = 0; i < chunks.length; i++) {
-          const hasNextChunk = i < chunks.length - 1;
-          const maybeNextPrompt = hasNextChunk && source === 'nostr' ? '\n<CHECK NEXT MESSAGE>' : '';
-          const chunkBody = `${chunks[i]}${maybeNextPrompt}`;
-          const chunk = total > 1 ? `(${i + 1}/${total}) ${chunkBody}` : chunkBody;
-          try {
-            await sendReplyForSource(source, chunk);
-          } catch (e) {
-            const targetLabel = source === 'local' ? 'local output' : 'DM chunk';
-            console.error(`Failed to send ${targetLabel}:`, e);
-          }
+      if (mode === 'ask') {
+        baseArgs.push('--mode=ask');
+      } else if (mode === 'plan') {
+        baseArgs.push('--mode=plan');
+      } else {
+        baseArgs.push('-f');
+      }
 
-          if (hasNextChunk) {
-            await sleep(delayMs);
-            delayMs = Math.min(delayMs * 2, CHUNK_DELAY_MAX_MS);
-          }
-        }
-      })
-      .catch((err) => {
-        console.error('Agent process error:', err);
+      baseArgs.push('--resume', sessionId, roundContent);
 
-        sendReplyForSource(source, `<${mode}> Error: ${String(err)}`).catch((e) =>
-          console.error('Failed to send error reply:', e),
-        );
+      console.log(startLog);
+      const proc = spawn({
+        cmd: baseArgs,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        stdin: 'ignore',
+        env: agentEnv,
       });
+
+      await proc.exited;
+      const out = await new Response(proc.stdout).text();
+      const err = await new Response(proc.stderr).text();
+
+      return (out + (err ? '\n' + err : '')).trim() || '(no output)';
+    };
+
+    try {
+      const initialCombined = await runAgentRound(content, 'Starting agent…\n');
+      let finalCombined = initialCombined;
+
+      if (mode === 'agent') {
+        const currentWorkspace = getWorkspaceTarget(seenDb);
+        const lintCwd = currentWorkspace === 'bot' ? dmBotRoot : workspaceRoot;
+        const lintLabel = currentWorkspace === 'bot' ? 'dm-bot' : 'workspace';
+        const lintResult = runPostAgentLint(lintCwd, lintLabel);
+
+        if (lintResult.available) {
+          const lintSummary = formatLintSummary(lintResult);
+          finalCombined = `${initialCombined}\n\n${lintSummary}`;
+          const lintFailed = lintResult.exitCode !== 0;
+
+          if (lintFailed) {
+            const lintPrompt = `${POST_AGENT_LINT_PROMPT_PREFIX}\n${lintSummary}\n\nFix any lint issues and provide your final summary.`;
+            insertSessionMessage(seenDb, sessionId, 'user', lintPrompt);
+
+            try {
+              const fixRoundCombined = await runAgentRound(lintPrompt, 'Starting agent (lint feedback)…\n');
+              finalCombined = `${finalCombined}\n\n${fixRoundCombined}`;
+            } catch (lintFollowupErr) {
+              console.error('Lint follow-up agent process error:', lintFollowupErr);
+              finalCombined = `${finalCombined}\n\nAutomatic lint-fix round failed: ${String(lintFollowupErr)}`;
+            }
+          }
+        } else {
+          console.error(
+            `Skipping post-agent lint: npm run lint is unavailable in this runtime for ${lintLabel}.`,
+          );
+        }
+      }
+
+      insertSessionMessage(seenDb, sessionId, 'assistant', finalCombined);
+      const prefix = `<${mode}> `;
+      const fullReply = prefix + finalCombined;
+      const chunks = chunkMessage(fullReply);
+      const total = chunks.length;
+      let delayMs = CHUNK_DELAY_BASE_MS;
+      for (let i = 0; i < chunks.length; i++) {
+        const hasNextChunk = i < chunks.length - 1;
+        const maybeNextPrompt = hasNextChunk && source === 'nostr' ? '\n<CHECK NEXT MESSAGE>' : '';
+        const chunkBody = `${chunks[i]}${maybeNextPrompt}`;
+        const chunk = total > 1 ? `(${i + 1}/${total}) ${chunkBody}` : chunkBody;
+        try {
+          await sendReplyForSource(source, chunk);
+        } catch (e) {
+          const targetLabel = source === 'local' ? 'local output' : 'DM chunk';
+          console.error(`Failed to send ${targetLabel}:`, e);
+        }
+
+        if (hasNextChunk) {
+          await sleep(delayMs);
+          delayMs = Math.min(delayMs * 2, CHUNK_DELAY_MAX_MS);
+        }
+      }
+    } catch (err) {
+      console.error('Agent process error:', err);
+
+      sendReplyForSource(source, `<${mode}> Error: ${String(err)}`).catch((e) =>
+        console.error('Failed to send error reply:', e),
+      );
+    }
   }
 
   const localCliEnabled = (process.env.BOT_LOCAL_CLI ?? '1') !== '0' && process.stdin.isTTY;

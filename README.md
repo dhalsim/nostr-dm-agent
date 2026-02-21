@@ -122,11 +122,23 @@ All commands are prefixed with `!`. The bot responds only to the master pubkey.
 | `!help` | List these commands. |
 | `!local` | Switch to local-only mode: ignore incoming Nostr messages and print bot replies in terminal only. |
 | `!remote` | Switch reply transport back to outgoing Nostr DMs. |
+| `!workspace [parent\|bot]` | Show or set active workspace target. Switching target auto-creates a new session. |
 | `!exit` | Stop the dm-bot process. |
 | `!plan` | Shortcut for `!mode plan` (read-only planning). |
 | `!agent` | Shortcut for `!mode agent` (full access: edits, shell). |
 | `!ask` | Shortcut for `!mode ask` (read-only). |
 | `!mode ask` \| `!mode plan` \| `!mode agent` | Set execution mode. Default is **ask** (read-only). **plan** = read-only planning. **agent** = full access (edits, shell). |
+
+### Post-agent lint behavior
+
+When execution mode is `agent`, the bot runs `npm run lint` after each agent response for the active workspace target:
+
+- `parent` = project root (default),
+- `bot` = `dm-bot` directory.
+
+- If lint passes, the lint summary is appended to the response.
+- If lint fails, the bot runs one additional agent round with lint output as feedback, then sends the combined result.
+- If lint cannot run in runtime (for example, missing npm), bot logs the issue and sends the original agent response.
 
 ## Sending a DM to the bot
 

@@ -13,7 +13,7 @@ When editing or extending the dm-bot (NIP-17 DM bot), use this as the map. The b
 |------|--------|
 | `index.ts` | Main entry: env, SQLite, Nostr pool, subscription (kind 1059), command handling, agent invocation, DM sending. Version is computed at startup with `git rev-parse HEAD` from the project root. |
 | `run-with-restart.ts` | Watcher: runs the bot and restarts only when `restart.requested` is created/touched (for agent-driven code edits). |
-| `package.json` | Scripts: `start`/`bot`, `watch`, `watch:restart`, `lint` (delegates to root). Deps: nostr-tools, @types/bun. |
+| `package.json` | Scripts: `start`/`bot`, `watch`, `lint` (dm-bot local eslint). Deps: nostr-tools, @types/bun. |
 | `.env.example` | Template for BOT_KEY, BOT_MASTER_PUBKEY, BOT_RELAYS, DEBUG. |
 
 ## State and persistence
@@ -29,13 +29,15 @@ When editing or extending the dm-bot (NIP-17 DM bot), use this as the map. The b
 
 - **New `!` commands**: In `index.ts`, function `handleBangCommand`. Add a new `if (cmd === "my-cmd") { ... return "reply"; }`. Required env (e.g. relay list) is passed in; use `db` for state.
 - **Agent invocation**: In `index.ts`, inside `onevent`, where `agent` is spawned. Current: `agent -p --model auto --workspace <parent of dm-bot> --trust [--mode=ask|--mode=plan|-f] --resume <sessionId> <content>`. Workspace is `join(import.meta.dir, "..")`.
+- **Workspace targeting + auto session reset**: In `index.ts`, `!workspace [parent|bot]` sets the active workspace target and auto-creates a new session on change.
+- **Post-agent lint flow (agent mode)**: In `index.ts`, inside `handleUserMessage`: after an agent-mode run completes, bot runs `npm run lint` for the active workspace target; on lint errors, bot performs one additional agent round with lint feedback and then sends combined output.
 - **Reply formatting / chunking**: In `index.ts`, `chunkMessage` (max length) and the prefix `<ask>`, `<plan>`, `<agent>` applied before sending.
 - **DM relay discovery**: In `index.ts`, `getMasterDmRelays` (kind 10050) and `PROFILE_RELAYS`. `sendDm` uses these to decide where to publish.
 - **Nostr subscription filter**: In `index.ts`, `dmFilter` (kinds, `#p`, `since`). NIP-42 `onauth` is set for relay AUTH.
 
 ## After editing dm-bot code
 
-- Touch `dm-bot/restart.requested` so the watcher restarts the bot (if using `watch:restart`). The project rule in `.cursor/rules/agents.mdc` also requires this.
+- Touch `dm-bot/restart.requested` so the watcher restarts the bot (if using `watch`).
 - Run the linter with auto-fix after modifications: from project root `bun run lint`, or from dm-bot `bun run lint`.
 
 ## Workspace boundary
