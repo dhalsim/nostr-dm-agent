@@ -83,8 +83,7 @@ bun run index.ts
 
 ### Watch mode (development)
 
-- **`bun run watch`** – Bun restarts the bot on any change to its code. Simple, but the bot restarts as soon as the agent saves a file (can interrupt multi-step edits).
-- **`bun run watch:restart`** – Runs the bot under a small watcher that restarts **only** when the file **`restart.requested`** is created or touched. Use this when the agent may edit the bot’s code: the agent (with your approval) runs `touch restart.requested` when it’s done changing code; the watcher restarts the app. The bot deletes `restart.requested` on startup. No restart on every save.
+- **`bun run watch`** – Runs the bot under a small watcher that restarts **only** when the file **`restart.requested`** is created or touched. Use this when the agent may edit the bot’s code: the agent (with your approval) runs `touch restart.requested` when it’s done changing code; the watcher restarts the app. The bot deletes `restart.requested` on startup. No restart on every save.
 
 The agent is scoped to the **project root** (one level up from the dm-bot directory). For example, if dm-bot lives at `~/Projects/XYZ/dm-bot`, the agent may only edit files under `~/Projects/XYZ/`.
 
@@ -139,7 +138,7 @@ When changing dm-bot code:
 - **File map**: Main logic is in `index.ts` (Nostr subscription, `!` commands in `handleBangCommand`, agent spawn, DM send). `run-with-restart.ts` watches for `restart.requested` and restarts the bot. Version is computed at startup with `git rev-parse HEAD` from the project root.
 - **State**: SQLite at `dm-bot.sqlite` (tables: `seen_events`, `sessions`, `session_messages`, `state`). See `index.ts` for schema.
 - **New commands**: Add a branch in `handleBangCommand` in `index.ts`.
-- **After edits**: Touch `restart.requested` in the dm-bot directory so the watcher restarts the bot (when using `bun run watch:restart`). Run the linter with auto-fix: from project root `bun run lint`, or from dm-bot `bun run lint`.
+- **After edits**: Touch `restart.requested` in the dm-bot directory so the watcher restarts the bot (when using `bun run watch`). Run the linter with auto-fix: from project root `bun run lint`, or from dm-bot `bun run lint`.
 
 ### Configure safe npm scripts for agent shell access
 

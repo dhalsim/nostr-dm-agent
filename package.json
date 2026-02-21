@@ -5,8 +5,7 @@
   "scripts": {
     "start": "bun run index.ts",
     "bot": "bun run index.ts",
-    "watch": "bun --watch run index.ts",
-    "watch:restart": "bun run run-with-restart.ts",
+    "watch": "bun run run-with-restart.ts",
     "lint": "bun run --cwd .. lint"
   },
   "dependencies": {

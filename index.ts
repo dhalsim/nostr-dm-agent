@@ -9,7 +9,7 @@
  *   BOT_RELAYS        - Comma-separated relay URLs (e.g. wss://relay.damus.io,wss://relay.nos.social)
  *   DEBUG             - Set to 1 for extra logging (subscription, received events, send targets)
  *
- * Restart: when using watch:restart, touch restart.requested in this directory to restart the bot.
+ * Restart: when using watch, touch restart.requested in this directory to restart the bot.
  */
 
 import { existsSync, unlinkSync } from 'fs';
@@ -541,6 +541,7 @@ function main() {
           '--workspace',
           workspaceRoot,
           '--trust',
+          '--yolo',
         ];
 
         if (mode === 'ask') {
