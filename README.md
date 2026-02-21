@@ -141,4 +141,36 @@ When changing dm-bot code:
 - **New commands**: Add a branch in `handleBangCommand` in `index.ts`.
 - **After edits**: Touch `restart.requested` in the dm-bot directory so the watcher restarts the bot (when using `bun run watch:restart`). Run the linter with auto-fix: from project root `bun run lint`, or from dm-bot `bun run lint`.
 
+### Configure safe npm scripts for agent shell access
+
+If your project rule requires approval for shell commands, you can still allow common project tasks by whitelisting npm scripts.
+This is a practical pattern because the agent can only run commands already defined in `package.json` `scripts` (for example `build`, `lint`, `test`).
+
+Add or update `dm-bot/.cursor/rules/agent-cli-permission.mdc` like this:
+
+```md
+## Whitelist (no permission required)
+
+You may run these without asking. Everything else requires permission.
+
+### Package scripts (trusted by project config)
+
+- `npm run <script>` when `<script>` exists in the nearest `package.json` `scripts` field.
+- `npm test` when backed by package scripts or default npm test behavior.
+- `npm run` (list scripts only, read-only).
+
+Before running a package script, the agent should:
+1. Read `package.json`.
+2. Verify the script name exists.
+3. Run only that script command (no extra shell chaining like `&&`, `;`, or pipes unless user explicitly approves).
+
+### Common read-only commands
+
+- `node --version`, `npm --version`
+- `ls`, `pwd`, `cat` for reading files
+- `git status`, `git diff`, `git log`
+```
+
+With this setup, commands such as `npm run build` and `npm run lint` are available to the agent without extra per-command approvals, while still keeping execution bounded to your script definitions.
+
 Full codebase context and extension points are in **.cursor/rules/dm-bot-context.mdc** in this directory.

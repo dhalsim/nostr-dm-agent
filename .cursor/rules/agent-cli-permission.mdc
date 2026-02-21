@@ -18,14 +18,22 @@ alwaysApply: true
 
 You may run these without asking. Everything else requires permission.
 
-- `bun test` (and `bun test --watch` when running tests)
-- `bun run lint` (or project-equivalent lint command)
-- `bun run typecheck` or `tsc --noEmit` (read-only type checking)
-- `bun --version`, `node --version` (version checks)
-- `ls`, `pwd`, `cat` for **reading** files (read-only)
-- `git status`, `git diff`, `git log` (read-only git)
+### Package scripts (trusted by project config)
 
-Add or adjust entries in this rule as the project evolves.
+- `npm run <script>` when `<script>` exists in the nearest `package.json` `scripts` field.
+- `npm test` when backed by package scripts or default npm test behavior.
+- `npm run` (list scripts only, read-only).
+
+Before running a package script, the agent should:
+1. Read `package.json`.
+2. Verify the script name exists.
+3. Run only that script command (no extra shell chaining like `&&`, `;`, or pipes unless user explicitly approves).
+
+### Common read-only commands
+
+- `node --version`, `npm --version`
+- `ls`, `pwd`, `cat` for reading files
+- `git status`, `git diff`, `git log`
 
 ## Destructive and sensitive commands
 
