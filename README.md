@@ -85,6 +85,20 @@ bun run index.ts
 
 - **`bun run watch`** – Runs the bot under a small watcher that restarts **only** when the file **`restart.requested`** is created or touched. Use this when the agent may edit the bot’s code: the agent (with your approval) runs `touch restart.requested` when it’s done changing code; the watcher restarts the app. The bot deletes `restart.requested` on startup. No restart on every save.
 
+### Local terminal chat (CLI input)
+
+You can chat with the bot directly from the same terminal process, without sending messages from your phone app.
+
+- Type or paste a message after the `>` prompt and press Enter to send.
+- Replies are printed back in terminal.
+- `!` commands work locally too (`!help`, `!mode ask`, `!new-session`, etc.).
+- Nostr DM handling continues in parallel, so you can use phone and terminal at the same time.
+
+Default behavior:
+
+- Local terminal chat is enabled when stdin is a TTY.
+- Set `BOT_LOCAL_CLI=0` to disable local terminal chat.
+
 The agent is scoped to the **project root** (one level up from the dm-bot directory). For example, if dm-bot lives at `~/Projects/XYZ/dm-bot`, the agent may only edit files under `~/Projects/XYZ/`.
 
 On startup the bot sends one DM to the master: `Agent is ready. PWD: ...` Then it listens for your messages. Plain messages (no `!`) are sent to the Cursor agent in the current session; replies are prefixed with `<ask>`, `<plan>`, or `<agent>` according to the current mode.
@@ -106,6 +120,9 @@ All commands are prefixed with `!`. The bot responds only to the master pubkey.
 | `!status` | Bot status, relay, current session, and mode. |
 | `!version` | Show bot version (git hash of project). |
 | `!help` | List these commands. |
+| `!local` | Switch to local-only mode: ignore incoming Nostr messages and print bot replies in terminal only. |
+| `!remote` | Switch reply transport back to outgoing Nostr DMs. |
+| `!exit` | Stop the dm-bot process. |
 | `!plan` | Shortcut for `!mode plan` (read-only planning). |
 | `!agent` | Shortcut for `!mode agent` (full access: edits, shell). |
 | `!ask` | Shortcut for `!mode ask` (read-only). |

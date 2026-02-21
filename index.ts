@@ -14,6 +14,7 @@
 
 import { existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import readline from 'readline';
 
 import { spawn, spawnSync } from 'bun';
 import { Database } from 'bun:sqlite';
@@ -106,10 +107,15 @@ function markSeen(db: Database, id: string): void {
 }
 
 type AgentMode = 'ask' | 'plan' | 'agent';
+type MessageSource = 'nostr' | 'local';
+type ReplyTransport = 'remote' | 'local';
+let redrawPrompt: (() => void) | null = null;
 
 const DEFAULT_MODE: AgentMode = 'ask';
+const DEFAULT_REPLY_TRANSPORT: ReplyTransport = 'remote';
 const STATE_CURRENT_SESSION = 'current_session_id';
 const STATE_DEFAULT_MODE = 'default_mode';
+const STATE_REPLY_TRANSPORT = 'reply_transport';
 
 function getState(db: Database, key: string): string | null {
   const row = db.prepare('SELECT value FROM state WHERE key = ?').get(key) as
@@ -135,6 +141,20 @@ function getDefaultMode(db: Database): AgentMode {
 
 function setDefaultMode(db: Database, mode: AgentMode): void {
   setState(db, STATE_DEFAULT_MODE, mode);
+}
+
+function getReplyTransport(db: Database): ReplyTransport {
+  const v = getState(db, STATE_REPLY_TRANSPORT);
+
+  if (v === 'local' || v === 'remote') {
+    return v;
+  }
+
+  return DEFAULT_REPLY_TRANSPORT;
+}
+
+function setReplyTransport(db: Database, transport: ReplyTransport): void {
+  setState(db, STATE_REPLY_TRANSPORT, transport);
 }
 
 function getLatestSession(db: Database): string | null {
@@ -202,6 +222,7 @@ function insertSessionMessage(
 const CHUNK_MAX = 4200;
 const CHUNK_DELAY_BASE_MS = 1500;
 const CHUNK_DELAY_MAX_MS = 12000;
+const EXIT_COMMAND_SENTINEL = '__DM_BOT_EXIT__';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -344,8 +365,9 @@ function handleBangCommand(
   if (cmd === 'status') {
     const cur = getState(db, STATE_CURRENT_SESSION);
     const mode = getDefaultMode(db);
+    const replyTransport = getReplyTransport(db);
 
-    return `Bot running. Version: ${version}\nRelays: ${relayUrls.join(', ')}\nCurrent session: ${cur ?? '(none)'}\nMode: ${mode}.`;
+    return `Bot running. Version: ${version}\nRelays: ${relayUrls.join(', ')}\nCurrent session: ${cur ?? '(none)'}\nMode: ${mode}\nReply transport: ${replyTransport}.`;
   }
 
   if (cmd === 'version') {
@@ -362,9 +384,24 @@ function handleBangCommand(
 !status — bot status and current session/mode
 !version — show git hash (dm-bot project)
 !help — this message
+!local — keep running, but reply only in local terminal (no Nostr outgoing replies)
+!remote — resume sending replies over Nostr DMs
+!exit — stop the bot process
 !mode ask | !mode plan | !mode agent — set mode (default: ask). !ask, !plan, and !agent are shortcuts.
 
 Plain messages (no !) go to the agent in the current session (ask mode by default).`;
+  }
+
+  if (cmd === 'local') {
+    setReplyTransport(db, 'local');
+
+    return 'Reply transport switched to local. Outgoing Nostr replies are bypassed and printed in terminal.';
+  }
+
+  if (cmd === 'remote') {
+    setReplyTransport(db, 'remote');
+
+    return 'Reply transport switched to remote. Outgoing replies will be sent over Nostr DMs.';
   }
 
   if (cmd === 'mode') {
@@ -407,6 +444,10 @@ Plain messages (no !) go to the agent in the current session (ask mode by defaul
     setDefaultMode(db, 'agent');
 
     return null;
+  }
+
+  if (cmd === 'exit') {
+    return EXIT_COMMAND_SENTINEL;
   }
 
   return `Unknown command: !${cmd}. Use !help for commands.`;
@@ -479,17 +520,173 @@ function main() {
     spawnSync(['pwd'], { stdout: 'pipe', stderr: 'pipe' }).stdout.toString().trim() ?? '(failed)';
 
   const defaultMode = getDefaultMode(seenDb);
+  const defaultReplyTransport = getReplyTransport(seenDb);
 
   debug('PWD:', pwdOutput);
 
-  sendDm(
+  const readyDmPromise = sendDm(
     pool,
     primaryRelay,
     botSecretKey,
     masterPubkey,
-    `Agent is ready. PWD: ${pwdOutput} Mode: ${defaultMode}`,
+    `Agent is ready.
+PWD: ${pwdOutput}
+Mode: ${defaultMode}
+Reply transport: ${defaultReplyTransport}`,
     signAuthEvent,
   ).catch((err) => console.error('Failed to send ready DM:', err));
+
+  async function sendReplyForSource(source: MessageSource, message: string): Promise<void> {
+    const replyTransport = getReplyTransport(seenDb);
+    const shouldBypassNostr = source === 'local' || replyTransport === 'local';
+
+    if (shouldBypassNostr) {
+      console.log(`[bot] ${message}`);
+      return;
+    }
+
+    await sendDm(pool, primaryRelay, botSecretKey, masterPubkey, message, signAuthEvent);
+  }
+
+  async function handleUserMessage(content: string, source: MessageSource): Promise<void> {
+    const sourceLabel = source === 'local' ? 'local' : 'master';
+    console.log('\n-------------------\n');
+    console.log(`[${sourceLabel}] ${content}`);
+    console.log('');
+
+    if (content.trim().startsWith('!')) {
+      const reply = handleBangCommand(content, relayUrls, seenDb, VERSION);
+
+      if (reply === EXIT_COMMAND_SENTINEL) {
+        const ack = 'Shutting down dm-bot.';
+        await sendReplyForSource(source, ack);
+        console.log('Exit command received. Shutting down dm-bot.');
+        process.exit(0);
+      } else if (reply) {
+        await sendReplyForSource(source, reply);
+      } else if (source === 'local') {
+        console.log('[bot] Command applied.');
+      }
+
+      return;
+    }
+
+    const sessionId = getOrCreateCurrentSession(seenDb);
+    const mode = getDefaultMode(seenDb);
+
+    const baseArgs = [
+      'agent',
+      '-p',
+      '--model',
+      'auto',
+      '--workspace',
+      workspaceRoot,
+      '--trust',
+      '--yolo',
+    ];
+
+    if (mode === 'ask') {
+      baseArgs.push('--mode=ask');
+    } else if (mode === 'plan') {
+      baseArgs.push('--mode=plan');
+    } else {
+      baseArgs.push('-f');
+    }
+
+    baseArgs.push('--resume', sessionId, content);
+
+    console.log('Starting agent…\n');
+
+    insertSessionMessage(seenDb, sessionId, 'user', content);
+
+    const proc = spawn({
+      cmd: baseArgs,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      stdin: 'ignore',
+    });
+
+    proc.exited
+      .then(async () => {
+        const out = await new Response(proc.stdout).text();
+        const err = await new Response(proc.stderr).text();
+        const combined = (out + (err ? '\n' + err : '')).trim() || '(no output)';
+        insertSessionMessage(seenDb, sessionId, 'assistant', combined);
+        const prefix = `<${mode}> `;
+        const fullReply = prefix + combined;
+        const chunks = chunkMessage(fullReply);
+        const total = chunks.length;
+        let delayMs = CHUNK_DELAY_BASE_MS;
+        for (let i = 0; i < chunks.length; i++) {
+          const hasNextChunk = i < chunks.length - 1;
+          const maybeNextPrompt = hasNextChunk && source === 'nostr' ? '\n<CHECK NEXT MESSAGE>' : '';
+          const chunkBody = `${chunks[i]}${maybeNextPrompt}`;
+          const chunk = total > 1 ? `(${i + 1}/${total}) ${chunkBody}` : chunkBody;
+          try {
+            await sendReplyForSource(source, chunk);
+          } catch (e) {
+            const targetLabel = source === 'local' ? 'local output' : 'DM chunk';
+            console.error(`Failed to send ${targetLabel}:`, e);
+          }
+
+          if (hasNextChunk) {
+            await sleep(delayMs);
+            delayMs = Math.min(delayMs * 2, CHUNK_DELAY_MAX_MS);
+          }
+        }
+      })
+      .catch((err) => {
+        console.error('Agent process error:', err);
+
+        sendReplyForSource(source, `<${mode}> Error: ${String(err)}`).catch((e) =>
+          console.error('Failed to send error reply:', e),
+        );
+      });
+  }
+
+  const localCliEnabled = (process.env.BOT_LOCAL_CLI ?? '1') !== '0' && process.stdin.isTTY;
+
+  if (localCliEnabled) {
+    const startLocalCli = () => {
+      console.log('Local terminal chat enabled. Type a message and press Enter.');
+      console.log('Use !help for bot commands. Set BOT_LOCAL_CLI=0 to disable local terminal chat.\n');
+
+      const localCli = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        prompt: '> ',
+      });
+
+      redrawPrompt = () => localCli.prompt();
+
+      let localQueue = Promise.resolve();
+
+      localCli.on('line', (line) => {
+        const input = line.trim();
+
+        if (!input) {
+          localCli.prompt();
+          return;
+        }
+
+        localQueue = localQueue
+          .then(() => handleUserMessage(input, 'local'))
+          .catch((err) => console.error('Local CLI message processing failed:', err))
+          .finally(() => localCli.prompt());
+      });
+
+      localCli.on('close', () => {
+        redrawPrompt = null;
+        console.log('Local terminal chat closed. Nostr DM listener continues running.');
+      });
+
+      localCli.prompt();
+    };
+
+    readyDmPromise.finally(startLocalCli);
+  } else {
+    debug('Local terminal chat disabled (BOT_LOCAL_CLI=0 or non-TTY stdin).');
+  }
 
   pool.subscribe(relayUrls, dmFilter, {
     onauth: signAuthEvent,
@@ -514,97 +711,15 @@ function main() {
           return;
         }
 
-        markSeen(seenDb, wrap.id);
-
-        console.log('\n-------------------\n');
-        console.log(`[master] ${content}`);
-        console.log('');
-
-        if (content.trim().startsWith('!')) {
-          const reply = handleBangCommand(content, relayUrls, seenDb, VERSION);
-
-          if (reply) {
-            await sendDm(pool, primaryRelay, botSecretKey, masterPubkey, reply, signAuthEvent);
-          }
+        if (getReplyTransport(seenDb) === 'local') {
+          markSeen(seenDb, wrap.id);
+          debug('Reply transport is local; ignoring incoming Nostr message.');
 
           return;
         }
 
-        const sessionId = getOrCreateCurrentSession(seenDb);
-        const mode = getDefaultMode(seenDb);
-
-        const baseArgs = [
-          'agent',
-          '-p',
-          '--model',
-          'auto',
-          '--workspace',
-          workspaceRoot,
-          '--trust',
-          '--yolo',
-        ];
-
-        if (mode === 'ask') {
-          baseArgs.push('--mode=ask');
-        } else if (mode === 'plan') {
-          baseArgs.push('--mode=plan');
-        } else {
-          baseArgs.push('-f');
-        }
-
-        baseArgs.push('--resume', sessionId, content);
-
-        console.log('Starting agent…\n');
-
-        insertSessionMessage(seenDb, sessionId, 'user', content);
-
-        const proc = spawn({
-          cmd: baseArgs,
-          stdout: 'pipe',
-          stderr: 'pipe',
-          stdin: 'ignore',
-        });
-
-        proc.exited
-          .then(async () => {
-            const out = await new Response(proc.stdout).text();
-            const err = await new Response(proc.stderr).text();
-            const combined = (out + (err ? '\n' + err : '')).trim() || '(no output)';
-            insertSessionMessage(seenDb, sessionId, 'assistant', combined);
-            const prefix = `<${mode}> `;
-            const fullReply = prefix + combined;
-            const chunks = chunkMessage(fullReply);
-            const total = chunks.length;
-            let delayMs = CHUNK_DELAY_BASE_MS;
-            for (let i = 0; i < chunks.length; i++) {
-              const hasNextChunk = i < chunks.length - 1;
-              const maybeNextPrompt = hasNextChunk ? '\n<CHECK NEXT MESSAGE>' : '';
-              const chunkBody = `${chunks[i]}${maybeNextPrompt}`;
-              const chunk = total > 1 ? `(${i + 1}/${total}) ${chunkBody}` : chunkBody;
-              try {
-                await sendDm(pool, primaryRelay, botSecretKey, masterPubkey, chunk, signAuthEvent);
-              } catch (e) {
-                console.error('Failed to send DM chunk:', e);
-              }
-
-              if (hasNextChunk) {
-                await sleep(delayMs);
-                delayMs = Math.min(delayMs * 2, CHUNK_DELAY_MAX_MS);
-              }
-            }
-          })
-          .catch((err) => {
-            console.error('Agent process error:', err);
-
-            sendDm(
-              pool,
-              primaryRelay,
-              botSecretKey,
-              masterPubkey,
-              `<${mode}> Error: ${String(err)}`,
-              signAuthEvent,
-            ).catch((e) => console.error('Failed to send error DM:', e));
-          });
+        markSeen(seenDb, wrap.id);
+        await handleUserMessage(content, 'nostr');
       } catch (err) {
         debug('Unwrap failed (not for us or wrong format):', err);
       }
@@ -705,7 +820,14 @@ async function sendDm(
     throw new Error(`DM publish failed on all relays: ${reasons || 'unknown error'}`);
   }
 
-  console.log(`[sent] ${message}`);
+  const sentLine = `[sent] ${message}`;
+
+  if (redrawPrompt) {
+    process.stdout.write(`\n${sentLine}\n`);
+    redrawPrompt();
+  } else {
+    console.log(sentLine);
+  }
 }
 
 main();
