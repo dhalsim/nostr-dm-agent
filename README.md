@@ -46,23 +46,18 @@ Clients (e.g. your phone app) look up **kind 10050** (Direct Message Relays) for
 
 **Option A – using nak (recommended)**
 
-Publish a replaceable kind 10050 event that advertises **one** relay (the bot’s primary inbox = first URL in `BOT_RELAYS`), and publish that event to **several** relays so it’s discoverable:
+Use the provided script to publish a replaceable kind 10050 event. It reads `BOT_RELAYS` from `.env`, adds one `relay=URL` tag per relay (split by comma), and publishes to your relays plus discovery relays:
 
 ```bash
-# Use the first URL from BOT_RELAYS in the tag (e.g. wss://auth.nostr1.com/)
-export NOSTR_SECRET_KEY="$BOT_KEY"
-# Set BOT_RELAYS_FIRST to the first URL from your BOT_RELAYS in .env:
-nak event -k 10050 -t "relay=$BOT_RELAYS_FIRST" -c '' "$BOT_RELAYS_FIRST" wss://relay.0xchat.com wss://purplepag.es wss://relay.damus.io wss://relay.primal.net
+cd dm-bot
+./publish-10050.sh
 ```
 
-Or with explicit `--sec`:
+The script:
 
-```bash
-nak event -k 10050 -t "relay=$BOT_RELAYS_FIRST" -c '' --sec "$BOT_KEY" "$BOT_RELAYS_FIRST" wss://relay.0xchat.com wss://purplepag.es wss://relay.damus.io wss://relay.primal.net
-```
-
-- **Tag `relay=...`**: the single relay where the bot receives DMs (must match the first URL in `BOT_RELAYS`).
-- **Positional relay URLs**: where this 10050 event is **published** (so your app can find it on purplepag.es, etc.).
+- Splits `BOT_RELAYS` by comma and adds `-t "relay=URL"` for each relay.
+- Uses all `BOT_RELAYS` URLs as positional args (space-separated), then appends discovery relays (purplepag.es, relay.damus.io, etc.).
+- Requires `nak` on your PATH and a valid `.env` with `BOT_KEY` and `BOT_RELAYS`.
 
 **Option B – implement in the script**
 
@@ -70,7 +65,7 @@ You can add a startup step in `index.ts` that builds and publishes a kind 10050 
 
 ### 3. Relays used by the bot (optional)
 
-- **`BOT_RELAYS`** – Comma-separated relays where the bot subscribes (kind 1059) and publishes. The first URL must match the relay you put in the bot’s 10050 tag.
+- **`BOT_RELAYS`** – Comma-separated relays where the bot subscribes (kind 1059) and publishes. Must match the relay(s) advertised in the bot’s kind 10050 (use `./publish-10050.sh` to publish).
 - **`PROFILE_RELAYS`** (in `index.ts`) – Relays queried to find the **master’s** kind 10050 when the bot **sends** a DM. Defaults include purplepag.es, relay.nos.social, etc. You can add or change these if your master 10050 is on other relays.
 
 ## Run
@@ -144,8 +139,8 @@ When execution mode is `agent`, the bot runs `npm run lint` after each agent res
 
 Use a NIP-17–compatible client (e.g. Damus, Coracle, 0xChat, or any app that supports NIP-17 DMs). Send an encrypted DM to the **bot’s pubkey** (hex or npub). The bot only reacts to messages from `BOT_MASTER_PUBKEY`.
 
-- If your app looks up kind 10050 for the bot, it will send to the relay you set in step 2 (the first in `BOT_RELAYS`).
-- Make sure that relay is the same as the first URL in `BOT_RELAYS` in `.env`.
+- If your app looks up kind 10050 for the bot, it will send to the relay(s) advertised there.
+- Ensure `BOT_RELAYS` in `.env` matches what you published with `./publish-10050.sh`.
 
 ## Troubleshooting
 
@@ -153,8 +148,8 @@ Use a NIP-17–compatible client (e.g. Damus, Coracle, 0xChat, or any app that s
   Your app may be reading DMs from relays listed in **your** kind 10050. The bot already discovers your 10050 and publishes there; ensure your app is connected to those relays.
 
 - **You send a reply but the bot never answers**  
-  1. The bot must advertise where to receive DMs: publish the bot’s **kind 10050** with tag `relay=<first BOT_RELAYS URL>` (step 2).  
-  2. The first URL in `BOT_RELAYS` in `.env` must match that relay (same URL, including trailing slash if the relay uses it).  
+  1. The bot must advertise where to receive DMs: publish the bot’s **kind 10050** with `./publish-10050.sh` (reads `BOT_RELAYS` from `.env`).
+  2. `BOT_RELAYS` in `.env` must match the relay(s) in that 10050 (same URLs, including trailing slash if the relay uses it).  
   3. Some relays (e.g. auth.nostr1.com) require NIP-42 AUTH; the bot signs AUTH when the relay challenges it. If your **phone app** fails to send, it may need to complete AUTH on that relay too.
 
 - **More visibility**  
