@@ -454,7 +454,12 @@ function parseOpenCodeJsonl(raw: string): AgentRunResult {
 class OpenCodeBackend implements AgentBackend {
   name = 'opencode' as const;
   modelName: string;
-  private agentModels: Record<AgentMode, string>;
+  private agentModels: Record<AgentMode, string> = {
+    free: 'auto',
+    ask: 'auto',
+    plan: 'auto',
+    agent: 'auto',
+  };
   private attachUrl?: string;
 
   constructor(dmBotRoot: string, mode: AgentMode) {
@@ -1289,6 +1294,7 @@ function main() {
         insertSessionMessage(seenDb, sessionId, 'assistant', finalOutput);
       } else {
         console.error(`${C.red}[bot] Error response — not stored in session history.${C.reset}`);
+        console.error(finalOutput);
       }
 
       const prefix = modePrefix(mode, isLocal);
