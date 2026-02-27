@@ -1,0 +1,85 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "AGENTS.md",
+    "dm-bot/.cursor/rules/dm-bot-context.mdc",
+    "dm-bot/.cursor/rules/post-agent-lint.mdc"
+  ],
+  "agent": {
+    "free": {
+      "description": "Quick read-only analysis with a fast, cheap model. No file edits or shell commands.",
+      "mode": "primary",
+      "model": "opencode/big-pickle",
+      "color": "info",
+      "steps": 5,
+      "permission": {
+        "read": "allow",
+        "grep": "allow",
+        "glob": "allow",
+        "list": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "question": "deny",
+        "todowrite": "deny"
+      }
+    },
+    "ask": {
+      "description": "Quick read-only analysis with a fast, cheap model. No file edits or shell commands.",
+      "mode": "primary",
+      "model": "google/antigravity-gemini-3-flash",
+      "color": "info",
+      "steps": 5,
+      "permission": {
+        "read": "allow",
+        "grep": "allow",
+        "glob": "allow",
+        "list": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "question": "deny",
+        "todowrite": "deny"
+      }
+    },
+    "plan": {
+      "description": "Deep analysis and planning with a strong reasoning model. Read-only with safe shell commands (git, grep). No file edits.",
+      "mode": "primary",
+      "model": "google/antigravity-claude-opus-4-6-thinking",
+      "color": "warning",
+      "permission": {
+        "read": "allow",
+        "grep": "allow",
+        "glob": "allow",
+        "list": "allow",
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "git *": "allow",
+          "grep *": "allow",
+          "cat *": "allow",
+          "ls *": "allow",
+          "pwd": "allow",
+          "npm run lint": "allow",
+          "bun run lint": "allow"
+        },
+        "task": "allow",
+        "webfetch": "allow",
+        "websearch": "deny",
+        "question": "deny",
+        "todowrite": "allow"
+      }
+    },
+    "build": {
+      "description": "Full development agent with all tools enabled. Can edit files, run shell commands, and make changes.",
+      "mode": "primary",
+      "model": "google/antigravity-claude-sonnet-4-6",
+      "color": "success",
+      "permission": "allow"
+    }
+  }
+}

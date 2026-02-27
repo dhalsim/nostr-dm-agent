@@ -5,47 +5,91 @@ alwaysApply: false
 
 # dm-bot codebase context
 
-When editing or extending the dm-bot (NIP-17 DM bot), use this as the map. The bot is a Bun script that forwards Nostr DMs to the Cursor Agent CLI and sends replies back.
+When editing or extending the dm-bot (NIP-17 DM bot), use this as the map. The bot forwards Nostr DMs to an agent CLI (Cursor or OpenCode) and sends replies back.
 
 ## File map
 
 | File | Purpose |
-|------|--------|
-| `index.ts` | Main entry: env, SQLite, Nostr pool, subscription (kind 1059), command handling, agent invocation, DM sending. Version is computed at startup with `git rev-parse HEAD` from the project root. |
+|------|---------|
+| `index.ts` | Main entry: env, SQLite, Nostr pool, subscription (kind 1059), command handling, agent backend dispatch, DM sending. Version computed at startup with `git rev-parse HEAD` from the project root. |
 | `run-with-restart.ts` | Watcher: runs the bot and restarts only when `restart.requested` is created/touched (for agent-driven code edits). |
 | `package.json` | Scripts: `start`/`bot`, `watch`, `lint` (dm-bot local eslint). Deps: nostr-tools, @types/bun. |
-| `.env.example` | Template for BOT_KEY, BOT_MASTER_PUBKEY, BOT_RELAYS, DEBUG. |
+| `.env.example` | Template for BOT_KEY, BOT_MASTER_PUBKEY, BOT_RELAYS, BOT_OPENCODE_SERVE_URL, DEBUG. |
+| `../opencode.json` | OpenCode project config: defines `ask`, `plan`, `build` agents with per-agent models and permissions. |
 
 ## State and persistence
 
 - **SQLite** at `dm-bot.sqlite` (same dir as `index.ts`):
   - `seen_events(id)` – event ids already processed (avoids duplicate on restart).
-  - `sessions(id, created_at)` – Cursor agent session IDs.
+  - `sessions(id, created_at, backend)` – agent session IDs with backend tag (`cursor` or `opencode`).
   - `session_messages(session_id, role, content, created_at)` – conversation history per session.
-  - `state(key, value)` – key/value; keys include `current_session_id`, `default_mode` (ask/plan/agent).
-- **Restart signal**: file `restart.requested` in the dm-bot dir. Created/touched to request restart; deleted on bot startup. The watcher in `run-with-restart.ts` reacts to this file.
+  - `state(key, value)` – key/value; keys include:
+    - `current_session_id` – active session ID
+    - `default_mode` – `ask` | `plan` | `agent`
+    - `agent_backend` – `cursor` | `opencode`
+    - `reply_transport` – `remote` | `local`
+    - `workspace_target` – `parent` | `bot`
+- **Restart signal**: file `restart.requested` in the dm-bot dir. Created/touched to request restart; deleted on bot startup.
+
+## Agent backends
+
+Two backends are supported, switchable at runtime via `!backend cursor|opencode`. State persisted in DB.
+
+### Cursor backend (default)
+- Invokes `agent create-chat` to create sessions (returns a UUID)
+- Runs messages via: `agent -p --model auto --workspace <cwd> --trust --yolo [--mode=ask|--mode=plan|-f] --resume <sessionId> <content>`
+- Session IDs are UUID v4 format
+
+### OpenCode backend
+- Creates sessions by running first message and parsing JSONL output for `sessionID`
+- Runs messages via: `opencode run <content> --format json --session <id> --agent <ask|plan|build>`
+- If `BOT_OPENCODE_SERVE_URL` is set, adds `--attach <url>` to all calls
+- Session IDs are `ses_XXX` format
+- Output is JSONL; parser collects `type:text` events and accumulates tokens/cost from `type:step_finish`
+
+### Mode → agent mapping (OpenCode)
+| dm-bot mode | OpenCode `--agent` | Model (in opencode.json) |
+|---|---|---|
+| `!ask` | `ask` | `ppq/google/gemini-2.5-flash-lite` |
+| `!plan` | `plan` | `ppq/claude-opus-4.5` |
+| `!agent` | `build` | `ppq/claude-sonnet-4.5` |
+
+## ANSI colors (local terminal only)
+
+Colors are applied for local terminal output and stripped (`stripAnsi()`) before sending over Nostr.
+
+| Element | Color |
+|---------|-------|
+| `<ask>` prefix | cyan |
+| `<plan>` prefix | yellow |
+| `<agent>` prefix | green |
+| Backend name | magenta |
+| `[bot]` / `[sent]` | dim / blue |
+| Errors | red |
+| Token/cost footer | gray |
 
 ## Where to change what
 
-- **New `!` commands**: In `index.ts`, function `handleBangCommand`. Add a new `if (cmd === "my-cmd") { ... return "reply"; }`. Required env (e.g. relay list) is passed in; use `db` for state.
-- **Agent invocation**: In `index.ts`, inside `onevent`, where `agent` is spawned. Current: `agent -p --model auto --workspace <parent of dm-bot> --trust [--mode=ask|--mode=plan|-f] --resume <sessionId> <content>`. Workspace is `join(import.meta.dir, "..")`.
-- **Workspace targeting + auto session reset**: In `index.ts`, `!workspace [parent|bot]` sets the active workspace target and auto-creates a new session on change.
-- **Post-agent lint flow (agent mode)**: In `index.ts`, inside `handleUserMessage`: after an agent-mode run completes, bot runs `npm run lint` for the active workspace target; on lint errors, bot performs one additional agent round with lint feedback and then sends combined output.
-- **Reply formatting / chunking**: In `index.ts`, `chunkMessage` (max length) and the prefix `<ask>`, `<plan>`, `<agent>` applied before sending.
-- **DM relay discovery**: In `index.ts`, `getMasterDmRelays` (kind 10050) and `PROFILE_RELAYS`. `sendDm` uses these to decide where to publish.
-- **Nostr subscription filter**: In `index.ts`, `dmFilter` (kinds, `#p`, `since`). NIP-42 `onauth` is set for relay AUTH.
+- **New `!` commands**: In `index.ts`, function `handleBangCommand`. Add a new `if (cmd === "my-cmd") { ... return "reply"; }`. The function now receives `workspaceRoot`, `dmBotRoot`, and `agentEnv` for commands that need to create sessions.
+- **Agent backends**: `CursorBackend` and `OpenCodeBackend` classes implement `AgentBackend`. Add new backends by implementing the interface and registering in `createBackend()`.
+- **JSONL parsing**: `parseOpenCodeJsonl()` handles OpenCode `--format json` output. Accumulates tokens across multiple steps.
+- **Workspace targeting + auto session reset**: `!workspace [parent|bot]` sets the active workspace target and auto-creates a new session on change.
+- **Backend switching + auto session reset**: `!backend [cursor|opencode]` sets the active backend and auto-creates a new session on change.
+- **Post-agent lint flow (agent mode)**: After an `agent`-mode run, bot runs `npm run lint` for the active workspace; on lint errors, performs one additional agent round with lint feedback.
+- **Reply formatting / chunking**: `chunkMessage` (max length), `modePrefix()` (colored prefix), `tokenFooter()` (token/cost line).
+- **DM relay discovery**: `getMasterDmRelays` (kind 10050) and `PROFILE_RELAYS`. `sendDm` uses these to decide where to publish.
 
 ## After editing dm-bot code
 
 - Touch `dm-bot/restart.requested` so the watcher restarts the bot (if using `watch`).
-- Run the linter with auto-fix after modifications: from project root `bun run lint`, or from dm-bot `bun run lint`.
+- Run the linter with auto-fix after modifications: from project root `bun run lint`, or from dm-bot `npm run lint`.
 
 ## Workspace boundary
 
-- The Cursor agent is invoked with `--workspace` set to the **project root** (parent of dm-bot). You may create, edit, or delete files under that root, including everything under `dm-bot/`. Do not modify files outside the project root.
+- Agent backends are invoked with `cwd` set to the **project root** (parent of dm-bot) or `dm-bot/` depending on `!workspace` setting. You may create, edit, or delete files under that root. Do not modify files outside the project root.
 
 ## Environment (runtime)
 
 - Required: `BOT_KEY`, `BOT_MASTER_PUBKEY`, `BOT_RELAYS`.
-- Optional: `BOT_PUBKEY`, `DEBUG=1`.
+- Optional: `BOT_PUBKEY`, `DEBUG=1`, `BOT_LOCAL_CLI=0`, `BOT_AGENT_PATH`, `BOT_OPENCODE_SERVE_URL`.
 - See `index.ts` top comment and `.env.example`.
