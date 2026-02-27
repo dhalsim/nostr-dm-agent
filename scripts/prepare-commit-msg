@@ -8,32 +8,38 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.join(__dirname, '..');
 
+// Get the commit message file path
 const commitMsgFile = process.argv[2];
+
+// Read the raw commit message
 let commitMsg = fs.readFileSync(commitMsgFile, 'utf8');
 
+// Check for version bump flag
 const versionMatch = commitMsg.match(/--(major|minor|patch)/i);
 if (!versionMatch) process.exit(0);
 
 const bumpType = versionMatch[1].toLowerCase();
+
+// --- Bump version in package.json ---
 const pkgPath = path.join(projectRoot, 'package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
-// Bump version
 const [major, minor, patch] = pkg.version.split('.').map(Number);
 let newVersion;
-if (bumpType === 'major') newVersion = `${major+1}.0.0`;
-else if (bumpType === 'minor') newVersion = `${major}.${minor+1}.0`;
-else newVersion = `${major}.${minor}.${patch+1}`;
+if (bumpType === 'major') newVersion = `${major + 1}.0.0`;
+else if (bumpType === 'minor') newVersion = `${major}.${minor + 1}.0`;
+else newVersion = `${major}.${minor}.${patch + 1}`;
 
 pkg.version = newVersion;
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 
-// Stage the updated file and amend the commit
+// Stage the updated package.json
 execSync('git add package.json', { stdio: 'inherit' });
-execSync('git commit --amend --no-edit', { stdio: 'inherit' });
 
-// Clean the flag from the commit message (optional)
-commitMsg = commitMsg.replace(/--(major|minor|patch)/i, '').trim();
-fs.writeFileSync(commitMsgFile, commitMsg + '\n');
+// --- Clean the flag from the commit message ---
+const cleanMsg = commitMsg.replace(/--(major|minor|patch)/i, '').trim();
+// Write it back to the commit message file
+fs.writeFileSync(commitMsgFile, cleanMsg + '\n');
 
-console.log(`✅ Version bumped to ${newVersion} and amended into the commit`);
+console.log(`✅ Version bumped to ${newVersion} and staged for this commit.`);
+console.log(`📝 Commit message: "${cleanMsg}"`);
