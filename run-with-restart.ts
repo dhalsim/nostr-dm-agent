@@ -11,7 +11,7 @@ import { spawn } from 'bun';
 
 const DM_BOT_DIR = import.meta.dir ?? process.cwd();
 const RESTART_FILE = join(DM_BOT_DIR, 'restart.requested');
-const INDEX_TS = join(DM_BOT_DIR, 'index.ts');
+const INDEX_TS = join(DM_BOT_DIR, 'src', 'index.ts');
 
 let child: ReturnType<typeof spawn>;
 let restartRequested = false;

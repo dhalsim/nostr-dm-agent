@@ -30,6 +30,10 @@ Copy `.env.example` to `.env` and set:
 | `BOT_MASTER_PUBKEY` | Yes | **Your** (master’s) public key in hex. Only messages from this pubkey are processed and replied to. |
 | `BOT_RELAYS` | Yes | Comma-separated relay URLs where the bot **listens** for DMs and **publishes** its own. The first URL is the primary (e.g. for kind 10050). Example: `wss://auth.nostr1.com/,wss://relay.damus.io`. |
 | `DEBUG` | No | Set to `1` for extra logging (subscription filter, received events, send targets, AUTH). |
+| `LOG` | No | Set to `0` to suppress all log() output. Default `1`. |
+| `BOT_LOCAL_CLI` | No | Set to `0` to disable local terminal input (default: `1`). |
+| `BOT_AGENT_PATH` | No | Override PATH for locating agent binaries. |
+| `BOT_OPENCODE_SERVE_URL` | No | Attach to a running opencode server. |
 
 Example `.env`:
 
@@ -66,14 +70,12 @@ You can add a startup step in `index.ts` that builds and publishes a kind 10050 
 ### 3. Relays used by the bot (optional)
 
 - **`BOT_RELAYS`** – Comma-separated relays where the bot subscribes (kind 1059) and publishes. Must match the relay(s) advertised in the bot’s kind 10050 (use `./publish-10050.sh` to publish).
-- **`PROFILE_RELAYS`** (in `index.ts`) – Relays queried to find the **master’s** kind 10050 when the bot **sends** a DM. Defaults include purplepag.es, relay.nos.social, etc. You can add or change these if your master 10050 is on other relays.
+- **`PROFILE_RELAYS`** (in `src/messaging.ts`) – Relays queried to find the **master’s** kind 10050 when the bot **sends** a DM. Defaults include purplepag.es, relay.nos.social, etc. You can add or change these if your master 10050 is on other relays.
 
 ## Run
 
 ```bash
 bun run start
-# or
-bun run index.ts
 ```
 
 ### Watch mode (development)
@@ -159,7 +161,19 @@ Use a NIP-17–compatible client (e.g. Damus, Coracle, 0xChat, or any app that s
 
 When changing dm-bot code:
 
-- **File map**: Main logic is in `index.ts` (Nostr subscription, `!` commands in `handleBangCommand`, agent spawn, DM send). `run-with-restart.ts` watches for `restart.requested` and restarts the bot. Version is computed at startup with `git rev-parse HEAD` from the project root.
+- **File map**: Main entry is `src/index.ts`. Key modules:
+  - `src/logger.ts` — debug(), log(), logError(), ANSI colors
+  - `src/env.ts` — loadBotConfig(), env parsing
+  - `src/db.ts` — SQLite schema, state getters/setters, Zod schemas
+  - `src/session.ts` — Session CRUD
+  - `src/backends/types.ts` — AgentBackend interface
+  - `src/backends/cursor.ts` — Cursor backend factory
+  - `src/backends/opencode.ts` — OpenCode backend + JSONL parser
+  - `src/backends/factory.ts` — createBackend() dispatcher
+  - `src/messaging.ts` — sendDm(), chunkMessage(), NIP-17 relay discovery
+  - `src/commands.ts` — handleBangCommand()
+  - `src/lint.ts` — runPostAgentLint(), formatLintSummary()
+  - `run-with-restart.ts` watches for restart.requested
 - **State**: SQLite at `dm-bot.sqlite` (tables: `seen_events`, `sessions`, `session_messages`, `state`). See `index.ts` for schema.
 - **New commands**: Add a branch in `handleBangCommand` in `index.ts`.
 - **After edits**: Touch `restart.requested` in the dm-bot directory so the watcher restarts the bot (when using `bun run watch`). Run the linter with auto-fix: from project root `bun run lint`, or from dm-bot `bun run lint`.
