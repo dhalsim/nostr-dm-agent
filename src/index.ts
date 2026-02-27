@@ -38,6 +38,8 @@ import {
   getReplyTransport,
   getWorkspaceTarget,
   getModelOverride,
+  getProviderName,
+  getRoutstrBudget,
 } from './db';
 import { loadBotConfig } from './env';
 import { runPostAgentLint, formatLintSummary } from './lint';
@@ -52,7 +54,12 @@ import {
   CHUNK_DELAY_MAX_MS,
 } from './messaging';
 import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
+import { createProvider } from './providers/factory';
+import type { ProviderEnv } from './providers/types';
 import { getOrCreateCurrentSession, insertSessionMessage } from './session';
+import { openWalletDb } from './wallet-db';
+import { createCashuWallet } from './wallets/cashu';
+import { InsufficientFundsError } from './wallets/types';
 
 const POST_AGENT_LINT_PROMPT_PREFIX = '[Post-edit lint feedback]';
 
@@ -79,6 +86,9 @@ function main() {
     agentPath,
     localCliEnabled,
     opencodeServeUrl,
+    cashuMnemonic,
+    cashuMintUrl,
+    routstrBaseUrl,
   } = config;
 
   const primaryRelay = relayUrls[0];
@@ -94,6 +104,36 @@ function main() {
   const pool = new SimplePool({ enablePing: true, enableReconnect: true });
 
   const seenDb = openSeenDb();
+
+  let wallet: ReturnType<typeof createCashuWallet> | undefined;
+  let walletDb: ReturnType<typeof openWalletDb> | undefined;
+  let provider: ReturnType<typeof createProvider> | undefined;
+
+  if (cashuMnemonic) {
+    try {
+      wallet = createCashuWallet({ mnemonic: cashuMnemonic, mintUrl: cashuMintUrl });
+      walletDb = openWalletDb(cashuMnemonic);
+      log(`Cashu wallet initialized (${cashuMintUrl})`);
+    } catch (err) {
+      logError('Failed to initialize Cashu wallet:', err);
+    }
+  }
+
+  const providerName = getProviderName(seenDb);
+
+  if (providerName === 'routstr' && wallet && walletDb) {
+    provider = createProvider({
+      name: 'routstr',
+      wallet,
+      walletDb,
+      routstrBaseUrl,
+    });
+
+    log(`Provider: routstr (budget: ${getRoutstrBudget(seenDb)} sats)`);
+  } else {
+    provider = createProvider({ name: 'local' });
+    log('Provider: local (no payment)');
+  }
 
   const workspaceRoot = join(dmBotRoot, '..');
 
@@ -209,6 +249,10 @@ function main() {
         agentEnv,
         attachUrl: opencodeServeUrl,
         backend,
+        wallet,
+        walletDb,
+        provider,
+        routstrBaseUrl,
       });
 
       if (reply === EXIT_COMMAND_SENTINEL) {
@@ -239,6 +283,24 @@ function main() {
     });
 
     insertSessionMessage(seenDb, sessionId, 'user', content);
+
+    let providerEnv: ProviderEnv = {};
+    const budgetSats = getRoutstrBudget(seenDb);
+
+    try {
+      providerEnv = await provider!.prepareRun({ budgetSats });
+    } catch (e) {
+      if (e instanceof InsufficientFundsError) {
+        await sendReplyForSource(
+          source,
+          `Wallet balance too low. Have ${e.available} sats, need ${e.required} sats. Top up with: !wallet receive <cashuXXX>`,
+        );
+
+        return;
+      }
+
+      throw e;
+    }
 
     const runAgentRound = async (roundContent: string, startLog: string) => {
       log(startLog);
@@ -349,6 +411,12 @@ function main() {
       sendReplyForSource(source, `<${mode}> Error: ${String(err)}`).catch((e) =>
         logError('Failed to send error reply:', e),
       );
+    } finally {
+      await provider!.finalizeRun(providerEnv, {
+        success: true,
+        sessionId,
+        promptPrefix: content,
+      });
     }
   }
 

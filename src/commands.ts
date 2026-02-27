@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // commands.ts — ! command handler
 // ---------------------------------------------------------------------------
+import { join } from 'path';
+
 import type { Database } from 'bun:sqlite';
 
 import { createBackend } from './backends/factory';
@@ -9,6 +11,7 @@ import {
   AgentModeSchema,
   AgentBackendNameSchema,
   WorkspaceTargetSchema,
+  ProviderNameSchema,
   getDefaultMode,
   setDefaultMode,
   getAgentBackend,
@@ -19,11 +22,23 @@ import {
   setWorkspaceTarget,
   getModelOverride,
   setModelOverride,
+  getProviderName,
+  setProviderName,
+  getRoutstrBudget,
+  setRoutstrBudget,
   getState,
   STATE_CURRENT_SESSION,
 } from './db';
 import { C, assertUnreachable } from './logger';
+import {
+  fetchRoutstrModels,
+  patchOpencodeConfig,
+  buildRoutstrProviderConfig,
+} from './providers/routstr-models';
+import type { AnyProvider } from './providers/types';
 import { createNewSession, getLatestSession, setCurrentSession } from './session';
+import { getRecentSpendHistory } from './wallet-db';
+import type { AnyWallet } from './wallets/types';
 
 export const EXIT_COMMAND_SENTINEL = '__DM_BOT_EXIT__';
 
@@ -87,6 +102,10 @@ export type HandleBangCommandProps = {
   agentEnv: Record<string, string | undefined>;
   attachUrl: string | null;
   backend: AgentBackend;
+  wallet?: AnyWallet;
+  walletDb?: Database;
+  provider?: AnyProvider;
+  routstrBaseUrl?: string;
 };
 
 export async function handleBangCommand({
@@ -99,6 +118,10 @@ export async function handleBangCommand({
   agentEnv,
   attachUrl,
   backend,
+  wallet,
+  walletDb,
+  provider,
+  routstrBaseUrl,
 }: HandleBangCommandProps): Promise<string | null> {
   const raw = input.trim();
 
@@ -226,6 +249,13 @@ export async function handleBangCommand({
 !models — list available models for current backend
 !model [name|reset] — show/set model override (cleared on !backend)
 !mode ask | !mode plan | !mode agent | !ask | !plan | !agent — set mode
+!wallet balance — show Cashu wallet balance
+!wallet receive <token> — receive a Cashu token
+!wallet history — show recent spend history
+!provider set [local|routstr] — set payment provider
+!provider budget <sats> — set per-run budget
+!provider status — show provider status
+!provider sync-models — sync models from Routstr
 !exit — stop the bot process`;
 
     case 'local': {
@@ -392,6 +422,123 @@ export async function handleBangCommand({
         return `Available models for ${backendName}:\n${lines.join('\n')}`;
       } catch (err) {
         return `Failed to get models: ${String(err)}`;
+      }
+    }
+
+    case 'wallet': {
+      const subcmd = args[0]?.toLowerCase();
+
+      if (!wallet || !walletDb) {
+        return 'Wallet not configured. Set CASHU_MNEMONIC environment variable.';
+      }
+
+      switch (subcmd) {
+        case 'balance': {
+          const info = await wallet.getInfo();
+
+          return `Wallet balance: ${info.balanceSats} sats`;
+        }
+
+        case 'receive': {
+          const token = args[1];
+
+          if (!token) {
+            return 'Usage: !wallet receive <cashu-token>';
+          }
+
+          try {
+            const { receivedSats } = await wallet.receiveToken(token);
+
+            return `Received ${receivedSats} sats.`;
+          } catch (err) {
+            return `Failed to receive token: ${String(err)}`;
+          }
+        }
+
+        case 'history': {
+          const history = getRecentSpendHistory(walletDb, 10);
+
+          if (history.length === 0) {
+            return 'No spend history yet.';
+          }
+
+          return history
+            .map((h) => {
+              const date = new Date(h.ts).toISOString().slice(0, 10);
+
+              return `${date} | ${h.provider} | spent: ${h.spent_sats} | budget: ${h.budget_sats} | refund: ${h.refund_sats}`;
+            })
+            .join('\n');
+        }
+
+        default:
+          return 'Usage: !wallet balance | !wallet receive <token> | !wallet history';
+      }
+    }
+
+    case 'provider': {
+      const subcmd = args[0]?.toLowerCase();
+
+      switch (subcmd) {
+        case 'set': {
+          const name = args[1]?.toLowerCase();
+
+          if (!name) {
+            return `Usage: !provider set [${ProviderNameSchema.options.join('|')}]`;
+          }
+
+          const parsed = ProviderNameSchema.safeParse(name);
+
+          if (!parsed.success) {
+            return `Invalid provider: ${name}. Use: ${ProviderNameSchema.options.join(', ')}`;
+          }
+
+          setProviderName(db, parsed.data);
+
+          return `Provider set to: ${parsed.data}`;
+        }
+
+        case 'budget': {
+          const budget = parseInt(args[1], 10);
+
+          if (isNaN(budget) || budget <= 0) {
+            return `Current budget: ${getRoutstrBudget(db)} sats.\nUsage: !provider budget <sats>`;
+          }
+
+          setRoutstrBudget(db, budget);
+
+          return `Budget set to: ${budget} sats`;
+        }
+
+        case 'status': {
+          if (provider) {
+            const status = await provider.getStatus();
+
+            return status;
+          }
+
+          return `Provider: ${getProviderName(db)} (local)`;
+        }
+
+        case 'sync-models': {
+          if (!routstrBaseUrl) {
+            return 'Routstr not configured. Set ROUTSTR_BASE_URL environment variable.';
+          }
+
+          try {
+            const models = await fetchRoutstrModels(routstrBaseUrl);
+            const config = buildRoutstrProviderConfig(models);
+            const opencodePath = join(dmBotRoot, 'opencode.json');
+            patchOpencodeConfig(opencodePath, config);
+
+            return `Synced ${models.length} models to opencode.json`;
+          } catch (err) {
+            return `Failed to sync models: ${String(err)}`;
+          }
+        }
+
+        default:
+          return `Usage: !provider set [local|routstr] | !provider budget <sats> | !provider status | !provider sync-models`;
       }
     }
 

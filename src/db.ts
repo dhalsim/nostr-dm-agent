@@ -15,6 +15,9 @@ export type AgentMode = z.infer<typeof AgentModeSchema>;
 export const AgentBackendNameSchema = z.enum(['cursor', 'opencode']);
 export type AgentBackendName = z.infer<typeof AgentBackendNameSchema>;
 
+export const ProviderNameSchema = z.enum(['local', 'routstr']);
+export type ProviderName = z.infer<typeof ProviderNameSchema>;
+
 export const ReplyTransportSchema = z.enum(['remote', 'local']);
 export type ReplyTransport = z.infer<typeof ReplyTransportSchema>;
 
@@ -27,11 +30,15 @@ export const STATE_AGENT_BACKEND = 'agent_backend';
 export const STATE_REPLY_TRANSPORT = 'reply_transport';
 export const STATE_WORKSPACE_TARGET = 'workspace_target';
 export const STATE_MODEL_OVERRIDE = 'model_override';
+export const STATE_PROVIDER_NAME = 'provider_name';
+export const STATE_ROUTSTR_BUDGET_SATS = 'routstr_budget_sats';
 
 export const DEFAULT_MODE: AgentMode = 'ask';
 export const DEFAULT_BACKEND: AgentBackendName = 'cursor';
 export const DEFAULT_REPLY_TRANSPORT: ReplyTransport = 'remote';
 export const DEFAULT_WORKSPACE_TARGET: WorkspaceTarget = 'parent';
+export const DEFAULT_PROVIDER: ProviderName = 'local';
+export const DEFAULT_ROUTSTR_BUDGET_SATS = 2000;
 
 export function openSeenDb(): Database {
   const db = new Database(SEEN_DB_PATH);
@@ -156,4 +163,29 @@ export function setModelOverride(db: Database, model: string | null): void {
   } else {
     setState(db, STATE_MODEL_OVERRIDE, model);
   }
+}
+
+export function getProviderName(db: Database): ProviderName {
+  const v = getState(db, STATE_PROVIDER_NAME);
+
+  return ProviderNameSchema.safeParse(v).data ?? DEFAULT_PROVIDER;
+}
+
+export function setProviderName(db: Database, name: ProviderName): void {
+  setState(db, STATE_PROVIDER_NAME, name);
+}
+
+export function getRoutstrBudget(db: Database): number {
+  const v = getState(db, STATE_ROUTSTR_BUDGET_SATS);
+  const parsed = z.coerce.number().safeParse(v);
+
+  if (!parsed.success) {
+    return DEFAULT_ROUTSTR_BUDGET_SATS;
+  }
+
+  return parsed.data;
+}
+
+export function setRoutstrBudget(db: Database, budgetSats: number): void {
+  setState(db, STATE_ROUTSTR_BUDGET_SATS, String(budgetSats));
 }

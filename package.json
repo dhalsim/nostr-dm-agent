@@ -1,6 +1,6 @@
 {
   "name": "nak-dm-bot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
@@ -9,6 +9,7 @@
     "lint": "eslint . --fix"
   },
   "dependencies": {
+    "@cashu/cashu-ts": "^3.5.0",
     "nostr-tools": "^2.23.0",
     "zod": "^4.3.6"
   },

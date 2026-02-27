@@ -13,6 +13,9 @@ export type BotConfig = {
   agentPath: string;
   localCliEnabled: boolean;
   opencodeServeUrl: string | null;
+  cashuMnemonic: string | null;
+  cashuMintUrl: string;
+  routstrBaseUrl: string;
 };
 
 export function requireEnv(name: string): string {
@@ -55,7 +58,7 @@ export function normalizePath(pathValue: string): string {
 
 export function loadBotConfig(): BotConfig {
   const botKeyHex = requireEnv('BOT_KEY');
-  const masterPubkey = requireEnv('BOT_MASTER_PUBKEY');
+  const masterPubkey = requireEnv('BOT_RELAYS');
   const relayUrls = parseRelayUrls(requireEnv('BOT_RELAYS'));
 
   if (relayUrls.length === 0) {
@@ -71,5 +74,8 @@ export function loadBotConfig(): BotConfig {
     agentPath: normalizePath(process.env.BOT_AGENT_PATH ?? process.env.PATH ?? ''),
     localCliEnabled: (process.env.BOT_LOCAL_CLI ?? '1') !== '0',
     opencodeServeUrl: process.env.BOT_OPENCODE_SERVE_URL ?? null,
+    cashuMnemonic: process.env.CASHU_MNEMONIC ?? null,
+    cashuMintUrl: process.env.CASHU_MINT_URL ?? 'https://testnut.cashu.space',
+    routstrBaseUrl: process.env.ROUTSTR_BASE_URL ?? 'https://api.routstr.com/v1',
   };
 }

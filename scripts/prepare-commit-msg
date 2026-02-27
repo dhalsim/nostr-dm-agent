@@ -36,10 +36,12 @@ fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 // Stage the updated package.json
 execSync('git add package.json', { stdio: 'inherit' });
 
-// --- Clean the flag from the commit message ---
+// Clean the flag from the commit message
 const cleanMsg = commitMsg.replace(/--(major|minor|patch)/i, '').trim();
-// Write it back to the commit message file
 fs.writeFileSync(commitMsgFile, cleanMsg + '\n');
 
-console.log(`✅ Version bumped to ${newVersion} and staged for this commit.`);
+// Amend the in-progress commit to include package.json
+execSync('git commit --amend --no-edit --no-verify', { stdio: 'inherit' });
+
+console.log(`✅ Version bumped to ${newVersion} and included in this commit.`);
 console.log(`📝 Commit message: "${cleanMsg}"`);
