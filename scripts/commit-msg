@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.join(__dirname, '..');
+
+const commitMsgFile = process.argv[2];
+const commitMsg = fs.readFileSync(commitMsgFile, 'utf8');
+
+const versionMatch = commitMsg.match(/--(major|minor|patch)/i);
+
+if (!versionMatch) {
+  console.log('No --major/--minor/--patch flag found. Use: git commit -m "message --major|--minor|--patch"');
+  process.exit(0);
+}
+
+const bumpType = versionMatch[1].toLowerCase();
+const packageJsonPath = path.join(projectRoot, 'package.json');
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+
+if (!packageJson.version) {
+  packageJson.version = '1.0.0';
+}
+
+const [major, minor, patch] = packageJson.version.split('.').map(Number);
+
+let newVersion;
+switch (bumpType) {
+  case 'major':
+    newVersion = `${major + 1}.0.0`;
+    break;
+  case 'minor':
+    newVersion = `${major}.${minor + 1}.0`;
+    break;
+  case 'patch':
+    newVersion = `${major}.${minor}.${patch + 1}`;
+    break;
+  default:
+    console.error(`Unknown version type: ${bumpType}`);
+    process.exit(1);
+}
+
+packageJson.version = newVersion;
+fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n');
+
+console.log(`Version bumped: ${packageJson.version} -> ${newVersion}`);
