@@ -13,6 +13,7 @@ type CreateBackendProps = {
   dmBotRoot: string;
   mode: AgentMode;
   attachUrl: string | null;
+  modelOverride?: string | null;
 };
 
 export function createBackend({
@@ -20,12 +21,13 @@ export function createBackend({
   dmBotRoot,
   mode,
   attachUrl,
+  modelOverride,
 }: CreateBackendProps): AgentBackend {
   switch (name) {
     case 'cursor':
-      return createCursorBackend();
+      return createCursorBackend(modelOverride);
     case 'opencode':
-      return createOpenCodeBackend({ dmBotRoot, mode, attachUrl });
+      return createOpenCodeBackend({ dmBotRoot, mode, attachUrl, modelOverride });
     default:
       return assertUnreachable(name);
   }

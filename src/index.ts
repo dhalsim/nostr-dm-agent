@@ -28,7 +28,7 @@ import { getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import { hexToBytes } from 'nostr-tools/utils';
 
 import { createBackend } from './backends/factory';
-import { handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
+import { getStatusLines, handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
 import {
   openSeenDb,
   alreadyHaveEvent,
@@ -37,8 +37,7 @@ import {
   getAgentBackend,
   getReplyTransport,
   getWorkspaceTarget,
-  getState,
-  STATE_CURRENT_SESSION,
+  getModelOverride,
 } from './db';
 import { loadBotConfig } from './env';
 import { runPostAgentLint, formatLintSummary } from './lint';
@@ -52,9 +51,9 @@ import {
   CHUNK_DELAY_BASE_MS,
   CHUNK_DELAY_MAX_MS,
 } from './messaging';
+import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
 import { getOrCreateCurrentSession, insertSessionMessage } from './session';
 
-export const RESTART_REQUESTED_PATH = join(import.meta.dir ?? process.cwd(), 'restart.requested');
 const POST_AGENT_LINT_PROMPT_PREFIX = '[Post-edit lint feedback]';
 
 type MessageSource = 'nostr' | 'local';
@@ -96,7 +95,6 @@ function main() {
 
   const seenDb = openSeenDb();
 
-  const dmBotRoot = import.meta.dir ?? process.cwd();
   const workspaceRoot = join(dmBotRoot, '..');
 
   const agentEnv: Record<string, string | undefined> = {
@@ -118,39 +116,20 @@ function main() {
     return finalizeEvent(authTemplate, botSecretKey);
   };
 
-  const defaultMode = getDefaultMode(seenDb);
-  const defaultBackend = getAgentBackend(seenDb);
-  const defaultReplyTransport = getReplyTransport(seenDb);
-  const defaultWorkspace = getWorkspaceTarget(seenDb);
+  log(`${C.bold}Bot pubkey:${C.reset} ${botPubkey}`);
+  log(`${C.bold}Master:${C.reset} ${masterPubkey}`);
 
-  const backend = createBackend({
-    name: defaultBackend,
+  const statusLines = getStatusLines({
+    relayUrls,
+    db: seenDb,
+    version: VERSION,
     dmBotRoot,
-    mode: defaultMode,
     attachUrl: opencodeServeUrl,
   });
 
-  const col = 14;
-  const label = (name: string): string => `${C.bold}${(name + ':').padEnd(col)}${C.reset}`;
-  log(`${label('Bot pubkey')} ${botPubkey}`);
-  log(`${label('Master')} ${masterPubkey}`);
-  log(`${label('Relays')} ${relayUrls.join(', ')}`);
-  log(`${label('Backend')} ${C.magenta}${defaultBackend}${C.reset}`);
-  log(`${label('Version')} ${VERSION}`);
-
-  if (defaultBackend === 'opencode' && opencodeServeUrl) {
-    log(`${label('Serve')} ${opencodeServeUrl} (attached)`);
+  for (const line of statusLines) {
+    log(line);
   }
-
-  log(`${label('Mode')} ${defaultMode}`);
-  log(`${label('Model')} ${backend.modelName}`);
-  log(`${label('Workspace')} ${defaultWorkspace}`);
-  log(`${label('Transport')} ${defaultReplyTransport}`);
-  const startupSessionId = getState(seenDb, STATE_CURRENT_SESSION);
-
-  log(
-    `${label('Session')} ${startupSessionId ? `${C.dim}${startupSessionId}${C.reset}` : `${C.gray}(none — first message will create one)${C.reset}`}`,
-  );
 
   log('');
 
@@ -159,20 +138,12 @@ function main() {
 
   debug('PWD:', pwdOutput);
 
-  const readyMessage =
-    `Agent is ready.\n` +
-    `PWD:        ${pwdOutput}\n` +
-    `Backend:    ${defaultBackend}\n` +
-    `Mode:       ${defaultMode}\n` +
-    `Workspace:  ${defaultWorkspace}\n` +
-    `Transport:  ${defaultReplyTransport}`;
-
   const readyDmPromise = sendDm({
     pool,
     botRelayUrl: primaryRelay,
     senderSecretKey: botSecretKey,
     recipientPubkey: masterPubkey,
-    message: readyMessage,
+    message: `Agent is ready.`,
     signAuthEvent,
     redrawPrompt,
   }).catch((err) => logError('Failed to send ready DM:', err));
@@ -190,7 +161,7 @@ function main() {
     const shouldBypassNostr = source === 'local' || replyTransport === 'local';
 
     if (shouldBypassNostr) {
-      log(`${C.white}[bot]${C.reset} ${message}`);
+      log(`${C.white}[bot]${C.reset}\n${message}`);
 
       return;
     }
@@ -206,6 +177,18 @@ function main() {
     });
   }
 
+  const defaultModelOverride = getModelOverride(seenDb);
+  const defaultBackend = getAgentBackend(seenDb);
+  const mode = getDefaultMode(seenDb);
+
+  const backend = createBackend({
+    name: defaultBackend,
+    dmBotRoot,
+    mode,
+    attachUrl: opencodeServeUrl,
+    modelOverride: defaultModelOverride,
+  });
+
   async function handleUserMessage(content: string, source: MessageSource): Promise<void> {
     const sourceLabel =
       source === 'local' ? `${C.white}local${C.reset}` : `${C.magenta}master${C.reset}`;
@@ -216,7 +199,7 @@ function main() {
     log('');
 
     if (content.trim().startsWith('!')) {
-      const reply = handleBangCommand({
+      const reply = await handleBangCommand({
         input: content,
         relayUrls,
         db: seenDb,
@@ -225,17 +208,20 @@ function main() {
         dmBotRoot,
         agentEnv,
         attachUrl: opencodeServeUrl,
+        backend,
       });
 
       if (reply === EXIT_COMMAND_SENTINEL) {
         const ack = 'Shutting down dm-bot.';
+
         await sendReplyForSource(source, ack);
+
         log('Exit command received. Shutting down dm-bot.');
         process.exit(0);
       } else if (reply) {
         await sendReplyForSource(source, reply);
       } else if (source === 'local') {
-        log(`${C.white}[bot]${C.reset} ${C.dim}Command applied.${C.reset}`);
+        log(`${C.white}[bot]${C.reset}\n${C.dim}Command applied.${C.reset}`);
       }
 
       return;
@@ -244,31 +230,28 @@ function main() {
     const mode = getDefaultMode(seenDb);
     const currentWorkspace = getWorkspaceTarget(seenDb);
     const cwd = currentWorkspace === 'bot' ? dmBotRoot : workspaceRoot;
-    const backendName = getAgentBackend(seenDb);
 
     const sessionId = getOrCreateCurrentSession({
       db: seenDb,
-      backendName,
+      backend,
       cwd,
-      dmBotRoot,
       env: agentEnv,
-      mode,
-      attachUrl: opencodeServeUrl,
     });
 
     insertSessionMessage(seenDb, sessionId, 'user', content);
 
-    const runAgentRound = async (
-      roundContent: string,
-      startLog: string,
-    ): Promise<ReturnType<typeof backend.runMessage>> => {
+    const runAgentRound = async (roundContent: string, startLog: string) => {
       log(startLog);
+
+      const modelOverride = getModelOverride(seenDb);
+      const backendName = getAgentBackend(seenDb);
 
       const roundBackend = createBackend({
         name: backendName,
         dmBotRoot,
         mode,
         attachUrl: opencodeServeUrl,
+        modelOverride,
       });
 
       return roundBackend.runMessage({
@@ -283,7 +266,7 @@ function main() {
     try {
       const initialResult = await runAgentRound(
         content,
-        `${C.dim}Starting ${backendName} agent (${mode})…${C.reset}\n`,
+        `${C.dim}Starting ${backend.name} agent (${mode})…${C.reset}\n`,
       );
 
       let finalOutput = initialResult.output;
@@ -305,7 +288,7 @@ function main() {
             try {
               const fixResult = await runAgentRound(
                 lintPrompt,
-                `${C.dim}Starting ${backendName} agent (lint feedback)…${C.reset}\n`,
+                `${C.dim}Starting ${backend.name} agent (lint feedback)…${C.reset}\n`,
               );
 
               finalOutput = `${finalOutput}\n\n${fixResult.output}`;

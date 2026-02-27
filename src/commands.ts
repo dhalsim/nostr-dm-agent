@@ -4,6 +4,7 @@
 import type { Database } from 'bun:sqlite';
 
 import { createBackend } from './backends/factory';
+import type { AgentBackend } from './backends/types';
 import {
   AgentModeSchema,
   AgentBackendNameSchema,
@@ -16,6 +17,8 @@ import {
   setReplyTransport,
   getWorkspaceTarget,
   setWorkspaceTarget,
+  getModelOverride,
+  setModelOverride,
   getState,
   STATE_CURRENT_SESSION,
 } from './db';
@@ -23,6 +26,56 @@ import { C, assertUnreachable } from './logger';
 import { createNewSession, getLatestSession, setCurrentSession } from './session';
 
 export const EXIT_COMMAND_SENTINEL = '__DM_BOT_EXIT__';
+
+export type StatusProps = {
+  relayUrls: string[];
+  db: Database;
+  version: string;
+  dmBotRoot: string;
+  attachUrl: string | null;
+};
+
+export function getStatusLines({
+  relayUrls,
+  db,
+  version,
+  dmBotRoot,
+  attachUrl,
+}: StatusProps): string[] {
+  const cur = getState(db, STATE_CURRENT_SESSION);
+  const mode = getDefaultMode(db);
+  const backendName = getAgentBackend(db);
+  const replyTransport = getReplyTransport(db);
+  const workspace = getWorkspaceTarget(db);
+  const serveUrl = process.env.BOT_OPENCODE_SERVE_URL;
+  const modelOverride = getModelOverride(db);
+
+  const backend = createBackend({ name: backendName, dmBotRoot, mode, attachUrl, modelOverride });
+
+  const col = 14;
+  const lbl = (name: string) => `${C.bold}${(name + ':').padEnd(col)}${C.reset}`;
+
+  const modelDisplay = modelOverride
+    ? `${modelOverride} ${C.gray}(override)${C.reset}`
+    : backend.modelName;
+
+  const lines = [
+    `${lbl('Backend')} ${C.magenta}${backendName}${C.reset}`,
+    `${lbl('Version')} ${version}`,
+    `${lbl('Mode')} ${mode}`,
+    `${lbl('Model')} ${modelDisplay}`,
+    `${lbl('Workspace')} ${workspace}`,
+    `${lbl('Transport')} ${replyTransport}`,
+    `${lbl('Relays')} ${relayUrls.join(', ')}`,
+    `${lbl('Session')} ${cur ?? `${C.gray}(none)${C.reset}`}`,
+  ];
+
+  if (backendName === 'opencode' && serveUrl) {
+    lines.push(`${lbl('Serve')} ${serveUrl} (attached)`);
+  }
+
+  return lines;
+}
 
 export type HandleBangCommandProps = {
   input: string;
@@ -33,9 +86,10 @@ export type HandleBangCommandProps = {
   dmBotRoot: string;
   agentEnv: Record<string, string | undefined>;
   attachUrl: string | null;
+  backend: AgentBackend;
 };
 
-export function handleBangCommand({
+export async function handleBangCommand({
   input,
   relayUrls,
   db,
@@ -44,7 +98,8 @@ export function handleBangCommand({
   dmBotRoot,
   agentEnv,
   attachUrl,
-}: HandleBangCommandProps): string | null {
+  backend,
+}: HandleBangCommandProps): Promise<string | null> {
   const raw = input.trim();
 
   if (!raw.startsWith('!')) {
@@ -59,33 +114,28 @@ export function handleBangCommand({
   switch (cmd) {
     case 'new-session': {
       try {
-        const backendName = getAgentBackend(db);
         const workspace = getWorkspaceTarget(db);
         const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
         const mode = getDefaultMode(db);
 
         const id = createNewSession({
           db,
-          backendName,
+          backend,
           cwd,
-          dmBotRoot,
           env: agentEnv,
-          mode,
-          attachUrl,
         });
 
-        return `New session: ${id}\nBackend: ${backendName}\nMode: ${mode}\nWorkspace: ${workspace}.`;
+        return `New session: ${id}\nBackend: ${backend.name}\nMode: ${mode}\nWorkspace: ${workspace}.`;
       } catch (err) {
         return `Failed to create session: ${String(err)}`;
       }
     }
 
     case 'resume-last-session': {
-      const backendName = getAgentBackend(db);
-      const id = getLatestSession(db, backendName);
+      const id = getLatestSession(db, backend);
 
       if (!id) {
-        return `No sessions yet for backend '${backendName}'. Send a message or use !new-session.`;
+        return `No sessions yet for backend '${backend.name}'. Send a message or use !new-session.`;
       }
 
       setCurrentSession(db, id);
@@ -153,32 +203,7 @@ export function handleBangCommand({
     }
 
     case 'status': {
-      const cur = getState(db, STATE_CURRENT_SESSION);
-      const mode = getDefaultMode(db);
-      const backendName = getAgentBackend(db);
-      const replyTransport = getReplyTransport(db);
-      const workspace = getWorkspaceTarget(db);
-      const serveUrl = process.env.BOT_OPENCODE_SERVE_URL;
-      const backend = createBackend({ name: backendName, dmBotRoot, mode, attachUrl });
-      const col = 14;
-      const lbl = (name: string) => `${C.bold}${(name + ':').padEnd(col)}${C.reset}`;
-
-      const lines = [
-        `${lbl('Backend')} ${C.magenta}${backendName}${C.reset}`,
-        `${lbl('Model')} ${backend.modelName}`,
-        `${lbl('Version')} ${version}`,
-        `${lbl('Relays')} ${relayUrls.join(', ')}`,
-        `${lbl('Mode')} ${mode}`,
-        `${lbl('Workspace')} ${workspace}`,
-        `${lbl('Transport')} ${replyTransport}`,
-        `${lbl('Session')} ${cur ?? `${C.gray}(none)${C.reset}`}`,
-      ];
-
-      if (backendName === 'opencode' && serveUrl) {
-        lines.push(`${lbl('Serve')} ${serveUrl} (attached)`);
-      }
-
-      return lines.join('\n');
+      return getStatusLines({ relayUrls, db, version, dmBotRoot, attachUrl }).join('\n');
     }
 
     case 'version':
@@ -197,7 +222,9 @@ export function handleBangCommand({
 !local — reply only in local terminal
 !remote — resume sending replies over Nostr DMs
 !workspace [parent|bot] — show/set workspace target
-!backend [cursor|opencode] — show/set agent backend
+!backend [cursor|opencode] — show/set agent backend (resets model override)
+!models — list available models for current backend
+!model [name|reset] — show/set model override (cleared on !backend)
 !mode ask | !mode plan | !mode agent | !ask | !plan | !agent — set mode
 !exit — stop the bot process`;
 
@@ -238,12 +265,9 @@ export function handleBangCommand({
       try {
         const sessionId = createNewSession({
           db,
-          backendName: getAgentBackend(db),
+          backend,
           cwd,
-          dmBotRoot,
           env: agentEnv,
-          mode: getDefaultMode(db),
-          attachUrl,
         });
 
         return `Workspace switched: ${prevTarget} -> ${nextTarget}\nNew session: ${sessionId}`;
@@ -265,30 +289,39 @@ export function handleBangCommand({
         return `Usage: !backend [${AgentBackendNameSchema.options.join('|')}]`;
       }
 
-      const nextBackend = parsed.data;
-      const prevBackend = getAgentBackend(db);
+      const nextBackendName = parsed.data;
+      const prevBackendName = getAgentBackend(db);
 
-      if (nextBackend === prevBackend) {
-        return `Backend unchanged: ${nextBackend}.`;
+      if (nextBackendName === prevBackendName) {
+        return `Backend unchanged: ${nextBackendName}.`;
       }
 
-      setAgentBackend(db, nextBackend);
+      setAgentBackend(db, nextBackendName);
+      setModelOverride(db, null);
       const workspace = getWorkspaceTarget(db);
       const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
+      const mode = getDefaultMode(db);
+      const modelOverride = getModelOverride(db);
+
+      const newBackend = createBackend({
+        name: nextBackendName,
+        dmBotRoot,
+        mode,
+        attachUrl,
+        modelOverride,
+      });
+
       try {
         const sessionId = createNewSession({
           db,
-          backendName: nextBackend,
+          backend: newBackend,
           cwd,
-          dmBotRoot,
           env: agentEnv,
-          mode: getDefaultMode(db),
-          attachUrl,
         });
 
-        return `Backend switched: ${prevBackend} -> ${nextBackend}\nNew session: ${sessionId}`;
+        return `Backend switched: ${prevBackendName} -> ${nextBackendName}\nNew session: ${sessionId}`;
       } catch (err) {
-        return `Backend switched to ${nextBackend}, but failed to auto-create session: ${String(err)}`;
+        return `Backend switched to ${nextBackendName}, but failed to auto-create session: ${String(err)}`;
       }
     }
 
@@ -314,6 +347,51 @@ export function handleBangCommand({
           return `Mode set to: ${mode}`;
         default:
           return assertUnreachable(mode);
+      }
+    }
+
+    case 'model': {
+      const selected = args[0];
+
+      if (!selected) {
+        const current = getModelOverride(db);
+
+        return `Model: ${current ?? 'auto (from backend config)'}.`;
+      }
+
+      if (selected.toLowerCase() === 'reset') {
+        setModelOverride(db, null);
+
+        return 'Model override cleared. Using backend config.';
+      }
+
+      setModelOverride(db, selected);
+
+      return `Model override set to: ${selected}.`;
+    }
+
+    case 'models': {
+      try {
+        const backendName = getAgentBackend(db);
+        const mode = getDefaultMode(db);
+        const backend = createBackend({ name: backendName, dmBotRoot, mode, attachUrl });
+        const models = await backend.availableModels();
+
+        if (models.length === 0) {
+          return `No models found for backend '${backendName}'.`;
+        }
+
+        const current = getModelOverride(db) ?? backend.modelName;
+
+        const lines = models.map((m) => {
+          const marker = m === current ? ` ${C.green}*[current]${C.reset}` : '';
+
+          return `  ${m}${marker}`;
+        });
+
+        return `Available models for ${backendName}:\n${lines.join('\n')}`;
+      } catch (err) {
+        return `Failed to get models: ${String(err)}`;
       }
     }
 

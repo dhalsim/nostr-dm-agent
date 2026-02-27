@@ -63,18 +63,21 @@ export function parseOpenCodeJsonl(raw: string): AgentRunResult {
   return { output: textParts.join('') || '(no output)', sessionId, tokens, cost };
 }
 
-type CreateOpenCodeBackendProps = {
+type ParseModelProps = {
   dmBotRoot: string;
   mode: AgentMode;
-  attachUrl: string | null;
+  modelOverride?: string | null;
 };
 
-export function createOpenCodeBackend({
-  dmBotRoot,
-  mode,
-  attachUrl,
-}: CreateOpenCodeBackendProps): AgentBackend {
-  let modelName = 'auto';
+function parseModel({ dmBotRoot, mode, modelOverride }: ParseModelProps): string {
+  if (modelOverride) {
+    debug(`Using model override: ${modelOverride}`);
+
+    return modelOverride;
+  }
+
+  let modelName = 'opencode/big-pickle';
+
   try {
     const cfgPath = join(dmBotRoot, 'opencode.json');
 
@@ -85,13 +88,38 @@ export function createOpenCodeBackend({
         agent?: Record<string, { model?: string }>;
       };
 
-      modelName = cfg.agent?.[mode]?.model ?? 'auto';
+      const configured = cfg.agent?.[mode]?.model;
+
+      if (configured) {
+        modelName = configured;
+        debug(`Using model from opencode.json for mode '${mode}': ${modelName}`);
+      } else {
+        debug(`No model configured in opencode.json for mode '${mode}', using '${modelName}'`);
+      }
     } else {
       debug(`opencode.json not found in ${cfgPath}`);
     }
   } catch {
     debug(`Failed to read opencode.json in ${dmBotRoot}`);
   }
+
+  return modelName;
+}
+
+type CreateOpenCodeBackendProps = {
+  dmBotRoot: string;
+  mode: AgentMode;
+  attachUrl: string | null;
+  modelOverride?: string | null;
+};
+
+export function createOpenCodeBackend({
+  dmBotRoot,
+  mode,
+  attachUrl,
+  modelOverride,
+}: CreateOpenCodeBackendProps): AgentBackend {
+  const modelName = parseModel({ dmBotRoot, mode, modelOverride });
 
   return {
     name: 'opencode',
@@ -166,6 +194,24 @@ export function createOpenCodeBackend({
       result.model = modelName;
 
       return result;
+    },
+
+    async availableModels(): Promise<string[]> {
+      const proc = spawn(['opencode', 'models'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        stdin: 'ignore',
+      });
+
+      await proc.exited;
+      const out = await new Response(proc.stdout).text();
+
+      const lines = out
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      return lines;
     },
   };
 }

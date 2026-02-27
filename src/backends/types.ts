@@ -29,4 +29,5 @@ export type AgentBackend = {
   modelName: string;
   createSession(props: CreateSessionProps): string;
   runMessage(props: RunMessageProps): Promise<AgentRunResult>;
+  availableModels(): Promise<string[]>;
 };

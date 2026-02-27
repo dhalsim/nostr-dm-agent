@@ -1,15 +1,13 @@
 // ---------------------------------------------------------------------------
 // db.ts — SQLite persistence: seen events, state, sessions schema
 // ---------------------------------------------------------------------------
-import { join } from 'path';
-
 import { Database } from 'bun:sqlite';
 import { z } from 'zod';
 
 import { assertUnreachable } from './logger';
+import { SEEN_DB_PATH, RESTART_REQUESTED_PATH } from './paths';
 
-export const SEEN_DB_PATH = join(import.meta.dir ?? process.cwd(), 'dm-bot.sqlite');
-export const RESTART_REQUESTED_PATH = join(import.meta.dir ?? process.cwd(), 'restart.requested');
+export { SEEN_DB_PATH, RESTART_REQUESTED_PATH };
 
 export const AgentModeSchema = z.enum(['free', 'ask', 'plan', 'agent']);
 export type AgentMode = z.infer<typeof AgentModeSchema>;
@@ -28,6 +26,7 @@ export const STATE_DEFAULT_MODE = 'default_mode';
 export const STATE_AGENT_BACKEND = 'agent_backend';
 export const STATE_REPLY_TRANSPORT = 'reply_transport';
 export const STATE_WORKSPACE_TARGET = 'workspace_target';
+export const STATE_MODEL_OVERRIDE = 'model_override';
 
 export const DEFAULT_MODE: AgentMode = 'ask';
 export const DEFAULT_BACKEND: AgentBackendName = 'cursor';
@@ -145,4 +144,16 @@ export function getWorkspaceTarget(db: Database): WorkspaceTarget {
 
 export function setWorkspaceTarget(db: Database, target: WorkspaceTarget): void {
   setState(db, STATE_WORKSPACE_TARGET, target);
+}
+
+export function getModelOverride(db: Database): string | null {
+  return getState(db, STATE_MODEL_OVERRIDE);
+}
+
+export function setModelOverride(db: Database, model: string | null): void {
+  if (model === null) {
+    db.run('DELETE FROM state WHERE key = ?', [STATE_MODEL_OVERRIDE]);
+  } else {
+    setState(db, STATE_MODEL_OVERRIDE, model);
+  }
 }

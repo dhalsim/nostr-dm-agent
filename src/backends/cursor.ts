@@ -5,10 +5,12 @@ import { spawn, spawnSync } from 'bun';
 
 import type { AgentBackend, AgentRunResult, CreateSessionProps, RunMessageProps } from './types';
 
-export function createCursorBackend(): AgentBackend {
+export function createCursorBackend(modelOverride?: string | null): AgentBackend {
+  const effectiveModel = modelOverride ?? 'auto';
+
   return {
     name: 'cursor',
-    modelName: 'auto',
+    modelName: effectiveModel,
 
     createSession({ cwd, env }: CreateSessionProps): string {
       const proc = spawnSync(['agent', 'create-chat'], {
@@ -38,7 +40,16 @@ export function createCursorBackend(): AgentBackend {
       cwd,
       env,
     }: RunMessageProps): Promise<AgentRunResult> {
-      const baseArgs = ['agent', '-p', '--model', 'auto', '--workspace', cwd, '--trust', '--yolo'];
+      const baseArgs = [
+        'agent',
+        '-p',
+        '--model',
+        effectiveModel,
+        '--workspace',
+        cwd,
+        '--trust',
+        '--yolo',
+      ];
 
       if (mode === 'ask') {
         baseArgs.push('--mode=ask');
@@ -67,6 +78,24 @@ export function createCursorBackend(): AgentBackend {
         output: (out + (err ? '\n' + err : '')).trim() || '(no output)',
         sessionId,
       };
+    },
+
+    async availableModels(): Promise<string[]> {
+      const proc = spawn(['agent', '--list-models'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        stdin: 'ignore',
+      });
+
+      await proc.exited;
+      const out = await new Response(proc.stdout).text();
+
+      const lines = out
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      return lines;
     },
   };
 }

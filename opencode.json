@@ -74,7 +74,7 @@
         "todowrite": "allow"
       }
     },
-    "build": {
+    "agent": {
       "description": "Full development agent with all tools enabled. Can edit files, run shell commands, and make changes.",
       "mode": "primary",
       "model": "google/antigravity-claude-sonnet-4-6",
