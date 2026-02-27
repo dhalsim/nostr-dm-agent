@@ -3,6 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,7 +15,6 @@ const commitMsg = fs.readFileSync(commitMsgFile, 'utf8');
 const versionMatch = commitMsg.match(/--(major|minor|patch)/i);
 
 if (!versionMatch) {
-  console.log('No --major/--minor/--patch flag found. Use: git commit -m "message --major|--minor|--patch"');
   process.exit(0);
 }
 
@@ -22,12 +22,8 @@ const bumpType = versionMatch[1].toLowerCase();
 const packageJsonPath = path.join(projectRoot, 'package.json');
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 
-if (!packageJson.version) {
-  packageJson.version = '1.0.0';
-}
-
+// Bump version
 const [major, minor, patch] = packageJson.version.split('.').map(Number);
-
 let newVersion;
 switch (bumpType) {
   case 'major':
@@ -39,12 +35,17 @@ switch (bumpType) {
   case 'patch':
     newVersion = `${major}.${minor}.${patch + 1}`;
     break;
-  default:
-    console.error(`Unknown version type: ${bumpType}`);
-    process.exit(1);
 }
 
+// Update package.json
 packageJson.version = newVersion;
 fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n');
 
-console.log(`Version bumped: ${packageJson.version} -> ${newVersion}`);
+// Stage the updated package.json
+execSync('git add package.json', { stdio: 'inherit' });
+
+// Clean the flag from commit message
+const cleanMsg = commitMsg.replace(/--(major|minor|patch)/i, '').trim();
+fs.writeFileSync(commitMsgFile, cleanMsg + '\n');
+
+console.log(`✅ Version bumped to ${newVersion} and staged for commit`);
