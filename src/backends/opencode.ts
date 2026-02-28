@@ -157,6 +157,7 @@ export function createOpenCodeBackend({
       mode: runMode,
       cwd,
       env,
+      modelOverride,
     }: RunMessageProps): Promise<AgentRunResult> {
       const args = [
         'opencode',
@@ -172,6 +173,10 @@ export function createOpenCodeBackend({
 
       if (attachUrl) {
         args.push('--attach', attachUrl);
+      }
+
+      if (modelOverride) {
+        args.push('--model', modelOverride);
       }
 
       debug('opencode args: ', args.join(' '));

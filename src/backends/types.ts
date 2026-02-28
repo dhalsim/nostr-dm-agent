@@ -17,6 +17,7 @@ export type RunMessageProps = {
   mode: AgentMode;
   cwd: string;
   env: Record<string, string | undefined>;
+  modelOverride?: string;
 };
 
 export type CreateSessionProps = {

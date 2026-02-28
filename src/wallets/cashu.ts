@@ -152,6 +152,7 @@ export function createCashuWallet({ mnemonic, mintUrl }: CreateCashuWalletProps)
       }
 
       await getKeyset(mintUrl);
+
       const sortedProofs = [...proofs].sort((a, b) => a.amount - b.amount);
       const selected: Proof[] = [];
       let selectedTotal = 0;

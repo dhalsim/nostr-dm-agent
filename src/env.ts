@@ -58,7 +58,7 @@ export function normalizePath(pathValue: string): string {
 
 export function loadBotConfig(): BotConfig {
   const botKeyHex = requireEnv('BOT_KEY');
-  const masterPubkey = requireEnv('BOT_RELAYS');
+  const masterPubkey = requireEnv('BOT_MASTER_PUBKEY');
   const relayUrls = parseRelayUrls(requireEnv('BOT_RELAYS'));
 
   if (relayUrls.length === 0) {

@@ -1,15 +1,13 @@
 import type { Database } from 'bun:sqlite';
 
-import type { AnyWallet } from '../wallets/types';
-
 import { createLocalProvider } from './local';
 import { createRoutstrProvider } from './routstr';
 import type { AnyProvider, ProviderName } from './types';
 
 export type CreateProviderProps = {
   name: ProviderName;
-  wallet?: AnyWallet;
   walletDb?: Database;
+  seenDb?: Database;
   routstrBaseUrl?: string;
 };
 
@@ -19,14 +17,14 @@ export function createProvider(props: CreateProviderProps): AnyProvider {
   }
 
   if (props.name === 'routstr') {
-    if (!props.wallet || !props.walletDb || !props.routstrBaseUrl) {
-      throw new Error('Routstr provider requires wallet, walletDb, and routstrBaseUrl');
+    if (!props.walletDb || !props.seenDb || !props.routstrBaseUrl) {
+      throw new Error('Routstr provider requires walletDb, seenDb, and routstrBaseUrl');
     }
 
     return createRoutstrProvider({
-      wallet: props.wallet,
       baseUrl: props.routstrBaseUrl,
       walletDb: props.walletDb,
+      seenDb: props.seenDb,
     });
   }
 

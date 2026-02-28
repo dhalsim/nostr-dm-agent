@@ -2,14 +2,7 @@ import eslint from '@eslint/js';
 import stylistic from '@stylistic/eslint-plugin';
 import importPlugin from 'eslint-plugin-import';
 import prettier from 'eslint-plugin-prettier';
-import solid from 'eslint-plugin-solid';
 import tseslint from 'typescript-eslint';
-
-const solidRecommendedRules =
-  solid.configs?.['flat/typescript']?.rules ??
-  solid.configs?.['typescript']?.rules ??
-  solid.configs?.['recommended']?.rules ??
-  {};
 
 const tsconfigRootDir = import.meta.dirname;
 
@@ -36,7 +29,6 @@ export default [
       '@typescript-eslint': tseslint.plugin,
       import: importPlugin,
       prettier,
-      solid,
     },
     settings: {
       'import/resolver': {
@@ -44,7 +36,6 @@ export default [
       },
     },
     rules: {
-      ...solidRecommendedRules,
       'import/order': [
         'error',
         {

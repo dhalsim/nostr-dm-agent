@@ -1,282 +1,713 @@
-Good catch. Let me check what models Routstr actually exposes and how opencode handles custom OpenAI-compatible providers.Good, now I have the full picture. Here's the revised plan:
+# Final Revised Plan
+
+## Key Facts from Docs + Code
+
+**Routstr API:**
+- Create session: `GET /v1/balance/create?initial_balance_token=cashuA...` → returns `api_key` (sk-...)
+- Top up existing key: `POST /v1/balance/topup` with `{"cashu_token": "..."}` and `Authorization: Bearer sk-...`
+- Refund: `POST /v1/balance/refund` with `Authorization: Bearer sk-...` → returns `{ token: "cashu...", msats: "450000" }`
+- Refund response key is confirmed as `token`
+
+**env var mechanism (from opencode.ts):**
+```typescript
+const proc = spawn({ cmd: args, cwd, stdout: 'pipe', stderr: 'pipe', stdin: 'ignore', env });
+```
+The `env` object is passed **directly to the subprocess**. If the bot puts `OPENAI_API_KEY: skKey` in that env object, and `opencode.json` has `"apiKey": "{env:OPENAI_API_KEY}"`, opencode resolves it from its own process env. This is the confirmed wiring path.
 
 ---
 
-# Revised Development Plan: Cashu Wallet + Routstr for nostr-dm-agent
-
-## Key Design Clarifications
-
-**The `X-Cashu` stateless approach is the right one**, but it has a fundamental mismatch with how opencode works: opencode is a subprocess that makes many API calls internally. You can't intercept each call to inject a fresh cashu token and recover change. The resolution is:
-
-> The bot's provider layer wraps each **full opencode run** as one budget unit using the `Authorization: Bearer <cashu_token>` approach (which Routstr also supports and is functionally equivalent to a deposited session). Routstr internally treats the token as a prepaid balance and deducts per-request. After the run, `POST /v1/balance/refund` returns the change as a new Cashu token. The `X-Cashu` stateless header approach is reserved for direct single API calls the bot makes itself (e.g. `!ask` style commands in the future, not opencode runs).
-
-**opencode.json provider config** is the right place to register Routstr as a model source. The bot generates or patches this file with the correct `apiKey` (the cashu token) before each run, since the key changes per run.
-
----
-
-## File Structure
+## Auto-flow (`!!sats`) — Corrected Logic
 
 ```
-src/
-  backends/           (unchanged — opencode.ts, cursor.ts, factory.ts)
-  providers/
-    types.ts          ← new
-    routstr.ts        ← new
-    local.ts          ← new (passthrough, current behaviour)
-    factory.ts        ← new
-  wallets/
-    types.ts          ← new
-    cashu.ts          ← new (adapted from your standalone script)
-    factory.ts        ← new
-  wallet-db.ts        ← new (separate SQLite, cashu-specific)
-  db.ts               (unchanged)
-  env.ts              (small additions)
-  commands.ts         (new !wallet and !provider commands)
-  index.ts            (small wiring change)
+user: "fix the auth bug !!1000sats"
+
+1. Parse → prompt = "fix the auth bug", budgetSats = 1000
+2. Check DB for sk-key:
+   - No sk-key:  mint 1000-sat cashu token
+                 GET /v1/balance/create?initial_balance_token=<token>
+                 store returned sk-key in DB (permanently)
+   - sk-key exists: mint 1000-sat cashu token
+                    POST /v1/balance/topup { cashu_token } + Bearer sk-key
+                    (sk-key unchanged — same key, more balance)
+3. Run opencode with env: { OPENAI_API_KEY: skKey, OPENAI_BASE_URL: ... }
+4. After run (always, in finally):
+   POST /v1/balance/refund → receive cashu token → swap into local wallet
+   (do NOT clear sk-key)
 ```
+
+**Manual flow** (`!provider deposit`/`!provider refund`) is the same operations just user-triggered, not prompt-triggered.
 
 ---
 
-## Phase 1: Wallet Abstraction (`src/wallets/`)
+## Changes File by File
 
-### `src/wallets/types.ts`
+### `src/db.ts` — add three keys
 
 ```typescript
-export type WalletInfo = {
-  balanceSats: number;
+export const STATE_ROUTSTR_SK_KEY = 'routstr_sk_key';
+export const STATE_ROUTSTR_MINT_URL = 'routstr_mint_url';
+export const STATE_ROUTSTR_MODEL = 'routstr_model';
+export const STATE_ROUTSTR_MODELS_CACHE = 'routstr_models_cache';
+export const STATE_ROUTSTR_MODELS_CACHE_TS = 'routstr_models_cache_ts';
+
+// sk-key: never auto-cleared, only set via deposit or !provider clear-session (future)
+export function getRoutstrSkKey(db: Database): string | null
+export function setRoutstrSkKey(db: Database, key: string): void
+
+// mint: required for all wallet ops. no default.
+export function getRoutstrMintUrl(db: Database): string | null
+export function setRoutstrMintUrl(db: Database, url: string): void
+
+// routstr model override: stored as bare model id, used as "routstr/<id>" in opencode
+export function getRoutstrModel(db: Database): string | null
+export function setRoutstrModel(db: Database, model: string | null): void
+
+// model cache: 24h TTL stored in state table
+export function getCachedRoutstrModels(db: Database): RoutstrModel[] | null {
+  const ts = Number(getState(db, STATE_ROUTSTR_MODELS_CACHE_TS) ?? '0');
+  if (Date.now() - ts > 86_400_000) return null;
+  const raw = getState(db, STATE_ROUTSTR_MODELS_CACHE);
+  return raw ? (JSON.parse(raw) as RoutstrModel[]) : null;
+}
+export function setCachedRoutstrModels(db: Database, models: RoutstrModel[]): void {
+  setState(db, STATE_ROUTSTR_MODELS_CACHE, JSON.stringify(models));
+  setState(db, STATE_ROUTSTR_MODELS_CACHE_TS, String(Date.now()));
+}
+```
+
+---
+
+### `src/providers/routstr.ts` — rewrite
+
+Three distinct exported concerns: the provider object (used during runs), and standalone functions for deposit/topup, refund, balance check (used by commands and auto-flow).
+
+```typescript
+// --- Provider object (reads stored sk-key, injects into env) ---
+
+export function createRoutstrProvider(props: {
+  baseUrl: string;
+  walletDb: Database;
+  seenDb: Database;
+}): AnyProvider {
+  return {
+    name: 'routstr',
+
+    async prepareRun(_opts): Promise<ProviderEnv> {
+      const skKey = getRoutstrSkKey(props.seenDb);
+      if (!skKey) throw new NoRoutstrSessionError();
+      return {
+        OPENAI_API_KEY: skKey,
+        OPENAI_BASE_URL: props.baseUrl,
+      };
+    },
+
+    async finalizeRun(_env, opts): Promise<void> {
+      // Spend logging only — refund is handled outside (auto-flow or manual)
+      logSpend(props.walletDb, 'routstr', 0, 0, 0, opts.model, opts.sessionId, opts.promptPrefix);
+    },
+
+    async getStatus(): Promise<string> {
+      const skKey = getRoutstrSkKey(props.seenDb);
+      return `routstr | session: ${skKey ? skKey.slice(0, 16) + '...' : 'none (use !provider deposit <sats>)'}`;
+    },
+  };
+}
+
+export class NoRoutstrSessionError extends Error {
+  constructor() {
+    super('No Routstr session key. Use !provider deposit <sats> or append !!<sats> to your prompt.');
+  }
+}
+
+// --- Create session OR top up existing one ---
+// Handles both cases: no sk-key (create) and existing sk-key (topup)
+
+export async function depositOrTopup(props: {
+  wallet: AnyWallet;
+  seenDb: Database;
+  walletDb: Database;
+  baseUrl: string;
+  amountSats: number;
+}): Promise<{ skKey: string; wasNew: boolean }> {
+  const { wallet, seenDb, walletDb, baseUrl, amountSats } = props;
+
+  const token = await wallet.sendToken(amountSats);
+
+  const existingKey = getRoutstrSkKey(seenDb);
+
+  let skKey: string;
+  let wasNew: boolean;
+
+  try {
+    if (!existingKey) {
+      // Create new session
+      const res = await fetch(
+        `${baseUrl}/balance/create?initial_balance_token=${encodeURIComponent(token)}`
+      );
+      if (!res.ok) throw new Error(`Create session failed: HTTP ${res.status}`);
+      const data = await res.json() as { api_key?: string; key?: string };
+      skKey = data.api_key ?? data.key ?? '';
+      if (!skKey) throw new Error(`Unexpected create response: ${JSON.stringify(data)}`);
+      setRoutstrSkKey(seenDb, skKey);
+      wasNew = true;
+    } else {
+      // Top up existing session
+      const res = await fetch(`${baseUrl}/balance/topup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${existingKey}`,
+        },
+        body: JSON.stringify({ cashu_token: token }),
+      });
+      if (!res.ok) throw new Error(`Top-up failed: HTTP ${res.status}`);
+      skKey = existingKey;
+      wasNew = false;
+    }
+  } catch (err) {
+    // Return token to wallet on failure
+    try { await wallet.receiveToken(token); } catch { /* best effort */ }
+    throw err;
+  }
+
+  logSpend(walletDb, 'routstr', amountSats, 0, amountSats, undefined, undefined,
+    wasNew ? 'create-session' : 'topup');
+  return { skKey, wasNew };
+}
+
+// --- Refund (does NOT clear sk-key) ---
+
+export async function refundRoutstr(props: {
+  wallet: AnyWallet;
+  seenDb: Database;
+  walletDb: Database;
+  baseUrl: string;
+}): Promise<number> {
+  const { wallet, seenDb, walletDb, baseUrl } = props;
+  const skKey = getRoutstrSkKey(seenDb);
+  if (!skKey) throw new Error('No Routstr session to refund.');
+
+  const res = await fetch(`${baseUrl}/balance/refund`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${skKey}` },
+  });
+
+  if (res.status === 402) {
+    logSpend(walletDb, 'routstr', 0, 0, 0, undefined, undefined, 'refund-empty');
+    return 0; // fully spent, nothing to refund — normal
+  }
+  if (!res.ok) throw new Error(`Refund failed: HTTP ${res.status}`);
+
+  const data = await res.json() as { token?: string };
+  if (!data.token) throw new Error(`Unexpected refund response: ${JSON.stringify(data)}`);
+
+  const { receivedSats } = await wallet.receiveToken(data.token);
+  logSpend(walletDb, 'routstr', 0, receivedSats, 0, undefined, undefined, 'refund');
+  return receivedSats;
+  // NOTE: sk-key intentionally NOT cleared
+}
+
+// --- Balance check ---
+
+export async function getRoutstrBalance(seenDb: Database, baseUrl: string): Promise<number> {
+  const skKey = getRoutstrSkKey(seenDb);
+  if (!skKey) throw new Error('No Routstr session key. Use !provider deposit <sats> first.');
+  const res = await fetch(`${baseUrl}/balance`, {
+    headers: { Authorization: `Bearer ${skKey}` },
+  });
+  if (!res.ok) throw new Error(`Balance check failed: HTTP ${res.status}`);
+  const data = await res.json() as { balance?: number; msats?: number };
+  // Routstr returns msats; convert to sats
+  const msats = data.msats ?? data.balance ?? 0;
+  return Math.floor(Number(msats) / 1000);
+}
+```
+
+---
+
+### `src/providers/factory.ts` — remove wallet, add seenDb
+
+The provider no longer needs `wallet` since all wallet operations happen outside of it (in auto-flow or commands directly):
+
+```typescript
+export type CreateProviderProps = {
+  name: ProviderName;
+  walletDb?: Database;
+  seenDb?: Database;
+  routstrBaseUrl?: string;
 };
 
-export type AnyWallet = {
-  name: string;
-  getInfo(): Promise<WalletInfo>;
-  // Deducts amountSats from stored proofs, returns an encoded token string.
-  // Throws InsufficientFundsError if balance is too low.
-  sendToken(amountSats: number): Promise<string>;
-  // Receives a token (refund/change) back into stored proofs.
-  receiveToken(encodedToken: string): Promise<{ receivedSats: number }>;
+export function createProvider(props: CreateProviderProps): AnyProvider {
+  if (props.name === 'routstr') {
+    if (!props.walletDb || !props.seenDb || !props.routstrBaseUrl) {
+      throw new Error('Routstr provider requires walletDb, seenDb, and routstrBaseUrl');
+    }
+    return createRoutstrProvider({
+      baseUrl: props.routstrBaseUrl,
+      walletDb: props.walletDb,
+      seenDb: props.seenDb,
+    });
+  }
+  return createLocalProvider();
+}
+```
+
+---
+
+### `src/wallets/factory.ts` — create this file (currently 404)
+
+```typescript
+import { createCashuWallet } from './cashu';
+import type { AnyWallet } from './types';
+
+export function createWallet(props: { mnemonic: string; mintUrl: string }): AnyWallet {
+  return createCashuWallet(props);
+}
+```
+
+---
+
+### `src/budget-annotation.ts` — new file
+
+```typescript
+const ANNOTATION_RE = /\s*!!(\d+)(?:sats?)?\s*$/i;
+
+export type ParsedPrompt = {
+  prompt: string;
+  budgetSats: number | null;
 };
 
-export class InsufficientFundsError extends Error {
-  constructor(public available: number, public required: number) {
-    super(`Insufficient funds: have ${available} sats, need ${required} sats`);
+export function parseBudgetAnnotation(input: string): ParsedPrompt {
+  const match = input.match(ANNOTATION_RE);
+  if (!match) return { prompt: input.trim(), budgetSats: null };
+  return {
+    prompt: input.slice(0, input.length - match[0].length).trimEnd(),
+    budgetSats: parseInt(match[1], 10),
+  };
+}
+```
+
+---
+
+### `src/index.ts` — main wiring
+
+**At startup (inside `main()`):**
+
+```typescript
+import { createCashuWallet } from './wallets/cashu';
+import { openWalletDb } from './wallet-db';
+import { createProvider } from './providers/factory';
+import { parseBudgetAnnotation } from './budget-annotation';
+import { depositOrTopup, refundRoutstr, NoRoutstrSessionError } from './providers/routstr';
+import { InsufficientFundsError } from './wallets/types';
+import {
+  getProviderName, getRoutstrBudget, getRoutstrSkKey,
+  getRoutstrMintUrl, getRoutstrModel,
+} from './db';
+
+// Mint comes from DB only — required for wallet ops
+const mintUrl = (): string | null => getRoutstrMintUrl(seenDb); // called lazily
+
+// Wallet — only created when mint is configured
+function getWallet(): AnyWallet | null {
+  const mint = mintUrl();
+  if (!config.cashuMnemonic || !mint) return null;
+  // Lazily constructed — could cache this if needed
+  return createCashuWallet({ mnemonic: config.cashuMnemonic, mintUrl: mint });
+}
+
+const walletDb = config.cashuMnemonic ? openWalletDb(config.cashuMnemonic) : undefined;
+
+// Provider: re-read from DB each call so !provider set takes effect without restart
+function getActiveProvider(): AnyProvider {
+  return createProvider({
+    name: getProviderName(seenDb),
+    walletDb,
+    seenDb,
+    routstrBaseUrl: config.routstrBaseUrl,
+  });
+}
+```
+
+**In `handleUserMessage`:**
+
+```typescript
+async function handleUserMessage(content: string, source: MessageSource): Promise<void> {
+  // 1. Parse inline budget annotation
+  const { prompt: effectiveContent, budgetSats: inlineBudget } = parseBudgetAnnotation(content);
+  const isAutoFlow = inlineBudget !== null && getProviderName(seenDb) === 'routstr';
+
+  // 2. Auto-flow: deposit/topup before run
+  if (isAutoFlow) {
+    const wallet = getWallet();
+    if (!wallet || !walletDb) {
+      await sendReplyForSource(source,
+        'Wallet not available. Set CASHU_MNEMONIC and use !wallet mint <url> to configure.');
+      return;
+    }
+    try {
+      const { wasNew } = await depositOrTopup({
+        wallet, seenDb, walletDb,
+        baseUrl: config.routstrBaseUrl,
+        amountSats: inlineBudget,
+      });
+      log(`Auto-flow: ${wasNew ? 'created session' : 'topped up'} with ${inlineBudget} sats`);
+    } catch (err) {
+      if (err instanceof InsufficientFundsError) {
+        await sendReplyForSource(source,
+          `Insufficient local balance: ${err.available} sats available, ${err.required} needed.\nTop up with: !wallet receive <token>`);
+      } else {
+        await sendReplyForSource(source, `Deposit failed: ${String(err)}`);
+      }
+      return;
+    }
+  }
+
+  // 3. Build provider env (reads sk-key from DB)
+  const provider = getActiveProvider();
+  let providerEnv: ProviderEnv = {};
+  try {
+    providerEnv = await provider.prepareRun({ budgetSats: inlineBudget ?? getRoutstrBudget(seenDb) });
+  } catch (err) {
+    if (err instanceof NoRoutstrSessionError) {
+      await sendReplyForSource(source, err.message);
+      return;
+    }
+    throw err;
+  }
+
+  // 4. Merge provider env into subprocess env
+  // providerEnv contains OPENAI_API_KEY=sk-... and OPENAI_BASE_URL=...
+  // opencode reads these via {env:OPENAI_API_KEY} in opencode.json
+  const runEnv = { ...agentEnv, ...providerEnv };
+
+  // 5. Inject routstr model if set (opencode understands "routstr/model-id" syntax)
+  const routstrModel = getRoutstrModel(seenDb);
+  if (routstrModel && getProviderName(seenDb) === 'routstr') {
+    runEnv['OPENCODE_MODEL'] = `routstr/${routstrModel}`;
+    // OR pass as --model flag — see opencode.ts change below
+  }
+
+  let success = false;
+  try {
+    // ... existing runAgentRound / lint / chunk / send logic
+    // key change: pass runEnv instead of agentEnv to runMessage
+    success = true;
+  } finally {
+    // 6. Auto-flow: always refund after run (whether success or failure)
+    if (isAutoFlow) {
+      const wallet = getWallet();
+      if (wallet && walletDb) {
+        try {
+          const recovered = await refundRoutstr({
+            wallet, seenDb, walletDb, baseUrl: config.routstrBaseUrl,
+          });
+          if (recovered > 0) log(`Auto-flow: recovered ${recovered} sats`);
+        } catch (err) {
+          log(`Auto-flow refund failed: ${String(err)}`);
+        }
+      }
+    }
+
+    await provider.finalizeRun(providerEnv, {
+      success,
+      sessionId,
+      promptPrefix: effectiveContent,
+      model: backend.modelName,
+    });
   }
 }
 ```
 
-### `src/wallets/cashu.ts`
+---
 
-Functional adaptation of your existing wallet script:
+### opencode.ts — model override for routstr
+
+The model override currently comes from `parseModel()` which reads `modelOverride` prop or `opencode.json`. For routstr runs we need to pass `--model routstr/<id>`. Add to the `runMessage` args in `opencode.ts`:
 
 ```typescript
-export type CreateCashuWalletProps = {
-  mnemonic: string;
-  mintUrl: string;
-};
-
-export function createCashuWallet({ mnemonic, mintUrl }: CreateCashuWalletProps): AnyWallet {
-  const db = openWalletDb(mnemonic);  // from wallet-db.ts
-
-  return {
-    name: 'cashu',
-
-    async getInfo() {
-      const proofs = loadProofs(db);
-      return { balanceSats: totalBalance(proofs) };
-    },
-
-    async sendToken(amountSats) {
-      const proofs = loadProofs(db);
-      if (totalBalance(proofs) < amountSats) {
-        throw new InsufficientFundsError(totalBalance(proofs), amountSats);
-      }
-      const wallet = await makeWallet(mnemonic, mintUrl, db);
-      const { keep, send } = await wallet.ops.send(amountSats, proofs).asDeterministic().run();
-      deleteProofs(db, proofs);
-      if (keep.length > 0) saveProofs(db, keep);
-      return getEncodedTokenV4({ mint: mintUrl, proofs: send, unit: 'sat' });
-    },
-
-    async receiveToken(encodedToken) {
-      const wallet = await makeWallet(mnemonic, mintUrl, db);
-      const newProofs = await wallet.ops.receive(encodedToken).asDeterministic().run();
-      saveProofs(db, newProofs);
-      return { receivedSats: totalBalance(newProofs) };
-    },
-  };
+// In runMessage, after building args:
+if (routstrModelOverride) {
+  args.push('--model', routstrModelOverride);
 }
 ```
 
-### `src/wallet-db.ts`
-
-Separate SQLite at `~/.cashu-wallet/<fingerprint>.db`. Tables: `proofs`, `counters`, `spend_log`. All the proof/counter helper functions from your script live here. Completely isolated from `src/db.ts`.
-
-```sql
-CREATE TABLE spend_log (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  ts            INTEGER NOT NULL,
-  provider      TEXT NOT NULL,
-  budget_sats   INTEGER NOT NULL,
-  refund_sats   INTEGER NOT NULL DEFAULT 0,
-  spent_sats    INTEGER NOT NULL,
-  model         TEXT,
-  session_id    TEXT,
-  prompt_prefix TEXT
-);
-```
-
-### `src/wallets/factory.ts`
+But cleaner: pass it as part of `RunMessageProps`. Add optional `modelOverride` to `RunMessageProps` in `types.ts`:
 
 ```typescript
-export type WalletName = 'cashu';
+export type RunMessageProps = {
+  sessionId: string;
+  content: string;
+  mode: AgentMode;
+  cwd: string;
+  env: Record<string, string | undefined>;
+  modelOverride?: string;  // ← new, used for routstr/model-id
+};
+```
 
-export function createWallet(name: WalletName, config: WalletConfig): AnyWallet
+In `opencode.ts`'s `runMessage`, append `--model` flag if provided:
+```typescript
+if (runMode_props.modelOverride) {
+  args.push('--model', runMode_props.modelOverride);
+}
+```
+
+In `index.ts`, when building the round, pass:
+```typescript
+modelOverride: (getProviderName(seenDb) === 'routstr' && routstrModel)
+  ? `routstr/${routstrModel}`
+  : undefined,
 ```
 
 ---
 
-## Phase 2: Provider Abstraction (`src/providers/`)
+### `src/commands.ts` — updated sections
 
-The provider is responsible for: preparing env vars for the backend subprocess, handling the payment lifecycle around each run, and recovering change.
-
-### `src/providers/types.ts`
+**`!wallet` — mint required, history filtered by mint:**
 
 ```typescript
-// Env vars the provider injects into the backend subprocess
-export type ProviderEnv = Record<string, string>;
+case 'wallet': {
+  const subcmd = args[0]?.toLowerCase();
 
-export type PrepareRunOptions = {
-  budgetSats?: number;
-};
+  // mint command doesn't need a wallet
+  if (subcmd === 'mint') {
+    const url = args[1];
+    if (!url) {
+      const current = getRoutstrMintUrl(db);
+      return current
+        ? `Current mint: ${current}`
+        : 'No mint configured. Use: !wallet mint <url>';
+    }
+    setRoutstrMintUrl(db, url);
+    return `Mint set to: ${url}`;
+  }
 
-export type FinalizeRunOptions = {
-  success: boolean;
-  sessionId?: string;
-  promptPrefix?: string;
-  model?: string;
-};
+  // All other wallet commands need mint + mnemonic
+  const mint = getRoutstrMintUrl(db);
+  if (!mint) return 'No mint configured. Set one with: !wallet mint <url>';
+  if (!config.cashuMnemonic) return 'CASHU_MNEMONIC not set.';
 
-export type AnyProvider = {
-  name: string;
-  // Called before each backend run. May mint a token, write opencode config, etc.
-  prepareRun(opts: PrepareRunOptions): Promise<ProviderEnv>;
-  // Called after each backend run (in a finally block). Handles change/refund.
-  finalizeRun(env: ProviderEnv, opts: FinalizeRunOptions): Promise<void>;
-  // Human-readable status for !provider status command
-  getStatus(): Promise<string>;
-};
+  const wallet = createCashuWallet({ mnemonic: config.cashuMnemonic, mintUrl: mint });
+
+  switch (subcmd) {
+    case 'balance': {
+      const { balanceSats } = await wallet.getInfo();
+      return `Wallet balance: ${balanceSats} sats (mint: ${mint})`;
+    }
+    case 'receive': {
+      const token = args[1];
+      if (!token) return 'Usage: !wallet receive <cashu-token>';
+      try {
+        const { receivedSats } = await wallet.receiveToken(token);
+        return `Received ${receivedSats} sats.`;
+      } catch (err) {
+        return `Failed to receive: ${String(err)}`;
+      }
+    }
+    case 'history': {
+      if (!walletDb) return 'Wallet DB not available.';
+      const history = getRecentSpendHistory(walletDb, 10);
+      if (history.length === 0) return 'No spend history yet.';
+      return history.map((h) => {
+        const date = new Date(h.ts).toISOString().slice(0, 16).replace('T', ' ');
+        return `${date} | ${h.provider} | budget: ${h.budget_sats} | refund: ${h.refund_sats} | spent: ${h.spent_sats}`;
+      }).join('\n');
+    }
+    default:
+      return 'Usage: !wallet mint [url] | balance | receive <token> | history';
+  }
+}
 ```
 
-### `src/providers/local.ts`
-
-Passthrough for current behaviour. `prepareRun` returns empty env (process env already has OPENAI_API_KEY etc). `finalizeRun` is a no-op. This is the default when `CASHU_MNEMONIC` is not set.
-
-### `src/providers/routstr.ts`
+**`!provider` — updated subcommands:**
 
 ```typescript
-export type CreateRoutstrProviderProps = {
-  wallet: AnyWallet;
-  baseUrl: string;
-  walletDb: Database;   // for spend_log writes
-};
-
-export function createRoutstrProvider(props: CreateRoutstrProviderProps): AnyProvider {
-  return {
-    name: 'routstr',
-
-    async prepareRun({ budgetSats = 2000 }) {
-      const { balanceSats } = await props.wallet.getInfo();
-
-      if (balanceSats < budgetSats) {
-        throw new InsufficientFundsError(balanceSats, budgetSats);
+case 'provider': {
+  switch (subcmd) {
+    case 'set': {
+      // validate + setProviderName as before
+      if (parsed.data === 'routstr') {
+        const mint = getRoutstrMintUrl(db);
+        const skKey = getRoutstrSkKey(db);
+        const lines = ['Provider set to: routstr'];
+        if (!mint) lines.push('⚠ No mint set — use !wallet mint <url>');
+        if (!config.cashuMnemonic) lines.push('⚠ CASHU_MNEMONIC not set');
+        lines.push(skKey
+          ? `Session key: ${skKey.slice(0, 16)}...`
+          : 'No session yet. Use !provider deposit <sats> or append !!<sats> to your prompt.');
+        return lines.join('\n');
       }
+      return 'Provider set to: local';
+    }
 
-      const token = await props.wallet.sendToken(budgetSats);
+    case 'deposit': {
+      const sats = parseInt(args[1], 10);
+      if (isNaN(sats) || sats <= 0) return 'Usage: !provider deposit <sats>';
 
-      // The raw cashu token is the API key for Routstr
-      return {
-        ROUTSTR_TOKEN: token,         // stash for finalizeRun
-        ROUTSTR_BUDGET: String(budgetSats),
-      };
-    },
+      const mint = getRoutstrMintUrl(db);
+      if (!mint) return 'No mint configured. Use !wallet mint <url> first.';
+      if (!config.cashuMnemonic) return 'CASHU_MNEMONIC not set.';
+      if (!walletDb) return 'Wallet DB not available.';
 
-    async finalizeRun(env, { success, sessionId, promptPrefix, model }) {
-      const token = env.ROUTSTR_TOKEN;
-      const budgetSats = Number(env.ROUTSTR_BUDGET);
-      let refundSats = 0;
+      const wallet = createCashuWallet({ mnemonic: config.cashuMnemonic, mintUrl: mint });
+      const { balanceSats } = await wallet.getInfo();
+      if (balanceSats < sats) {
+        return `Insufficient balance: ${balanceSats} sats available. Top up with !wallet receive <token>.`;
+      }
 
       try {
-        const res = await fetch(`${props.baseUrl}/balance/refund`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
+        const { skKey, wasNew } = await depositOrTopup({
+          wallet, seenDb: db, walletDb,
+          baseUrl: routstrBaseUrl ?? config.routstrBaseUrl,
+          amountSats: sats,
         });
-
-        if (res.status === 402) {
-          // Token fully exhausted — normal outcome, nothing to refund
-          log.info('Routstr: token fully consumed, no change to recover');
-        } else if (res.ok) {
-          const data = await res.json();
-          const refundToken: string = data.token ?? data.cashu_token ?? data.cashu;
-
-          if (refundToken) {
-            const { receivedSats } = await props.wallet.receiveToken(refundToken);
-            refundSats = receivedSats;
-            log.ok(`Routstr: recovered ${refundSats} sats change`);
-          }
-        } else {
-          log.warn(`Routstr: refund returned HTTP ${res.status}`);
-        }
-      } catch (e) {
-        log.warn(`Routstr: refund failed — ${e}. Unspent sats may be lost.`);
+        const action = wasNew ? 'Created new session' : 'Topped up existing session';
+        setProviderName(db, 'routstr');
+        return `${action} with ${sats} sats.\nSession: ${skKey.slice(0, 16)}...\nProvider set to routstr.`;
+      } catch (err) {
+        return `Deposit failed: ${String(err)}`;
       }
+    }
 
-      // Write spend log
-      const spentSats = Math.max(0, budgetSats - refundSats);
-      props.walletDb.run(
-        `INSERT INTO spend_log (ts, provider, budget_sats, refund_sats, spent_sats, model, session_id, prompt_prefix)
-         VALUES ($ts, 'routstr', $budget, $refund, $spent, $model, $session, $prompt)`,
-        {
-          $ts: Date.now(),
-          $budget: budgetSats,
-          $refund: refundSats,
-          $spent: spentSats,
-          $model: model ?? null,
-          $session: sessionId ?? null,
-          $prompt: promptPrefix?.slice(0, 80) ?? null,
-        }
-      );
-    },
+    case 'refund': {
+      const mint = getRoutstrMintUrl(db);
+      if (!mint) return 'No mint configured.';
+      if (!config.cashuMnemonic || !walletDb) return 'Wallet not configured.';
 
-    async getStatus() {
-      const { balanceSats } = await props.wallet.getInfo();
-      return `routstr | wallet: ${balanceSats} sats | base: ${props.baseUrl}`;
-    },
-  };
+      const wallet = createCashuWallet({ mnemonic: config.cashuMnemonic, mintUrl: mint });
+      try {
+        const sats = await refundRoutstr({
+          wallet, seenDb: db, walletDb,
+          baseUrl: routstrBaseUrl ?? config.routstrBaseUrl,
+        });
+        return sats === 0
+          ? 'Nothing to refund (session balance was 0).'
+          : `Refunded ${sats} sats to local wallet. Session key kept for future use.`;
+      } catch (err) {
+        return `Refund failed: ${String(err)}`;
+      }
+    }
+
+    case 'balance': {
+      try {
+        const sats = await getRoutstrBalance(db, routstrBaseUrl ?? config.routstrBaseUrl);
+        return `Routstr session balance: ${sats} sats`;
+      } catch (err) {
+        return `Balance check failed: ${String(err)}`;
+      }
+    }
+
+    case 'status': {
+      const name = getProviderName(db);
+      const skKey = getRoutstrSkKey(db);
+      const mint = getRoutstrMintUrl(db);
+      const model = getRoutstrModel(db);
+      const budget = getRoutstrBudget(db);
+      if (name !== 'routstr') return 'Provider: local | no payment';
+      return [
+        `Provider:       routstr`,
+        `Session key:    ${skKey ? skKey.slice(0, 16) + '...' : 'none'}`,
+        `Mint:           ${mint ?? 'not set (!wallet mint <url>)'}`,
+        `Default budget: ${budget} sats`,
+        `Model:          ${model ? `routstr/${model}` : 'backend default'}`,
+      ].join('\n');
+    }
+
+    case 'sync-models': {
+      // Refresh cache only — no file patching
+      try {
+        const models = await fetchRoutstrModels(routstrBaseUrl ?? config.routstrBaseUrl);
+        setCachedRoutstrModels(db, models);
+        return `Cached ${models.length} Routstr models.\nUse !models routstr [filter] to browse.`;
+      } catch (err) {
+        return `Failed to sync: ${String(err)}`;
+      }
+    }
+  }
 }
 ```
 
-**On 402 handling:** The 402 error body has shape `{ "error": { "type": "insufficient_balance", "code": "payment_required", "details": { "required": 154, "available": 100 } } }`. This can occur both mid-run (opencode gets a 402 back from Routstr, surfaces it as an API error in its output — the bot detects this in the final output string) and in `finalizeRun` (token already spent, 402 means no refund due — treated as normal).
-
-### `src/providers/factory.ts`
+**`!models` — add routstr with filter:**
 
 ```typescript
-export type ProviderName = 'local' | 'routstr';
+case 'models': {
+  const filterArg = args[0]?.toLowerCase();
+  const searchArg = args[1]?.toLowerCase();
 
-export function createProvider(name: ProviderName, deps: {
-  wallet?: AnyWallet;
-  walletDb?: Database;
-  routstrBaseUrl?: string;
-}): AnyProvider
+  if (filterArg === 'routstr') {
+    const baseUrl = routstrBaseUrl ?? config.routstrBaseUrl;
+    let models = getCachedRoutstrModels(db);
+
+    if (!models) {
+      // Auto-fetch and cache if not yet cached
+      try {
+        models = await fetchRoutstrModels(baseUrl);
+        setCachedRoutstrModels(db, models);
+      } catch (err) {
+        return `Failed to fetch Routstr models: ${String(err)}`;
+      }
+    }
+
+    const filtered = searchArg
+      ? models.filter((m) => m.id.toLowerCase().includes(searchArg))
+      : models;
+
+    if (filtered.length === 0) {
+      return searchArg
+        ? `No Routstr models matching "${searchArg}". Try !provider sync-models if cache is stale.`
+        : 'No Routstr models cached. Run !provider sync-models.';
+    }
+
+    const current = getRoutstrModel(db);
+    const lines = filtered.map((m) =>
+      m.id === current ? `* ${m.id}` : `  ${m.id}`
+    );
+    return `Routstr models${searchArg ? ` (filter: ${searchArg})` : ''}:\n${lines.join('\n')}`;
+  }
+
+  // Existing backend model listing (unchanged)
+  // ...
+}
+```
+
+**`!model` — support `routstr/<id>` prefix:**
+
+```typescript
+case 'model': {
+  const selected = args[0];
+
+  if (!selected) {
+    const routstrModel = getRoutstrModel(db);
+    const override = getModelOverride(db);
+    const lines = [];
+    if (routstrModel) lines.push(`Routstr model: routstr/${routstrModel}`);
+    lines.push(`General override: ${override ?? 'none (using backend config)'}`);
+    return lines.join('\n');
+  }
+
+  if (selected.toLowerCase() === 'reset') {
+    setModelOverride(db, null);
+    setRoutstrModel(db, null);
+    return 'All model overrides cleared.';
+  }
+
+  if (selected.toLowerCase().startsWith('routstr/')) {
+    const modelId = selected.slice('routstr/'.length);
+    if (!modelId) return 'Usage: !model routstr/<model-id>';
+    setRoutstrModel(db, modelId);
+    return `Routstr model set to: routstr/${modelId}\nOpencode will use this model on Routstr runs.`;
+  }
+
+  setModelOverride(db, selected);
+  return `Model override set to: ${selected}`;
+}
 ```
 
 ---
 
-## Phase 3: opencode.json Routstr Provider Config
+### `opencode.json` — one-time manual setup
 
-This is the key integration point. To make opencode route its API calls through Routstr, you register it as a custom `@ai-sdk/openai-compatible` provider in `opencode.json`, and the `apiKey` is set dynamically via an env var that the bot injects per-run.
-
-### Static part (committed to repo as `.opencode/opencode.json` or the project root `opencode.json`)
-
-The bot generates/merges this block into the opencode config. The models list is fetched once from `GET /v1/models` and cached. A `!provider sync-models` command can refresh it.
+Document this as a one-time user step. The bot sets `OPENAI_API_KEY` via env; opencode.json reads it:
 
 ```json
 {
@@ -284,179 +715,64 @@ The bot generates/merges this block into the opencode config. The models list is
   "provider": {
     "routstr": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Routstr (Cashu)",
+      "name": "Routstr",
       "options": {
         "baseURL": "https://api.routstr.com/v1",
-        "apiKey": "{env:ROUTSTR_API_KEY}"
+        "apiKey": "{env:OPENAI_API_KEY}"
       },
-      "models": {
-        "gpt-4o": {
-          "name": "GPT-4o (Routstr)",
-          "limit": { "context": 128000, "output": 16384 }
-        },
-        "gpt-4o-mini": {
-          "name": "GPT-4o Mini (Routstr)",
-          "limit": { "context": 128000, "output": 16384 }
-        },
-        "claude-sonnet-4-20250514": {
-          "name": "Claude Sonnet 4 (Routstr)",
-          "limit": { "context": 200000, "output": 64000 }
-        }
-        // ... more models from /v1/models at sync time
-      }
+      "models": {}
     }
+  },
+  "agent": {
+    "ask":   { "model": "routstr/gpt-4o-mini" },
+    "plan":  { "model": "routstr/gpt-4o-mini" },
+    "agent": { "model": "routstr/gpt-4o-mini" }
   }
 }
 ```
 
-### Dynamic part — per-run env injection
+The `models: {}` is intentionally empty — opencode only needs the provider block for auth. After `!models routstr gemini` the user finds the model ID they want, then `!model routstr/that-model-id` sets it, and the bot passes `--model routstr/that-model-id` as a CLI flag, which overrides the config-file default.
 
-`prepareRun` returns `{ ROUTSTR_API_KEY: cashuToken, ROUTSTR_TOKEN: cashuToken, ROUTSTR_BUDGET: '2000' }`. The backend merges this into the subprocess env. opencode reads `{env:ROUTSTR_API_KEY}` from the config and uses the fresh cashu token as the API key for that session. No need to rewrite the JSON file on every run — the env var approach handles it cleanly.
+---
 
-### `src/providers/routstr-models.ts` — model sync helper
+### Updated `!help` text
 
-```typescript
-export type RoutstrModel = {
-  id: string;
-  name?: string;
-  context_length?: number;
-};
+```
+!wallet mint [url]           — show/set default Cashu mint (required for wallet ops)
+!wallet balance              — show local wallet balance
+!wallet receive <token>      — receive a Cashu token into local wallet
+!wallet history              — recent spend history
 
-// Fetch available models from Routstr (no auth needed for /v1/models)
-export async function fetchRoutstrModels(baseUrl: string): Promise<RoutstrModel[]> {
-  const res = await fetch(`${baseUrl}/models`);
-  if (!res.ok) throw new Error(`/v1/models returned ${res.status}`);
-  const data = await res.json();
-  return data.data ?? data.models ?? [];
-}
+!provider set [local|routstr] — switch payment provider
+!provider deposit <sats>      — fund/topup Routstr session from local wallet
+!provider refund              — recover unspent Routstr balance to local wallet
+!provider balance             — check remaining Routstr session balance (in sats)
+!provider budget <sats>       — set default budget (used when no !!sats in prompt)
+!provider status              — show provider, session, mint, model, budget
+!provider sync-models         — refresh Routstr model cache (valid 24h)
 
-// Generate the opencode.json provider block for routstr
-export function buildRoutstrProviderConfig(models: RoutstrModel[]): object {
-  const modelEntries = Object.fromEntries(
-    models.map((m) => [
-      m.id,
-      {
-        name: `${m.id} (Routstr)`,
-        ...(m.context_length ? { limit: { context: m.context_length, output: 16384 } } : {}),
-      },
-    ])
-  );
+!models routstr [filter]      — list Routstr models, optional text filter
+!model routstr/<id>           — set model for Routstr runs
+!model reset                  — clear all model overrides
 
-  return {
-    routstr: {
-      npm: '@ai-sdk/openai-compatible',
-      name: 'Routstr (Cashu)',
-      options: {
-        baseURL: 'https://api.routstr.com/v1',
-        apiKey: '{env:ROUTSTR_API_KEY}',
-      },
-      models: modelEntries,
-    },
-  };
-}
-
-// Merge routstr block into existing opencode.json without clobbering other providers
-export function patchOpencodeConfig(configPath: string, routstrBlock: object): void { ... }
+Inline budget: append !!<sats> to any prompt for auto deposit+refund
+  e.g. "fix the login bug !!2000sats"
 ```
 
 ---
 
-## Phase 4: Wiring into `index.ts`
+## Files Summary
 
-The change to `handleUserMessage` is minimal. Before calling `runAgentRound`, the provider prepares env; after, it finalizes (in `finally`):
-
-```typescript
-// In handleUserMessage, wrap the runAgentRound calls:
-
-const budgetSats = getRoutstrBudget(seenDb);  // from DB setting
-let providerEnv: ProviderEnv = {};
-
-try {
-  providerEnv = await provider.prepareRun({ budgetSats });
-} catch (e) {
-  if (e instanceof InsufficientFundsError) {
-    await sendReplyForSource(source, `Wallet balance too low. Have ${e.available} sats, need ${e.required} sats. Top up with: !wallet receive <cashuXXX>`);
-    return;
-  }
-  throw e;
-}
-
-const runEnv = { ...agentEnv, ...providerEnv };
-
-try {
-  const result = await runAgentRound(content, ..., runEnv);
-  // ... existing chunk/send logic
-  await provider.finalizeRun(providerEnv, { success: true, sessionId, promptPrefix: content, model: modelName });
-} catch (err) {
-  await provider.finalizeRun(providerEnv, { success: false, sessionId });
-  throw err;
-}
-```
-
----
-
-## Phase 5: DB Settings
-
-Add to `src/db.ts` (bot's existing seenDb):
-
-- `provider_name` — `'local'` | `'routstr'`, default `'local'`
-- `routstr_budget_sats` — integer, default `2000`
-- `routstr_base_url` — text, default `'https://api.routstr.com/v1'`
-
-Getter/setter helpers follow the existing pattern used for `getDefaultMode`, `getAgentBackend`, etc.
-
----
-
-## Phase 6: Bang Commands
-
-Remove `!provider model` (handled by opencode.json agent config). Add:
-
-| Command | Description |
-|---|---|
-| `!wallet balance` | Show local Cashu balance in sats |
-| `!wallet receive <cashuXXX>` | Manually top-up wallet |
-| `!wallet history` | Last 10 entries from spend_log |
-| `!provider set routstr` | Switch to Routstr (requires `CASHU_MNEMONIC`) |
-| `!provider set local` | Switch back to local provider |
-| `!provider budget <sats>` | Set per-run spending cap |
-| `!provider status` | Show provider name, balance, base URL |
-| `!provider sync-models` | Fetch `/v1/models` and patch opencode.json |
-
----
-
-## Phase 7: Environment & Config
-
-### `.env` additions
-```
-CASHU_MNEMONIC="word1 word2 ..."
-CASHU_MINT_URL="https://mint.minibits.cash/Bitcoin"   # or your preferred mainnet mint
-ROUTSTR_BASE_URL="https://api.routstr.com/v1"
-```
-
-### `src/env.ts` additions
-```typescript
-cashuMnemonic: process.env.CASHU_MNEMONIC ?? null,
-cashuMintUrl:  process.env.CASHU_MINT_URL ?? 'https://testnut.cashu.space',
-routstrBaseUrl: process.env.ROUTSTR_BASE_URL ?? 'https://api.routstr.com/v1',
-```
-
-Wallet is only instantiated if `CASHU_MNEMONIC` is set. If `provider_name` is `'routstr'` but `CASHU_MNEMONIC` is missing, the bot logs a warning at startup and falls back to `'local'`. Wallet balance appears in the startup status lines.
-
----
-
-## Implementation Order
-
-1. **`src/wallets/types.ts` + `src/wallet-db.ts` + `src/wallets/cashu.ts`** — pure refactor of your existing wallet script, zero external dependencies
-2. **`src/providers/types.ts` + `src/providers/local.ts` + `src/providers/factory.ts`** — skeleton; local is a no-op passthrough
-3. **Refactor `index.ts`** to call `provider.prepareRun`/`finalizeRun` using the local passthrough — behaviour is identical but the seam is in place
-4. **`src/providers/routstr-models.ts`** — model fetching and opencode.json patching (testable independently with a `curl` to `/v1/models`)
-5. **`src/providers/routstr.ts`** — implement with real Routstr testing; verify the refund endpoint shape before coding the response parsing
-6. **DB settings** — `getRoutstrBudget`, `getProviderName`, setters
-7. **`!wallet` and `!provider` bang commands**
-8. **Spend log writes** in `finalizeRun` and `!wallet history` reader
-
----
-
-## Open Question Before Coding
-
-The one thing to verify manually before Phase 5: does `POST /v1/balance/refund` with `Authorization: Bearer <cashu_token>` (using the raw token, not a `sk-...` key) work, and what exact JSON key does it return the change token under? The docs show `sk-7f8e9d...` as the Bearer token for the refund call, while the homepage shows sending the raw `cashuA1...` token directly as the Bearer value. These two patterns may behave differently. Run a quick `curl` test against `api.routstr.com` with a small real token to confirm the exact refund flow before writing the `finalizeRun` implementation.
+| File | Action | Key change |
+|---|---|---|
+| `src/db.ts` | edit | Add `sk_key`, `mint_url`, `routstr_model`, model cache helpers |
+| `src/providers/routstr.ts` | rewrite | `depositOrTopup` (create vs topup), `refundRoutstr` (no sk clear), `getRoutstrBalance`; provider reads sk from DB |
+| `src/providers/factory.ts` | edit | Remove `wallet`, add `seenDb` |
+| `src/wallets/factory.ts` | **create** | Thin wrapper around `createCashuWallet` |
+| `src/budget-annotation.ts` | **create** | `parseBudgetAnnotation` |
+| `src/backends/types.ts` | edit | Add `modelOverride?: string` to `RunMessageProps` |
+| `src/backends/opencode.ts` | edit | Pass `--model` flag when `modelOverride` is set |
+| `src/commands.ts` | edit | `!wallet mint`, `!provider deposit/refund/balance/sync-models`, `!models routstr [filter]`, `!model routstr/...` |
+| `src/index.ts` | edit | Instantiate wallet/walletDb, `getActiveProvider()`, `parseBudgetAnnotation`, auto-flow wrapping |
+| `src/env.ts` | fix | `BOT_RELAYS` → `BOT_MASTER_PUBKEY` bug |
+| `opencode.json` | manual doc | One-time provider block + agent model config |

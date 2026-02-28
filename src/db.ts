@@ -32,6 +32,11 @@ export const STATE_WORKSPACE_TARGET = 'workspace_target';
 export const STATE_MODEL_OVERRIDE = 'model_override';
 export const STATE_PROVIDER_NAME = 'provider_name';
 export const STATE_ROUTSTR_BUDGET_SATS = 'routstr_budget_sats';
+export const STATE_ROUTSTR_SK_KEY = 'routstr_sk_key';
+export const STATE_ROUTSTR_MINT_URL = 'routstr_mint_url';
+export const STATE_ROUTSTR_MODEL = 'routstr_model';
+export const STATE_ROUTSTR_MODELS_CACHE = 'routstr_models_cache';
+export const STATE_ROUTSTR_MODELS_CACHE_TS = 'routstr_models_cache_ts';
 
 export const DEFAULT_MODE: AgentMode = 'ask';
 export const DEFAULT_BACKEND: AgentBackendName = 'cursor';
@@ -188,4 +193,55 @@ export function getRoutstrBudget(db: Database): number {
 
 export function setRoutstrBudget(db: Database, budgetSats: number): void {
   setState(db, STATE_ROUTSTR_BUDGET_SATS, String(budgetSats));
+}
+
+export function getRoutstrSkKey(db: Database): string | null {
+  return getState(db, STATE_ROUTSTR_SK_KEY);
+}
+
+export function setRoutstrSkKey(db: Database, key: string): void {
+  setState(db, STATE_ROUTSTR_SK_KEY, key);
+}
+
+export function getRoutstrMintUrl(db: Database): string | null {
+  return getState(db, STATE_ROUTSTR_MINT_URL);
+}
+
+export function setRoutstrMintUrl(db: Database, url: string): void {
+  setState(db, STATE_ROUTSTR_MINT_URL, url);
+}
+
+export function getRoutstrModel(db: Database): string | null {
+  return getState(db, STATE_ROUTSTR_MODEL);
+}
+
+export function setRoutstrModel(db: Database, model: string | null): void {
+  if (model === null) {
+    db.run('DELETE FROM state WHERE key = ?', [STATE_ROUTSTR_MODEL]);
+  } else {
+    setState(db, STATE_ROUTSTR_MODEL, model);
+  }
+}
+
+export type RoutstrModelCache = {
+  id: string;
+  name?: string;
+  context_length?: number;
+}[];
+
+export function getCachedRoutstrModels(db: Database): RoutstrModelCache | null {
+  const ts = Number(getState(db, STATE_ROUTSTR_MODELS_CACHE_TS) ?? '0');
+
+  if (Date.now() - ts > 86_400_000) {
+    return null;
+  }
+
+  const raw = getState(db, STATE_ROUTSTR_MODELS_CACHE);
+
+  return raw ? (JSON.parse(raw) as RoutstrModelCache) : null;
+}
+
+export function setCachedRoutstrModels(db: Database, models: RoutstrModelCache): void {
+  setState(db, STATE_ROUTSTR_MODELS_CACHE, JSON.stringify(models));
+  setState(db, STATE_ROUTSTR_MODELS_CACHE_TS, String(Date.now()));
 }
