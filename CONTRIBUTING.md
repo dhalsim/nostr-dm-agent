@@ -5,6 +5,7 @@
 After cloning, run this once to enable the version bump hook:
 
 ```bash
+chmod +x scripts/commit-msg scripts/post-commit
 git config --include.path=.gitconfig
 ```
 

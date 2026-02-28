@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const gitDir = path.join(__dirname, '..');
+
+const commitMsgFile = process.argv[2];
+let commitMsg = fs.readFileSync(commitMsgFile, 'utf8');
+
+const versionMatch = commitMsg.match(/--(major|minor|patch)/i);
+if (!versionMatch) process.exit(0);
+
+const bumpType = versionMatch[1].toLowerCase();
+
+// Save bump type for post-commit hook
+fs.writeFileSync(path.join(gitDir, '.git', '.version-bump-type'), bumpType + '\n');
+
+// Clean the flag from the message
+const cleanMsg = commitMsg.replace(/--(major|minor|patch)/i, '').trim();
+fs.writeFileSync(commitMsgFile, cleanMsg + '\n');

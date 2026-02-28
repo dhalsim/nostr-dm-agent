@@ -8,19 +8,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.join(__dirname, '..');
 
-// Get the commit message file path
-const commitMsgFile = process.argv[2];
+const tmpFile = path.join(projectRoot, '.git', '.version-bump-type');
+if (!fs.existsSync(tmpFile)) process.exit(0);
 
-// Read the raw commit message
-let commitMsg = fs.readFileSync(commitMsgFile, 'utf8');
+const bumpType = fs.readFileSync(tmpFile, 'utf8').trim();
+fs.unlinkSync(tmpFile);
 
-// Check for version bump flag
-const versionMatch = commitMsg.match(/--(major|minor|patch)/i);
-if (!versionMatch) process.exit(0);
-
-const bumpType = versionMatch[1].toLowerCase();
-
-// --- Bump version in package.json ---
 const pkgPath = path.join(projectRoot, 'package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
@@ -33,15 +26,7 @@ else newVersion = `${major}.${minor}.${patch + 1}`;
 pkg.version = newVersion;
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 
-// Stage the updated package.json
 execSync('git add package.json', { stdio: 'inherit' });
-
-// Clean the flag from the commit message
-const cleanMsg = commitMsg.replace(/--(major|minor|patch)/i, '').trim();
-fs.writeFileSync(commitMsgFile, cleanMsg + '\n');
-
-// Amend the in-progress commit to include package.json
 execSync('git commit --amend --no-edit --no-verify', { stdio: 'inherit' });
 
 console.log(`✅ Version bumped to ${newVersion} and included in this commit.`);
-console.log(`📝 Commit message: "${cleanMsg}"`);
