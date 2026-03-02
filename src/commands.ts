@@ -33,7 +33,7 @@ import {
   STATE_CURRENT_SESSION,
 } from './db';
 import type { BotConfig } from './env';
-import { C, assertUnreachable } from './logger';
+import { C, assertUnreachable, log } from './logger';
 import type { ProviderDb } from './providers/db';
 import { depositOrTopup, refundRoutstr, getRoutstrBalance } from './providers/routstr';
 import { fetchRoutstrModels } from './providers/routstr-models';
@@ -545,7 +545,8 @@ export async function handleBangCommand({
           }
 
           const { token, fee } = await currentWallet.sendToken(amount);
-          const message = `Sent ${amount} sats to mint ${mint} as token ${token}.`;
+
+          log.info(`Sent ${amount} sats to mint ${mint}.`);
 
           logWalletOperation(walletDb, {
             ts: null,
@@ -556,7 +557,7 @@ export async function handleBangCommand({
             token,
           });
 
-          return `${message} (token: ${token})`;
+          return token;
         }
 
         case 'history': {
@@ -575,13 +576,19 @@ export async function handleBangCommand({
               const date = new Date(h.ts).toISOString().slice(0, 16).replace('T', ' ');
               const shortMint = h.mint_url.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-              return `${date} | ${h.operation} | ${shortMint} | ${h.amount} sats`;
+              let message = `${date} | ${h.operation} | ${shortMint} | ${h.amount} sats | ${h.fee} sats fee`;
+
+              if (args[1] === '--token') {
+                message += `\n${h.token}`;
+              }
+
+              return message;
             })
             .join('\n');
         }
 
         default:
-          return 'Usage: !wallet mint [url] | balance | receive <token> | send <amount> | history';
+          return 'Usage: !wallet mint [url] | balance | receive <token> | send <amount> | history [--token]';
       }
     }
 
