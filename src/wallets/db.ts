@@ -66,7 +66,7 @@ export function openWalletDb(mnemonic: string): WalletDb {
       ts        INTEGER NOT NULL, -- unix milliseconds
       mint_url  TEXT NOT NULL,
       operation TEXT NOT NULL CHECK(operation IN ('in', 'out')),
-      amount    INTEGER NOT NULL
+      amount    INTEGER NOT NULL,
       fee       INTEGER NOT NULL,
       token     TEXT NOT NULL
     )
