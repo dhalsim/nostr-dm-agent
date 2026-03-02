@@ -11,7 +11,7 @@ const commitMsgFile = process.argv[2];
 let commitMsg = fs.readFileSync(commitMsgFile, 'utf8');
 
 const versionMatch = commitMsg.match(/--(major|minor|patch)/i);
-if (!versionMatch) process.exit(0);
+if (!versionMatch) process.exit(1);
 
 const bumpType = versionMatch[1].toLowerCase();
 

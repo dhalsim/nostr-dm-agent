@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.join(__dirname, '..');
 
 const tmpFile = path.join(projectRoot, '.git', '.version-bump-type');
-if (!fs.existsSync(tmpFile)) process.exit(0);
+if (!fs.existsSync(tmpFile)) process.exit(1);
 
 const bumpType = fs.readFileSync(tmpFile, 'utf8').trim();
 fs.unlinkSync(tmpFile);
@@ -30,3 +30,8 @@ execSync('git add package.json', { stdio: 'inherit' });
 execSync('git commit --amend --no-edit --no-verify', { stdio: 'inherit' });
 
 console.log(`✅ Version bumped to ${newVersion} and included in this commit.`);
+
+// delete the tmp file
+fs.unlinkSync(tmpFile);
+
+process.exit(0);
