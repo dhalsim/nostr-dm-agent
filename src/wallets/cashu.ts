@@ -1,16 +1,19 @@
-import { getDecodedToken, getEncodedToken } from '@cashu/cashu-ts';
-import type { Database } from 'bun:sqlite';
+import type { OperationCounters } from '@cashu/cashu-ts';
+import { getDecodedToken, getEncodedToken, Wallet } from '@cashu/cashu-ts';
+import * as bip39 from '@scure/bip39';
 
+import { debug, log } from '../logger';
+
+import type { WalletDb } from './db';
 import {
   loadProofs,
   saveProofs,
   deleteProofs,
   totalBalance,
   openWalletDb,
-  type Proof,
-} from '../wallet-db';
-
-import type { AnyWallet } from './types';
+  loadCounters,
+  persistCounter,
+} from './db';
 import { InsufficientFundsError, type WalletInfo } from './types';
 
 export type CreateCashuWalletProps = {
@@ -18,249 +21,133 @@ export type CreateCashuWalletProps = {
   mintUrl: string;
 };
 
-async function getKeyset(mintUrl: string): Promise<string> {
-  const res = await fetch(`${mintUrl}/keys`);
+export class CashuWallet {
+  readonly mnemonic: string;
+  readonly mintUrl: string;
+  readonly db: WalletDb;
+  readonly seed: Uint8Array;
 
-  if (!res.ok) {
-    throw new Error(`Failed to fetch mint keys: ${res.status}`);
+  constructor({ mnemonic, mintUrl }: CreateCashuWalletProps) {
+    this.mnemonic = mnemonic;
+    this.mintUrl = mintUrl;
+    this.db = openWalletDb(mnemonic);
+    this.seed = bip39.mnemonicToSeedSync(mnemonic);
   }
 
-  const data = await res.json();
+  async getWallet(): Promise<Wallet> {
+    const counters = loadCounters(this.db);
 
-  return data.keysets?.[0] ?? data.id ?? 'primary';
-}
+    const wallet = new Wallet(this.mintUrl, {
+      unit: 'sat',
+      bip39seed: this.seed,
+      counterInit: counters,
+    });
 
-async function _requestMint(
-  mintUrl: string,
-  amount: number,
-): Promise<{ pr: string; hash: string }> {
-  const res = await fetch(`${mintUrl}/mint`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount }),
-  });
+    await wallet.loadMint();
 
-  if (!res.ok) {
-    throw new Error(`Mint request failed: ${res.status}`);
+    return wallet;
   }
 
-  return res.json();
-}
+  async getBalanceByMint(): Promise<WalletInfo> {
+    const proofs = loadProofs(this.db, this.mintUrl);
 
-async function _mintQuote(
-  mintUrl: string,
-  amount: number,
-): Promise<{ request: string; quote: string }> {
-  const res = await fetch(`${mintUrl}/mint/quote`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount, unit: 'sat' }),
-  });
+    log.info(`Total balance on mint ${this.mintUrl}: ${totalBalance(proofs)} sats`);
 
-  if (!res.ok) {
-    throw new Error(`Mint quote failed: ${res.status}`);
-  }
+    const byKeyset: Record<string, { count: number; sats: number }> = {};
+    for (const p of proofs) {
+      if (!byKeyset[p.id]) {
+        byKeyset[p.id] = { count: 0, sats: 0 };
+      }
 
-  return res.json();
-}
-
-async function _meltTokens(
-  mintUrl: string,
-  proofs: Proof[],
-): Promise<{ pr: string; signature: string | null }> {
-  const res = await fetch(`${mintUrl}/melt`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ proofs }),
-  });
-
-  if (!res.ok) {
-    throw new Error(`Melt failed: ${res.status}`);
-  }
-
-  return res.json();
-}
-
-async function splitProofs(
-  mintUrl: string,
-  proofs: Proof[],
-  amount: number,
-): Promise<{ keep: Proof[]; send: Proof[] }> {
-  const res = await fetch(`${mintUrl}/split`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ proofs, amount }),
-  });
-
-  if (!res.ok) {
-    throw new Error(`Split failed: ${res.status}`);
-  }
-
-  const data = await res.json();
-
-  const keep = (data.keep ?? []).map(
-    (p: { id: string; amount: number; secret: string; C: string }) => ({
-      id: p.id,
-      amount: p.amount,
-      secret: p.secret,
-      C: p.C,
-      mint: mintUrl,
-      updatedAt: Date.now(),
-    }),
-  );
-
-  const send = (data.send ?? []).map(
-    (p: { id: string; amount: number; secret: string; C: string }) => ({
-      id: p.id,
-      amount: p.amount,
-      secret: p.secret,
-      C: p.C,
-      mint: mintUrl,
-      updatedAt: Date.now(),
-    }),
-  );
-
-  return { keep, send };
-}
-
-export function createCashuWallet({ mnemonic, mintUrl }: CreateCashuWalletProps): AnyWallet {
-  let db: Database | null = null;
-
-  const getDb = (): Database => {
-    if (!db) {
-      db = openWalletDb(mnemonic);
+      byKeyset[p.id].count++;
+      byKeyset[p.id].sats += p.amount;
     }
 
-    return db;
-  };
+    for (const [id, info] of Object.entries(byKeyset)) {
+      log.info(`  keyset ${id}: ${info.count} proof(s) = ${info.sats} sats`);
+    }
 
-  return {
-    name: 'cashu',
+    return { balanceSats: totalBalance(proofs) };
+  }
 
-    async getInfo(): Promise<WalletInfo> {
-      const proofs = loadProofs(getDb());
+  async sendToken(amountSats: number): Promise<string> {
+    const proofs = loadProofs(this.db, this.mintUrl);
+    const balance = totalBalance(proofs);
 
-      return { balanceSats: totalBalance(proofs) };
-    },
+    if (balance < amountSats) {
+      throw new InsufficientFundsError(balance, amountSats);
+    }
 
-    async sendToken(amountSats: number): Promise<string> {
-      const proofs = loadProofs(getDb());
-      const balance = totalBalance(proofs);
+    log.info(`Sending ${amountSats} sats from ${balance} sats balance`);
 
-      if (balance < amountSats) {
-        throw new InsufficientFundsError(balance, amountSats);
-      }
+    const wallet = await this.getWallet();
 
-      await getKeyset(mintUrl);
+    const { keep, send } = await wallet.ops.send(amountSats, proofs).asDeterministic().run();
 
-      const sortedProofs = [...proofs].sort((a, b) => a.amount - b.amount);
-      const selected: Proof[] = [];
-      let selectedTotal = 0;
+    wallet.on.countersReserved((op: OperationCounters) => {
+      log.info(`countersReserved event fired:`);
 
-      for (const proof of sortedProofs) {
-        if (selectedTotal >= amountSats) {
-          break;
-        }
+      persistCounter(this.db, op);
+    });
 
-        selected.push(proof);
-        selectedTotal += proof.amount;
-      }
+    deleteProofs(this.db, proofs);
 
-      const overspend = selectedTotal - amountSats;
-      let keep: Proof[] = [];
-      let send: Proof[] = selected;
+    if (keep.length > 0) {
+      saveProofs(this.db, this.mintUrl, keep);
+    }
 
-      if (overspend > 0) {
-        const splitResult = await splitProofs(mintUrl, selected, amountSats);
-        keep = splitResult.keep;
-        send = splitResult.send;
-      }
+    const encoded = getEncodedToken({
+      mint: this.mintUrl,
+      proofs: send,
+      unit: 'sat',
+    });
 
-      deleteProofs(getDb(), proofs);
+    return encoded;
+  }
 
-      if (keep.length > 0) {
-        saveProofs(getDb(), keep);
-      }
+  decodeToken(encodedToken: string): string {
+    const decoded = getDecodedToken(encodedToken);
 
-      const encoded = getEncodedToken({
-        token: [
-          {
-            mint: mintUrl,
-            proofs: send.map((p) => ({
-              id: p.id,
-              amount: p.amount,
-              secret: p.secret,
-              C: p.C,
-            })),
-          },
-        ],
-      } as unknown as Parameters<typeof getEncodedToken>[0]);
+    if (!decoded) {
+      throw new Error('Invalid token: no token data');
+    }
 
-      return encoded;
-    },
+    return `Decoded token: ${JSON.stringify(decoded, null, 2)}`;
+  }
 
-    async receiveToken(encodedToken: string): Promise<{ receivedSats: number }> {
-      const decoded = getDecodedToken(encodedToken);
+  async receiveToken(encodedToken: string): Promise<{ receivedSats: number }> {
+    const decoded = getDecodedToken(encodedToken);
 
-      const tokenData = (
-        decoded as unknown as {
-          token?: Array<{
-            mint?: string;
-            proofs?: Array<{ id: string; amount: number; secret: string; C: string }>;
-          }>;
-        }
-      ).token;
+    if (!decoded) {
+      throw new Error('Invalid token: no token data');
+    }
 
-      if (!tokenData || tokenData.length === 0) {
-        throw new Error('Invalid token: no token data');
-      }
+    if (decoded.mint !== this.mintUrl) {
+      debug('Invalid token: mint URL mismatch', decoded.mint, this.mintUrl);
 
-      const newProofs: Proof[] = [];
+      throw new Error('Invalid token: mint URL mismatch');
+    }
 
-      for (const token of tokenData) {
-        const mint = token.mint ?? mintUrl;
+    if (decoded.unit !== 'sat') {
+      throw new Error('Invalid token: unit is not sat');
+    }
 
-        const proofsToSend =
-          token.proofs?.map((p) => ({
-            id: p.id,
-            amount: p.amount,
-            secret: p.secret,
-            C: p.C,
-            mint,
-            updatedAt: Date.now(),
-          })) ?? [];
+    if (decoded.proofs.length === 0) {
+      throw new Error('Invalid token: no proofs');
+    }
 
-        const res = await fetch(`${mintUrl}/check`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ proofs: proofsToSend }),
-        });
+    const wallet = await this.getWallet();
 
-        if (!res.ok) {
-          continue;
-        }
+    const newProofs = await wallet.ops.receive(encodedToken).asDeterministic().run();
 
-        const data = await res.json();
-        const validProofs = (data.valid ?? []).filter((p: { valid: boolean }) => p.valid);
+    wallet.on.countersReserved((op: OperationCounters) => {
+      log.info(`countersReserved event fired:`);
 
-        for (const p of validProofs) {
-          newProofs.push({
-            id: p.id,
-            amount: p.amount,
-            secret: p.secret,
-            C: p.C,
-            mint,
-            updatedAt: Date.now(),
-          });
-        }
-      }
+      persistCounter(this.db, op);
+    });
 
-      if (newProofs.length > 0) {
-        const existingProofs = loadProofs(getDb());
-        saveProofs(getDb(), [...existingProofs, ...newProofs]);
-      }
+    saveProofs(this.db, this.mintUrl, newProofs);
 
-      return { receivedSats: totalBalance(newProofs) };
-    },
-  };
+    return { receivedSats: totalBalance(newProofs) };
+  }
 }

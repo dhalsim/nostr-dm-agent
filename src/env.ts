@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 import { delimiter } from 'path';
 
-import { logError } from './logger';
+import { log } from './logger';
 
 export type BotConfig = {
   botKeyHex: string;
@@ -14,7 +14,7 @@ export type BotConfig = {
   localCliEnabled: boolean;
   opencodeServeUrl: string | null;
   cashuMnemonic: string | null;
-  cashuMintUrl: string;
+  cashuDefaultMintUrl: string | null;
   routstrBaseUrl: string;
 };
 
@@ -22,7 +22,7 @@ export function requireEnv(name: string): string {
   const val = process.env[name];
 
   if (!val) {
-    logError(`Missing required env: ${name}`);
+    log.error(`Missing required env: ${name}`);
     process.exit(1);
   }
 
@@ -62,7 +62,8 @@ export function loadBotConfig(): BotConfig {
   const relayUrls = parseRelayUrls(requireEnv('BOT_RELAYS'));
 
   if (relayUrls.length === 0) {
-    logError('BOT_RELAYS must contain at least one relay URL (comma-separated)');
+    log.error('BOT_RELAYS must contain at least one relay URL (comma-separated)');
+
     process.exit(1);
   }
 
@@ -75,7 +76,7 @@ export function loadBotConfig(): BotConfig {
     localCliEnabled: (process.env.BOT_LOCAL_CLI ?? '1') !== '0',
     opencodeServeUrl: process.env.BOT_OPENCODE_SERVE_URL ?? null,
     cashuMnemonic: process.env.CASHU_MNEMONIC ?? null,
-    cashuMintUrl: process.env.CASHU_MINT_URL ?? 'https://testnut.cashu.space',
+    cashuDefaultMintUrl: process.env.CASHU_DEFAULT_MINT_URL ?? null,
     routstrBaseUrl: process.env.ROUTSTR_BASE_URL ?? 'https://api.routstr.com/v1',
   };
 }

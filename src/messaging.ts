@@ -8,7 +8,7 @@ import type { SimplePool } from 'nostr-tools/pool';
 import type { AgentRunResult } from './backends/types';
 import type { AgentMode } from './db';
 import { ensureWss } from './env';
-import { C, debug, log, logError } from './logger';
+import { C, debug, log } from './logger';
 
 export const CHUNK_MAX = 4200;
 export const CHUNK_DELAY_BASE_MS = 1500;
@@ -156,7 +156,7 @@ export async function sendDm({
           : String(x.r.reason)
         : 'unknown';
 
-    logError(`Publish failed on relay ${x.relay}: ${reason}`);
+    log.error(`Publish failed on relay ${x.relay}: ${String(reason)}`);
   }
 
   if (successCount === 0) {
@@ -179,6 +179,6 @@ export async function sendDm({
     process.stdout.write(`\n${sentLine}\n`);
     redrawPrompt();
   } else {
-    log(sentLine);
+    log.info(sentLine);
   }
 }

@@ -33,10 +33,10 @@ export const STATE_MODEL_OVERRIDE = 'model_override';
 export const STATE_PROVIDER_NAME = 'provider_name';
 export const STATE_ROUTSTR_BUDGET_SATS = 'routstr_budget_sats';
 export const STATE_ROUTSTR_SK_KEY = 'routstr_sk_key';
-export const STATE_ROUTSTR_MINT_URL = 'routstr_mint_url';
 export const STATE_ROUTSTR_MODEL = 'routstr_model';
 export const STATE_ROUTSTR_MODELS_CACHE = 'routstr_models_cache';
 export const STATE_ROUTSTR_MODELS_CACHE_TS = 'routstr_models_cache_ts';
+export const STATE_CASHU_DEFAULT_MINT_URL = 'cashu_default_mint_url';
 
 export const DEFAULT_MODE: AgentMode = 'ask';
 export const DEFAULT_BACKEND: AgentBackendName = 'cursor';
@@ -45,7 +45,11 @@ export const DEFAULT_WORKSPACE_TARGET: WorkspaceTarget = 'parent';
 export const DEFAULT_PROVIDER: ProviderName = 'local';
 export const DEFAULT_ROUTSTR_BUDGET_SATS = 2000;
 
-export function openSeenDb(): Database {
+type Brand<T, B> = T & { readonly __brand: B };
+
+export type SeenDb = Brand<Database, 'SeenDb'>;
+
+export function openSeenDb(): SeenDb {
   const db = new Database(SEEN_DB_PATH);
   db.run('CREATE TABLE IF NOT EXISTS seen_events (id TEXT PRIMARY KEY)');
 
@@ -76,20 +80,20 @@ export function openSeenDb(): Database {
 
   db.run('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT)');
 
-  return db;
+  return db as SeenDb;
 }
 
-export function alreadyHaveEvent(db: Database): (id: string) => boolean {
+export function alreadyHaveEvent(db: SeenDb): (id: string) => boolean {
   const stmt = db.prepare('SELECT 1 FROM seen_events WHERE id = ?');
 
   return (id: string) => stmt.get(id) !== null;
 }
 
-export function markSeen(db: Database, id: string): void {
+export function markSeen(db: SeenDb, id: string): void {
   db.run('INSERT OR IGNORE INTO seen_events (id) VALUES (?)', [id]);
 }
 
-export function getState(db: Database, key: string): string | null {
+export function getState(db: SeenDb, key: string): string | null {
   const row = db.prepare('SELECT value FROM state WHERE key = ?').get(key) as
     | { value: string }
     | undefined;
@@ -97,11 +101,11 @@ export function getState(db: Database, key: string): string | null {
   return row?.value ?? null;
 }
 
-export function setState(db: Database, key: string, value: string): void {
+export function setState(db: SeenDb, key: string, value: string): void {
   db.run('INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)', [key, value]);
 }
 
-export function getDefaultMode(db: Database): AgentMode {
+export function getDefaultMode(db: SeenDb): AgentMode {
   const v = getState(db, STATE_DEFAULT_MODE);
   const parsed = AgentModeSchema.safeParse(v);
 
@@ -124,45 +128,45 @@ export function getDefaultMode(db: Database): AgentMode {
   }
 }
 
-export function setDefaultMode(db: Database, mode: AgentMode): void {
+export function setDefaultMode(db: SeenDb, mode: AgentMode): void {
   setState(db, STATE_DEFAULT_MODE, mode);
 }
 
-export function getAgentBackend(db: Database): AgentBackendName {
+export function getAgentBackend(db: SeenDb): AgentBackendName {
   const v = getState(db, STATE_AGENT_BACKEND);
 
   return AgentBackendNameSchema.safeParse(v).data ?? DEFAULT_BACKEND;
 }
 
-export function setAgentBackend(db: Database, backend: AgentBackendName): void {
+export function setAgentBackend(db: SeenDb, backend: AgentBackendName): void {
   setState(db, STATE_AGENT_BACKEND, backend);
 }
 
-export function getReplyTransport(db: Database): ReplyTransport {
+export function getReplyTransport(db: SeenDb): ReplyTransport {
   const v = getState(db, STATE_REPLY_TRANSPORT);
 
   return ReplyTransportSchema.safeParse(v).data ?? DEFAULT_REPLY_TRANSPORT;
 }
 
-export function setReplyTransport(db: Database, transport: ReplyTransport): void {
+export function setReplyTransport(db: SeenDb, transport: ReplyTransport): void {
   setState(db, STATE_REPLY_TRANSPORT, transport);
 }
 
-export function getWorkspaceTarget(db: Database): WorkspaceTarget {
+export function getWorkspaceTarget(db: SeenDb): WorkspaceTarget {
   const v = getState(db, STATE_WORKSPACE_TARGET);
 
   return WorkspaceTargetSchema.safeParse(v).data ?? DEFAULT_WORKSPACE_TARGET;
 }
 
-export function setWorkspaceTarget(db: Database, target: WorkspaceTarget): void {
+export function setWorkspaceTarget(db: SeenDb, target: WorkspaceTarget): void {
   setState(db, STATE_WORKSPACE_TARGET, target);
 }
 
-export function getModelOverride(db: Database): string | null {
+export function getModelOverride(db: SeenDb): string | null {
   return getState(db, STATE_MODEL_OVERRIDE);
 }
 
-export function setModelOverride(db: Database, model: string | null): void {
+export function setModelOverride(db: SeenDb, model: string | null): void {
   if (model === null) {
     db.run('DELETE FROM state WHERE key = ?', [STATE_MODEL_OVERRIDE]);
   } else {
@@ -170,17 +174,17 @@ export function setModelOverride(db: Database, model: string | null): void {
   }
 }
 
-export function getProviderName(db: Database): ProviderName {
+export function getProviderName(db: SeenDb): ProviderName {
   const v = getState(db, STATE_PROVIDER_NAME);
 
   return ProviderNameSchema.safeParse(v).data ?? DEFAULT_PROVIDER;
 }
 
-export function setProviderName(db: Database, name: ProviderName): void {
+export function setProviderName(db: SeenDb, name: ProviderName): void {
   setState(db, STATE_PROVIDER_NAME, name);
 }
 
-export function getRoutstrBudget(db: Database): number {
+export function getRoutstrBudget(db: SeenDb): number {
   const v = getState(db, STATE_ROUTSTR_BUDGET_SATS);
   const parsed = z.coerce.number().safeParse(v);
 
@@ -191,31 +195,31 @@ export function getRoutstrBudget(db: Database): number {
   return parsed.data;
 }
 
-export function setRoutstrBudget(db: Database, budgetSats: number): void {
+export function setRoutstrBudget(db: SeenDb, budgetSats: number): void {
   setState(db, STATE_ROUTSTR_BUDGET_SATS, String(budgetSats));
 }
 
-export function getRoutstrSkKey(db: Database): string | null {
+export function getRoutstrSkKey(db: SeenDb): string | null {
   return getState(db, STATE_ROUTSTR_SK_KEY);
 }
 
-export function setRoutstrSkKey(db: Database, key: string): void {
+export function setRoutstrSkKey(db: SeenDb, key: string): void {
   setState(db, STATE_ROUTSTR_SK_KEY, key);
 }
 
-export function getRoutstrMintUrl(db: Database): string | null {
-  return getState(db, STATE_ROUTSTR_MINT_URL);
+export function getWalletDefaultMintUrl(db: SeenDb): string | null {
+  return getState(db, STATE_CASHU_DEFAULT_MINT_URL);
 }
 
-export function setRoutstrMintUrl(db: Database, url: string): void {
-  setState(db, STATE_ROUTSTR_MINT_URL, url);
+export function setWalletDefaultMintUrl(db: SeenDb, url: string): void {
+  setState(db, STATE_CASHU_DEFAULT_MINT_URL, url);
 }
 
-export function getRoutstrModel(db: Database): string | null {
+export function getRoutstrModel(db: SeenDb): string | null {
   return getState(db, STATE_ROUTSTR_MODEL);
 }
 
-export function setRoutstrModel(db: Database, model: string | null): void {
+export function setRoutstrModel(db: SeenDb, model: string | null): void {
   if (model === null) {
     db.run('DELETE FROM state WHERE key = ?', [STATE_ROUTSTR_MODEL]);
   } else {
@@ -229,7 +233,7 @@ export type RoutstrModelCache = {
   context_length?: number;
 }[];
 
-export function getCachedRoutstrModels(db: Database): RoutstrModelCache | null {
+export function getCachedRoutstrModels(db: SeenDb): RoutstrModelCache | null {
   const ts = Number(getState(db, STATE_ROUTSTR_MODELS_CACHE_TS) ?? '0');
 
   if (Date.now() - ts > 86_400_000) {
@@ -241,7 +245,7 @@ export function getCachedRoutstrModels(db: Database): RoutstrModelCache | null {
   return raw ? (JSON.parse(raw) as RoutstrModelCache) : null;
 }
 
-export function setCachedRoutstrModels(db: Database, models: RoutstrModelCache): void {
+export function setCachedRoutstrModels(db: SeenDb, models: RoutstrModelCache): void {
   setState(db, STATE_ROUTSTR_MODELS_CACHE, JSON.stringify(models));
   setState(db, STATE_ROUTSTR_MODELS_CACHE_TS, String(Date.now()));
 }

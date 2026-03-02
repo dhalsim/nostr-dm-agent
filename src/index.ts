@@ -12,11 +12,12 @@
  *   BOT_LOCAL_CLI           - Set to 0 to disable local terminal input (default: 1)
  *   BOT_AGENT_PATH          - Override PATH for locating agent binaries
  *   BOT_OPENCODE_SERVE_URL  - Attach to a running opencode server (e.g. http://localhost:4096)
+ *   CASHU_DEFAULT_MINT_URL  - Default Cashu mint URL to use for auto-flow
  *
  * Restart: when using watch, touch restart.requested in this directory to restart the bot.
  */
 
-import { existsSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import readline from 'readline';
 
@@ -28,6 +29,7 @@ import { getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import { hexToBytes } from 'nostr-tools/utils';
 
 import { createBackend } from './backends/factory';
+import { parseBudgetAnnotation } from './budget-annotation';
 import { getStatusLines, handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
 import {
   openSeenDb,
@@ -40,10 +42,12 @@ import {
   getModelOverride,
   getProviderName,
   getRoutstrBudget,
+  getWalletDefaultMintUrl,
+  getRoutstrModel,
 } from './db';
 import { loadBotConfig } from './env';
 import { runPostAgentLint, formatLintSummary } from './lint';
-import { C, debug, log, logError } from './logger';
+import { C, debug, log } from './logger';
 import {
   sleep,
   chunkMessage,
@@ -55,11 +59,16 @@ import {
 } from './messaging';
 import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
 import { createProvider } from './providers/factory';
+import { depositOrTopup, refundRoutstr, NoRoutstrSessionError } from './providers/routstr';
 import type { ProviderEnv } from './providers/types';
 import { getOrCreateCurrentSession, insertSessionMessage } from './session';
-import { openWalletDb } from './wallet-db';
-import { createCashuWallet } from './wallets/cashu';
+import { CashuWallet } from './wallets/cashu';
+import { openWalletDb } from './wallets/db';
 import { InsufficientFundsError } from './wallets/types';
+
+type Either<A, B> = { type: 'left'; value: A } | { type: 'right'; value: B };
+const left = <A>(value: A): Either<A, never> => ({ type: 'left', value });
+const right = <B>(value: B): Either<never, B> => ({ type: 'right', value });
 
 const POST_AGENT_LINT_PROMPT_PREFIX = '[Post-edit lint feedback]';
 
@@ -87,7 +96,7 @@ function main() {
     localCliEnabled,
     opencodeServeUrl,
     cashuMnemonic,
-    cashuMintUrl,
+    cashuDefaultMintUrl,
     routstrBaseUrl,
   } = config;
 
@@ -97,7 +106,8 @@ function main() {
   const botPubkey = botPubkeyFromEnv ?? getPublicKey(botSecretKey);
 
   if (botPubkeyFromEnv && botPubkey !== botPubkeyFromEnv) {
-    logError('Bot pubkey mismatch. Expected:', botPubkeyFromEnv, 'Got:', botPubkey);
+    log.error(`Bot pubkey mismatch. Expected: ${botPubkeyFromEnv}, Got: ${botPubkey}`);
+
     process.exit(1);
   }
 
@@ -105,34 +115,37 @@ function main() {
 
   const seenDb = openSeenDb();
 
-  let wallet: ReturnType<typeof createCashuWallet> | undefined;
-  let walletDb: ReturnType<typeof openWalletDb> | undefined;
-  let provider: ReturnType<typeof createProvider> | undefined;
+  const walletDb = cashuMnemonic ? openWalletDb(cashuMnemonic) : null;
 
-  if (cashuMnemonic) {
-    try {
-      wallet = createCashuWallet({ mnemonic: cashuMnemonic, mintUrl: cashuMintUrl });
-      walletDb = openWalletDb(cashuMnemonic);
-      log(`Cashu wallet initialized (${cashuMintUrl})`);
-    } catch (err) {
-      logError('Failed to initialize Cashu wallet:', err);
+  function getWallet(): Either<string, CashuWallet> {
+    if (!cashuMnemonic) {
+      return left('Run `npm run wallet:setup` to configure your wallet.');
     }
+
+    const mint = getWalletDefaultMintUrl(seenDb) ?? cashuDefaultMintUrl;
+
+    if (!mint) {
+      return left('No mint is set. Set one with: !wallet mint <url>');
+    }
+
+    return right(new CashuWallet({ mnemonic: cashuMnemonic, mintUrl: mint }));
+  }
+
+  function getActiveProvider() {
+    return createProvider({
+      name: getProviderName(seenDb),
+      walletDb,
+      seenDb,
+      routstrBaseUrl,
+    });
   }
 
   const providerName = getProviderName(seenDb);
 
-  if (providerName === 'routstr' && wallet && walletDb) {
-    provider = createProvider({
-      name: 'routstr',
-      wallet,
-      walletDb,
-      routstrBaseUrl,
-    });
-
-    log(`Provider: routstr (budget: ${getRoutstrBudget(seenDb)} sats)`);
+  if (providerName === 'routstr') {
+    log.info(`Provider: routstr (budget: ${getRoutstrBudget(seenDb)} sats)`);
   } else {
-    provider = createProvider({ name: 'local' });
-    log('Provider: local (no payment)');
+    log.info('Provider: local (no payment)');
   }
 
   const workspaceRoot = join(dmBotRoot, '..');
@@ -142,13 +155,9 @@ function main() {
     PATH: agentPath,
   };
 
-  const versionProc = spawnSync(['git', 'rev-parse', 'HEAD'], {
-    cwd: workspaceRoot,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-
-  const VERSION = versionProc.stdout?.toString().trim() ?? 'unknown';
+  const packageJson = readFileSync(join(dmBotRoot, 'package.json'), 'utf-8');
+  const packageJsonData = JSON.parse(packageJson) as { version: string };
+  const VERSION = packageJsonData.version;
 
   const signAuthEvent = async (authTemplate: EventTemplate): Promise<VerifiedEvent> => {
     debug('Signing AUTH challenge event:', authTemplate);
@@ -156,8 +165,8 @@ function main() {
     return finalizeEvent(authTemplate, botSecretKey);
   };
 
-  log(`${C.bold}Bot pubkey:${C.reset} ${botPubkey}`);
-  log(`${C.bold}Master:${C.reset} ${masterPubkey}`);
+  log.info(`${C.bold}Bot pubkey:${C.reset} ${botPubkey}`);
+  log.info(`${C.bold}Master:${C.reset} ${masterPubkey}`);
 
   const statusLines = getStatusLines({
     relayUrls,
@@ -168,10 +177,10 @@ function main() {
   });
 
   for (const line of statusLines) {
-    log(line);
+    log.info(line);
   }
 
-  log('');
+  log.sep();
 
   const pwdOutput =
     spawnSync(['pwd'], { stdout: 'pipe', stderr: 'pipe' }).stdout.toString().trim() ?? '(failed)';
@@ -186,7 +195,7 @@ function main() {
     message: `Agent is ready.`,
     signAuthEvent,
     redrawPrompt,
-  }).catch((err) => logError('Failed to send ready DM:', err));
+  }).catch((err) => log.error(`Failed to send ready DM: ${String(err)}`));
 
   const dmFilter = {
     kinds: [1059] as number[],
@@ -201,7 +210,7 @@ function main() {
     const shouldBypassNostr = source === 'local' || replyTransport === 'local';
 
     if (shouldBypassNostr) {
-      log(`${C.white}[bot]${C.reset}\n${message}`);
+      log.info(`${C.white}[bot]${C.reset}\n${message}`);
 
       return;
     }
@@ -234,9 +243,9 @@ function main() {
       source === 'local' ? `${C.white}local${C.reset}` : `${C.magenta}master${C.reset}`;
 
     const isLocal = source === 'local' || getReplyTransport(seenDb) === 'local';
-    log('\n-------------------\n');
-    log(`[${sourceLabel}] ${content}`);
-    log('');
+    log.sep();
+    log.info(`[${sourceLabel}] ${content}`);
+    log.sep();
 
     if (content.trim().startsWith('!')) {
       const reply = await handleBangCommand({
@@ -249,10 +258,9 @@ function main() {
         agentEnv,
         attachUrl: opencodeServeUrl,
         backend,
-        wallet,
         walletDb,
-        provider,
         routstrBaseUrl,
+        config,
       });
 
       if (reply === EXIT_COMMAND_SENTINEL) {
@@ -260,12 +268,12 @@ function main() {
 
         await sendReplyForSource(source, ack);
 
-        log('Exit command received. Shutting down dm-bot.');
+        log.warn('Exit command received. Shutting down dm-bot.');
         process.exit(0);
       } else if (reply) {
         await sendReplyForSource(source, reply);
       } else if (source === 'local') {
-        log(`${C.white}[bot]${C.reset}\n${C.dim}Command applied.${C.reset}`);
+        log.info(`${C.white}[bot]${C.reset}\n${C.dim}Command applied.${C.reset}`);
       }
 
       return;
@@ -284,12 +292,67 @@ function main() {
 
     insertSessionMessage(seenDb, sessionId, 'user', content);
 
+    const { prompt: effectiveContent, budgetSats: inlineBudget } = parseBudgetAnnotation(content);
+    const isAutoFlow = inlineBudget !== null && getProviderName(seenDb) === 'routstr';
+
+    const provider = getActiveProvider();
     let providerEnv: ProviderEnv = {};
-    const budgetSats = getRoutstrBudget(seenDb);
+
+    if (isAutoFlow) {
+      if (!walletDb) {
+        await sendReplyForSource(
+          source,
+          'Wallet not available. Run `npm run wallet:setup` to configure your wallet.',
+        );
+
+        return;
+      }
+
+      const wallet = getWallet();
+
+      if (wallet.type === 'left') {
+        await sendReplyForSource(source, wallet.value);
+
+        return;
+      }
+
+      try {
+        const { wasNew } = await depositOrTopup({
+          wallet: wallet.value,
+          seenDb,
+          walletDb,
+          baseUrl: routstrBaseUrl,
+          amountSats: inlineBudget,
+        });
+
+        log.warn(
+          `Auto-flow: ${wasNew ? 'created session' : 'topped up'} with ${inlineBudget} sats`,
+        );
+      } catch (err) {
+        if (err instanceof InsufficientFundsError) {
+          await sendReplyForSource(
+            source,
+            `Insufficient local balance: ${err.available} sats available, ${err.required} needed.\nTop up with: !wallet receive <token>`,
+          );
+        } else {
+          await sendReplyForSource(source, `Deposit failed: ${String(err)}`);
+        }
+
+        return;
+      }
+    }
 
     try {
-      providerEnv = await provider!.prepareRun({ budgetSats });
+      providerEnv = await provider.prepareRun({
+        budgetSats: inlineBudget ?? getRoutstrBudget(seenDb),
+      });
     } catch (e) {
+      if (e instanceof NoRoutstrSessionError) {
+        await sendReplyForSource(source, e.message);
+
+        return;
+      }
+
       if (e instanceof InsufficientFundsError) {
         await sendReplyForSource(
           source,
@@ -303,17 +366,24 @@ function main() {
     }
 
     const runAgentRound = async (roundContent: string, startLog: string) => {
-      log(startLog);
+      log.info(startLog);
 
       const modelOverride = getModelOverride(seenDb);
       const backendName = getAgentBackend(seenDb);
+      const routstrModel = getRoutstrModel(seenDb);
+      const activeProviderName = getProviderName(seenDb);
+
+      const finalModelOverride =
+        activeProviderName === 'routstr' && routstrModel
+          ? `routstr/${routstrModel}`
+          : (modelOverride ?? undefined);
 
       const roundBackend = createBackend({
         name: backendName,
         dmBotRoot,
         mode,
         attachUrl: opencodeServeUrl,
-        modelOverride,
+        modelOverride: finalModelOverride,
       });
 
       return roundBackend.runMessage({
@@ -322,12 +392,13 @@ function main() {
         mode,
         cwd,
         env: agentEnv,
+        modelOverride: finalModelOverride,
       });
     };
 
     try {
       const initialResult = await runAgentRound(
-        content,
+        effectiveContent,
         `${C.dim}Starting ${backend.name} agent (${mode})…${C.reset}\n`,
       );
 
@@ -356,12 +427,12 @@ function main() {
               finalOutput = `${finalOutput}\n\n${fixResult.output}`;
               finalResult = fixResult;
             } catch (lintFollowupErr) {
-              logError('Lint follow-up agent process error:', lintFollowupErr);
+              log.error(`Lint follow-up agent process error: ${String(lintFollowupErr)}`);
               finalOutput = `${finalOutput}\n\nAutomatic lint-fix round failed: ${String(lintFollowupErr)}`;
             }
           }
         } else {
-          logError(
+          log.error(
             `Skipping post-agent lint: npm run lint is unavailable in this runtime for ${lintLabel}.`,
           );
         }
@@ -376,8 +447,8 @@ function main() {
       if (!isErrorResponse) {
         insertSessionMessage(seenDb, sessionId, 'assistant', finalOutput);
       } else {
-        logError(`${C.red}[bot] Error response — not stored in session history.${C.reset}`);
-        logError(finalOutput);
+        log.error(`${C.red}[bot] Error response — not stored in session history.${C.reset}`);
+        log.error(finalOutput);
       }
 
       const prefix = modePrefix(mode, isLocal);
@@ -397,7 +468,7 @@ function main() {
           await sendReplyForSource(source, chunk);
         } catch (e) {
           const targetLabel = source === 'local' ? 'local output' : 'DM chunk';
-          logError(`Failed to send ${targetLabel}:`, e);
+          log.error(`Failed to send ${targetLabel}: ${String(e)}`);
         }
 
         if (hasNextChunk) {
@@ -406,23 +477,49 @@ function main() {
         }
       }
     } catch (err) {
-      logError(`${C.red}Agent process error:${C.reset}`, err);
+      log.error(`${C.red}Agent process error:${C.reset} ${String(err)}`);
 
       sendReplyForSource(source, `<${mode}> Error: ${String(err)}`).catch((e) =>
-        logError('Failed to send error reply:', e),
+        log.error(`Failed to send error reply: ${String(e)}`),
       );
     } finally {
-      await provider!.finalizeRun(providerEnv, {
+      if (isAutoFlow) {
+        if (walletDb) {
+          const wallet = getWallet();
+
+          if (wallet.type === 'right') {
+            const recovered = await refundRoutstr({
+              wallet: wallet.value,
+              seenDb,
+              walletDb,
+              baseUrl: routstrBaseUrl,
+            });
+
+            if (recovered > 0) {
+              log.warn(`Auto-flow: recovered ${recovered} sats`);
+            }
+          } else {
+            await sendReplyForSource(source, wallet.value);
+          }
+        } else {
+          await sendReplyForSource(
+            source,
+            "Wallet not available. Auto-flow won't run. `npm run wallet:setup` to configure your wallet.",
+          );
+        }
+      }
+
+      await provider.finalizeRun(providerEnv, {
         success: true,
         sessionId,
-        promptPrefix: content,
+        promptPrefix: effectiveContent,
       });
     }
   }
 
   if (localCliEnabled && process.stdin.isTTY) {
     const startLocalCli = () => {
-      log(
+      log.info(
         `${C.dim}Type a prompt or ${C.reset}${C.white}!help${C.reset}${C.dim} to list commands.${C.reset}\n`,
       );
 
@@ -447,13 +544,13 @@ function main() {
 
         localQueue = localQueue
           .then(() => handleUserMessage(input, 'local'))
-          .catch((err) => logError('Local CLI message processing failed:', err))
+          .catch((err) => log.error(`Local CLI message processing failed: ${String(err)}`))
           .finally(() => localCli.prompt());
       });
 
       localCli.on('close', () => {
         redrawPrompt = null;
-        log('Local terminal chat closed. Nostr DM listener continues running.');
+        log.ok('Local terminal chat closed. Nostr DM listener continues running.');
       });
 
       localCli.prompt();
@@ -491,6 +588,8 @@ function main() {
         if (getReplyTransport(seenDb) === 'local') {
           markSeen(seenDb, wrap.id);
           debug('Reply transport is local; ignoring incoming Nostr message.');
+
+          redrawPrompt?.();
 
           return;
         }

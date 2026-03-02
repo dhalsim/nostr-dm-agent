@@ -1,15 +1,15 @@
-import type { Database } from 'bun:sqlite';
-
-import { getRoutstrSkKey } from '../db';
-import { logSpend } from '../wallet-db';
-import type { AnyWallet } from '../wallets/types';
+import type { SeenDb } from '../db';
+import { getRoutstrSkKey, getWalletDefaultMintUrl } from '../db';
+import type { CashuWallet } from '../wallets/cashu';
+import type { WalletDb } from '../wallets/db';
+import { logSpend } from '../wallets/db';
 
 import type { AnyProvider, ProviderEnv, PrepareRunOptions, FinalizeRunOptions } from './types';
 
 export type CreateRoutstrProviderProps = {
   baseUrl: string;
-  walletDb: Database;
-  seenDb: Database;
+  walletDb: WalletDb;
+  seenDb: SeenDb;
 };
 
 export class NoRoutstrSessionError extends Error {
@@ -38,7 +38,19 @@ export function createRoutstrProvider(props: CreateRoutstrProviderProps): AnyPro
     },
 
     async finalizeRun(_env: ProviderEnv, opts: FinalizeRunOptions): Promise<void> {
-      logSpend(props.walletDb, 'routstr', 0, 0, 0, opts.model, opts.sessionId, opts.promptPrefix);
+      const mintUrl = getWalletDefaultMintUrl(props.seenDb) ?? 'unknown';
+
+      logSpend(
+        props.walletDb,
+        'routstr',
+        mintUrl,
+        0,
+        0,
+        0,
+        opts.model,
+        opts.sessionId,
+        opts.promptPrefix,
+      );
     },
 
     async getStatus(): Promise<string> {
@@ -50,9 +62,9 @@ export function createRoutstrProvider(props: CreateRoutstrProviderProps): AnyPro
 }
 
 export async function depositOrTopup(props: {
-  wallet: AnyWallet;
-  seenDb: Database;
-  walletDb: Database;
+  wallet: CashuWallet;
+  seenDb: SeenDb;
+  walletDb: WalletDb;
   baseUrl: string;
   amountSats: number;
 }): Promise<{ skKey: string; wasNew: boolean }> {
@@ -112,9 +124,12 @@ export async function depositOrTopup(props: {
     throw err;
   }
 
+  const mintUrl = getWalletDefaultMintUrl(seenDb) ?? 'unknown';
+
   logSpend(
     walletDb,
     'routstr',
+    mintUrl,
     amountSats,
     0,
     amountSats,
@@ -127,13 +142,14 @@ export async function depositOrTopup(props: {
 }
 
 export async function refundRoutstr(props: {
-  wallet: AnyWallet;
-  seenDb: Database;
-  walletDb: Database;
+  wallet: CashuWallet;
+  seenDb: SeenDb;
+  walletDb: WalletDb;
   baseUrl: string;
 }): Promise<number> {
   const { wallet, seenDb, walletDb, baseUrl } = props;
   const skKey = getRoutstrSkKey(seenDb);
+  const mintUrl = getWalletDefaultMintUrl(seenDb) ?? 'unknown';
 
   if (!skKey) {
     throw new Error('No Routstr session to refund.');
@@ -145,7 +161,7 @@ export async function refundRoutstr(props: {
   });
 
   if (res.status === 402) {
-    logSpend(walletDb, 'routstr', 0, 0, 0, undefined, undefined, 'refund-empty');
+    logSpend(walletDb, 'routstr', mintUrl, 0, 0, 0, undefined, undefined, 'refund-empty');
 
     return 0;
   }
@@ -161,12 +177,12 @@ export async function refundRoutstr(props: {
   }
 
   const { receivedSats } = await wallet.receiveToken(data.token);
-  logSpend(walletDb, 'routstr', 0, receivedSats, 0, undefined, undefined, 'refund');
+  logSpend(walletDb, 'routstr', mintUrl, 0, receivedSats, 0, undefined, undefined, 'refund');
 
   return receivedSats;
 }
 
-export async function getRoutstrBalance(seenDb: Database, baseUrl: string): Promise<number> {
+export async function getRoutstrBalance(seenDb: SeenDb, baseUrl: string): Promise<number> {
   const skKey = getRoutstrSkKey(seenDb);
 
   if (!skKey) {

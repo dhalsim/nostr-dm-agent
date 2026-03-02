@@ -1,4 +1,5 @@
-import type { Database } from 'bun:sqlite';
+import type { SeenDb } from '../db';
+import type { WalletDb } from '../wallets/db';
 
 import { createLocalProvider } from './local';
 import { createRoutstrProvider } from './routstr';
@@ -6,8 +7,8 @@ import type { AnyProvider, ProviderName } from './types';
 
 export type CreateProviderProps = {
   name: ProviderName;
-  walletDb?: Database;
-  seenDb?: Database;
+  walletDb: WalletDb | null;
+  seenDb: SeenDb | null;
   routstrBaseUrl?: string;
 };
 

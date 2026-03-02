@@ -33,14 +33,39 @@ export function debug(msg: string, ...args: unknown[]): void {
   }
 }
 
-export function log(msg: string, ...args: unknown[]): void {
-  if (LOG_ENABLED) {
-    console.log(msg, ...args);
-  }
-}
+export const log = {
+  info: (msg: string) => {
+    if (LOG_ENABLED) {
+      console.log(`  [info]  ${msg}`);
+    }
+  },
+  ok: (msg: string) => {
+    if (LOG_ENABLED) {
+      console.log(`  [✓]     ${msg}`);
+    }
+  },
+  warn: (msg: string) => {
+    if (LOG_ENABLED) {
+      console.log(`  [warn]  ${msg}`);
+    }
+  },
+  error: (msg: string) => {
+    if (LOG_ENABLED) {
+      console.error(`  [✗]     ${msg}`);
+    }
+  },
+  sep: () => {
+    if (LOG_ENABLED) {
+      console.log('─'.repeat(60));
+    }
+  },
+  title: (msg: string) => {
+    log.sep();
 
-export function logError(msg: string, ...args: unknown[]): void {
-  if (LOG_ENABLED) {
-    console.error(msg, ...args);
-  }
-}
+    if (LOG_ENABLED) {
+      console.log(`  ${msg}`);
+    }
+
+    log.sep();
+  },
+};
