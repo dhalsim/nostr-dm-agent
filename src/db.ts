@@ -4,7 +4,6 @@
 import { Database } from 'bun:sqlite';
 import { z } from 'zod';
 
-import type { BotConfig } from './env';
 import { assertUnreachable } from './logger';
 import { SEEN_DB_PATH, RESTART_REQUESTED_PATH } from './paths';
 
@@ -224,8 +223,8 @@ export function setRoutstrSkKey(db: SeenDb, key: string): void {
   setState(db, STATE_ROUTSTR_SK_KEY, key);
 }
 
-export function getWalletDefaultMintUrl(db: SeenDb, config: BotConfig): string | null {
-  return getState(db, STATE_CASHU_DEFAULT_MINT_URL) ?? config.cashuDefaultMintUrl;
+export function getWalletDefaultMintUrl(db: SeenDb, defaultMintUrl: string | null): string | null {
+  return getState(db, STATE_CASHU_DEFAULT_MINT_URL) ?? defaultMintUrl;
 }
 
 export function setWalletDefaultMintUrl(db: SeenDb, url: string): void {
@@ -250,7 +249,10 @@ export type RoutstrModelCache = {
   context_length?: number;
 }[];
 
-export function getCachedRoutstrModels(db: SeenDb): RoutstrModelCache | null {
+export function getCachedRoutstrModels(db: SeenDb): {
+  models: RoutstrModelCache;
+  ts: number;
+} | null {
   const ts = Number(getState(db, STATE_ROUTSTR_MODELS_CACHE_TS) ?? '0');
 
   if (Date.now() - ts > 86_400_000) {
@@ -258,8 +260,9 @@ export function getCachedRoutstrModels(db: SeenDb): RoutstrModelCache | null {
   }
 
   const raw = getState(db, STATE_ROUTSTR_MODELS_CACHE);
+  const models = raw ? (JSON.parse(raw) as RoutstrModelCache) : null;
 
-  return raw ? (JSON.parse(raw) as RoutstrModelCache) : null;
+  return models ? { models, ts } : null;
 }
 
 export function setCachedRoutstrModels(db: SeenDb, models: RoutstrModelCache): void {

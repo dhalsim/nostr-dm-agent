@@ -14,6 +14,8 @@ export type WalletDb = Brand<Database, 'WalletDb'>;
 
 import { log } from '../logger';
 
+import type { WalletInfo } from './types';
+
 const CASHU_WALLET_DIR = join(homedir(), '.cashu-wallet');
 
 function ensureWalletDir(): void {
@@ -106,6 +108,28 @@ export function loadProofs(db: WalletDb, mintUrl: string): Proof[] {
     mint: row.mint,
     updatedAt: row.updatedAt,
   }));
+}
+
+export async function getBalanceByMint(walletDb: WalletDb, mintUrl: string): Promise<WalletInfo> {
+  const proofs = loadProofs(walletDb, mintUrl);
+
+  log.info(`Total balance on mint ${mintUrl}: ${totalBalance(proofs)} sats`);
+
+  const byKeyset: Record<string, { count: number; sats: number }> = {};
+  for (const p of proofs) {
+    if (!byKeyset[p.id]) {
+      byKeyset[p.id] = { count: 0, sats: 0 };
+    }
+
+    byKeyset[p.id].count++;
+    byKeyset[p.id].sats += p.amount;
+  }
+
+  for (const [id, info] of Object.entries(byKeyset)) {
+    log.info(`  keyset ${id}: ${info.count} proof(s) = ${info.sats} sats`);
+  }
+
+  return { balanceSats: totalBalance(proofs) };
 }
 
 export function saveProofs(db: WalletDb, mintUrl: string, proofs: Proof[]): void {

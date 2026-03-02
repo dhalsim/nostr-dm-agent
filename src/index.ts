@@ -30,7 +30,8 @@ import { hexToBytes } from 'nostr-tools/utils';
 
 import { createBackend } from './backends/factory';
 import { parseBudgetAnnotation } from './budget-annotation';
-import { getStatusLines, handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
+import { handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
+import { getStatusLines } from './commands/bot';
 import {
   openSeenDb,
   alreadyHaveEvent,
@@ -44,6 +45,7 @@ import {
   getRoutstrBudget,
   getWalletDefaultMintUrl,
   getRoutstrModel,
+  getRoutstrSkKey,
 } from './db';
 import { loadBotConfig } from './env';
 import { runPostAgentLint, formatLintSummary } from './lint';
@@ -62,13 +64,8 @@ import { asProviderDb } from './providers/db';
 import { createProvider } from './providers/factory';
 import { depositOrTopup, refundRoutstr, NoRoutstrSessionError } from './providers/routstr';
 import { getOrCreateCurrentSession, insertSessionMessage } from './session';
-import { CashuWallet } from './wallets/cashu';
 import { openWalletDb } from './wallets/db';
 import { InsufficientFundsError } from './wallets/types';
-
-type Either<A, B> = { type: 'left'; value: A } | { type: 'right'; value: B };
-const left = <A>(value: A): Either<A, never> => ({ type: 'left', value });
-const right = <B>(value: B): Either<never, B> => ({ type: 'right', value });
 
 const POST_AGENT_LINT_PROMPT_PREFIX = '[Post-edit lint feedback]';
 
@@ -115,20 +112,6 @@ function main() {
   const seenDb = openSeenDb();
   const providerDb = asProviderDb(seenDb);
   const walletDb = cashuMnemonic ? openWalletDb(cashuMnemonic) : null;
-
-  function getWallet(): Either<string, CashuWallet> {
-    if (!cashuMnemonic) {
-      return left('Run `npm run wallet:setup` to configure your wallet.');
-    }
-
-    const mint = getWalletDefaultMintUrl(seenDb, config);
-
-    if (!mint) {
-      return left('No mint is set. Set one with: !wallet mint <url>');
-    }
-
-    return right(new CashuWallet({ mnemonic: cashuMnemonic, mintUrl: mint }));
-  }
 
   function getActiveProvider() {
     return createProvider({
@@ -250,7 +233,7 @@ function main() {
       const reply = await handleBangCommand({
         input: content,
         relayUrls,
-        db: seenDb,
+        seenDb,
         version: VERSION,
         workspaceRoot,
         dmBotRoot,
@@ -259,7 +242,6 @@ function main() {
         backend,
         walletDb,
         providerDb,
-        routstrBaseUrl,
         config,
       });
 
@@ -307,21 +289,29 @@ function main() {
         return;
       }
 
-      const wallet = getWallet();
-
-      if (wallet.type === 'left') {
-        await sendReplyForSource(source, wallet.value);
-
-        return;
-      }
-
       try {
+        const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
+
+        if (!mintUrl) {
+          await sendReplyForSource(source, 'No mint configured. Use !wallet mint <url> first.');
+
+          return;
+        }
+
+        const mnemonic = config.cashuMnemonic;
+
+        if (!mnemonic) {
+          await sendReplyForSource(source, 'No mnemonic configured. Set one with: !wallet setup');
+
+          return;
+        }
+
         const { wasNew } = await depositOrTopup({
-          wallet: wallet.value,
+          mnemonic,
           seenDb,
+          walletDb,
           providerDb,
-          config,
-          baseUrl: routstrBaseUrl,
+          mintUrl,
           amountSats: inlineBudget,
         });
 
@@ -485,22 +475,26 @@ function main() {
     } finally {
       if (isAutoFlow) {
         if (walletDb) {
-          const wallet = getWallet();
+          const skKey = getRoutstrSkKey(seenDb);
+          const mnemonic = config.cashuMnemonic;
+          const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
 
-          if (wallet.type === 'right') {
+          if (!skKey || !mnemonic || !mintUrl) {
+            await sendReplyForSource(
+              source,
+              'No Routstr session key. Use !provider deposit <sats> first.',
+            );
+          } else {
             const recovered = await refundRoutstr({
-              wallet: wallet.value,
-              seenDb,
+              mnemonic,
               providerDb,
-              baseUrl: routstrBaseUrl,
-              config,
+              mintUrl,
+              skKey,
             });
 
             if (recovered > 0) {
               log.warn(`Auto-flow: recovered ${recovered} sats`);
             }
-          } else {
-            await sendReplyForSource(source, wallet.value);
           }
         } else {
           await sendReplyForSource(
@@ -510,7 +504,7 @@ function main() {
         }
       }
 
-      const mintUrl = getWalletDefaultMintUrl(seenDb, config);
+      const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
 
       if (!mintUrl) {
         log.error('No mint URL configured. Use !wallet mint <url> first.');

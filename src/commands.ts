@@ -2,96 +2,57 @@
 // commands.ts — ! command handler
 // ---------------------------------------------------------------------------
 
-import { createBackend } from './backends/factory';
 import type { AgentBackend } from './backends/types';
-import type { SeenDb } from './db';
 import {
-  AgentModeSchema,
-  AgentBackendNameSchema,
-  WorkspaceTargetSchema,
-  ProviderNameSchema,
-  getDefaultMode,
-  setDefaultMode,
-  getAgentBackend,
-  setAgentBackend,
-  getReplyTransport,
-  setReplyTransport,
-  getWorkspaceTarget,
-  setWorkspaceTarget,
-  getModelOverride,
-  setModelOverride,
-  getProviderName,
-  setProviderName,
-  getRoutstrBudget,
-  setRoutstrBudget,
-  getRoutstrSkKey,
-  getWalletDefaultMintUrl,
-  setWalletDefaultMintUrl,
-  getRoutstrModel,
-  setCachedRoutstrModels,
-  getState,
-  STATE_CURRENT_SESSION,
-} from './db';
+  getStatusLines,
+  handleBackend,
+  getHelpText,
+  handleLocal,
+  handleRemote,
+  handleWorkspace,
+  handleMode,
+  handleModel,
+  handleModels,
+} from './commands/bot';
+import {
+  handleProviderBalance,
+  handleProviderBudget,
+  handleProviderDeposit,
+  handleProviderRefund,
+  handleProviderSet,
+  handleProviderStatus,
+  handleProviderSyncModels,
+} from './commands/provider';
+import {
+  handleListSessions,
+  handleNewSession,
+  handleResumeLastSession,
+  handleResumeSession,
+  handleShowLastMessages,
+} from './commands/session';
+import {
+  handleWalletBalance,
+  handleWalletHistory,
+  handleWalletMint,
+  handleWalletMints,
+  handleWalletReceive,
+  handleWalletSend,
+} from './commands/wallet';
+import type { SeenDb } from './db';
+import { ProviderNameSchema, getRoutstrBudget, getWalletDefaultMintUrl } from './db';
 import type { BotConfig } from './env';
-import { C, assertUnreachable, log } from './logger';
 import type { ProviderDb } from './providers/db';
-import { depositOrTopup, refundRoutstr, getRoutstrBalance } from './providers/routstr';
-import { fetchRoutstrModels } from './providers/routstr-models';
-import { createNewSession, getLatestSession, setCurrentSession } from './session';
-import { CashuWallet } from './wallets/cashu';
-import type { WalletDb } from './wallets/db';
-import { bumpCounters, getCashuMints, getWalletHistory, logWalletOperation } from './wallets/db';
+import { decodeToken } from './wallets/cashu';
+import { getBalanceByMint, type WalletDb } from './wallets/db';
 
 export const EXIT_COMMAND_SENTINEL = '__DM_BOT_EXIT__';
 
-export type StatusProps = {
-  relayUrls: string[];
-  db: SeenDb;
-  version: string;
-  dmBotRoot: string;
-  attachUrl: string | null;
-};
-
-export function getStatusLines({
-  relayUrls,
-  db,
-  version,
-  dmBotRoot,
-  attachUrl,
-}: StatusProps): string[] {
-  const cur = getState(db, STATE_CURRENT_SESSION);
-  const mode = getDefaultMode(db);
-  const backendName = getAgentBackend(db);
-  const replyTransport = getReplyTransport(db);
-  const workspace = getWorkspaceTarget(db);
-  const serveUrl = process.env.BOT_OPENCODE_SERVE_URL;
-  const modelOverride = getModelOverride(db);
-
-  const backend = createBackend({ name: backendName, dmBotRoot, mode, attachUrl, modelOverride });
-
-  const col = 14;
-  const lbl = (name: string) => `${C.bold}${(name + ':').padEnd(col)}${C.reset}`;
-
-  const modelDisplay = modelOverride
-    ? `${modelOverride} ${C.gray}(override)${C.reset}`
-    : backend.modelName;
-
-  const lines = [
-    `${lbl('Backend')} ${C.magenta}${backendName}${C.reset}`,
-    `${lbl('Version')} ${version}`,
-    `${lbl('Mode')} ${mode}`,
-    `${lbl('Model')} ${modelDisplay}`,
-    `${lbl('Workspace')} ${workspace}`,
-    `${lbl('Transport')} ${replyTransport}`,
-    `${lbl('Relays')} ${relayUrls.join(', ')}`,
-    `${lbl('Session')} ${cur ?? `${C.gray}(none)${C.reset}`}`,
-  ];
-
-  if (backendName === 'opencode' && serveUrl) {
-    lines.push(`${lbl('Serve')} ${serveUrl} (attached)`);
+async function handleError(fn: () => Promise<string>, errorPrefix: string): Promise<string> {
+  try {
+    return await fn();
+  } catch (err) {
+    return `${errorPrefix}: ${String(err)}`;
   }
-
-  return lines;
 }
 
 export type HandleBangCommandProps = {
@@ -103,17 +64,16 @@ export type HandleBangCommandProps = {
   agentEnv: Record<string, string | undefined>;
   attachUrl: string | null;
   backend: AgentBackend;
-  db: SeenDb;
+  seenDb: SeenDb;
   walletDb: WalletDb | null;
   providerDb: ProviderDb | null;
   config: BotConfig;
-  routstrBaseUrl?: string;
 };
 
 export async function handleBangCommand({
   input,
   relayUrls,
-  db,
+  seenDb,
   providerDb,
   version,
   workspaceRoot,
@@ -122,7 +82,6 @@ export async function handleBangCommand({
   attachUrl,
   backend,
   walletDb,
-  routstrBaseUrl,
   config,
 }: HandleBangCommandProps): Promise<string | null> {
   const raw = input.trim();
@@ -138,223 +97,94 @@ export async function handleBangCommand({
 
   switch (cmd) {
     case 'new-session': {
-      try {
-        const workspace = getWorkspaceTarget(db);
-        const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
-        const mode = getDefaultMode(db);
-
-        const id = createNewSession({
-          db,
-          backend,
-          cwd,
-          env: agentEnv,
-        });
-
-        return `New session: ${id}\nBackend: ${backend.name}\nMode: ${mode}\nWorkspace: ${workspace}.`;
-      } catch (err) {
-        return `Failed to create session: ${String(err)}`;
-      }
+      return handleError(
+        async () => handleNewSession({ db: seenDb, backend, workspaceRoot, dmBotRoot, agentEnv }),
+        'Failed to create new session',
+      );
     }
 
     case 'resume-last-session': {
-      const id = getLatestSession(db, backend);
-
-      if (!id) {
-        return `No sessions yet for backend '${backend.name}'. Send a message or use !new-session.`;
-      }
-
-      setCurrentSession(db, id);
-
-      return `Resumed session ${id}.`;
+      return handleError(
+        async () => handleResumeLastSession({ db: seenDb, backend }),
+        'Failed to resume last session',
+      );
     }
 
     case 'resume-session': {
-      const id = args[0];
-
-      if (!id) {
-        return 'Usage: !resume-session <SESSION-ID>';
-      }
-
-      if (!setCurrentSession(db, id)) {
-        return 'Session not found.';
-      }
-
-      return `Resumed session ${id}.`;
+      return handleError(
+        async () => handleResumeSession({ db: seenDb, sessionId: args[0] }),
+        'Failed to resume session',
+      );
     }
 
     case 'list-sessions': {
-      const rows = db
-        .prepare('SELECT id, created_at, backend FROM sessions ORDER BY created_at DESC')
-        .all() as { id: string; created_at: number; backend: string }[];
-
-      if (rows.length === 0) {
-        return 'No sessions yet.';
-      }
-
-      const cur = getState(db, STATE_CURRENT_SESSION);
-
-      return rows
-        .map((r) => {
-          const date = new Date(r.created_at * 1000).toISOString();
-          const mark = r.id === cur ? ' (current)' : '';
-
-          return `[${r.backend ?? 'cursor'}] ${r.id} ${date}${mark}`;
-        })
-        .join('\n');
+      return handleError(async () => handleListSessions({ db: seenDb }), 'Failed to list sessions');
     }
 
     case 'show-last-messages': {
-      const sessionId = args[0];
       const n = Math.min(50, Math.max(1, parseInt(args[1] ?? '5', 10) || 5));
 
-      if (!sessionId) {
-        return 'Usage: !show-last-messages <SESSION-ID> [N]';
-      }
-
-      const rows = db
-        .prepare(
-          'SELECT role, content FROM session_messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
-        )
-        .all(sessionId, n) as { role: string; content: string }[];
-
-      if (rows.length === 0) {
-        return 'No messages for that session.';
-      }
-
-      return rows
-        .reverse()
-        .map((r) => `${r.role}: ${r.content.slice(0, 500)}${r.content.length > 500 ? '…' : ''}`)
-        .join('\n\n');
+      return handleError(
+        async () => handleShowLastMessages({ db: seenDb, sessionId: args[0], n }),
+        'Failed to show last messages',
+      );
     }
 
     case 'status': {
-      return getStatusLines({ relayUrls, db, version, dmBotRoot, attachUrl }).join('\n');
+      return handleError(
+        async () => getStatusLines({ relayUrls, db: seenDb, version, dmBotRoot, attachUrl }),
+        'Failed to get status',
+      );
     }
 
     case 'version':
       return `Version: ${version}`;
 
     case 'help':
-      return `Commands (prefix with !):
-!new-session — create a new agent session
-!resume-last-session — resume the latest session for the current backend
-!resume-session <id> — resume a specific session (any backend)
-!list-sessions — list all sessions (all backends)
-!show-last-messages <id> [N] — last N messages (default 5)
-!status — bot status and current session/mode/backend
-!version — show git hash (dm-bot project)
-!help — this message
-!local — reply only in local terminal
-!remote — resume sending replies over Nostr DMs
-!workspace [parent|bot] — show/set workspace target
-!backend [cursor|opencode] — show/set agent backend (resets model override)
-!models — list available models for current backend
-!model [name|reset] — show/set model override (cleared on !backend)
-!mode ask | !mode plan | !mode agent | !ask | !plan | !agent — set mode
-!wallet balance — show Cashu wallet balance
-!wallet receive <token> — receive a Cashu token
-!wallet history — show recent spend history
-!provider set [${ProviderNameSchema.options.join('|')}] — set payment provider
-!provider budget <sats> — set per-run budget
-!provider status — show provider status
-!provider sync-models — sync models from Routstr
-!exit — stop the bot process`;
+      return getHelpText();
 
     case 'local': {
-      setReplyTransport(db, 'local');
-
-      return 'Reply transport switched to local.';
+      return handleError(
+        async () => handleLocal({ db: seenDb }),
+        'Failed to switch to local reply transport',
+      );
     }
 
     case 'remote': {
-      setReplyTransport(db, 'remote');
-
-      return 'Reply transport switched to remote.';
+      return handleError(
+        async () => handleRemote({ db: seenDb }),
+        'Failed to switch to remote reply transport',
+      );
     }
 
     case 'workspace': {
-      const selected = (args[0] ?? '').toLowerCase();
-
-      if (!selected) {
-        return `Workspace: ${getWorkspaceTarget(db)}.`;
-      }
-
-      const parsed = WorkspaceTargetSchema.safeParse(selected);
-
-      if (!parsed.success) {
-        return `Usage: !workspace [${WorkspaceTargetSchema.options.join('|')}]`;
-      }
-
-      const nextTarget = parsed.data;
-      const prevTarget = getWorkspaceTarget(db);
-
-      if (nextTarget === prevTarget) {
-        return `Workspace unchanged: ${nextTarget}.`;
-      }
-
-      setWorkspaceTarget(db, nextTarget);
-      const cwd = nextTarget === 'bot' ? dmBotRoot : workspaceRoot;
-      try {
-        const sessionId = createNewSession({
-          db,
-          backend,
-          cwd,
-          env: agentEnv,
-        });
-
-        return `Workspace switched: ${prevTarget} -> ${nextTarget}\nNew session: ${sessionId}`;
-      } catch (err) {
-        return `Workspace switched to ${nextTarget}, but failed to auto-create session: ${String(err)}`;
-      }
+      return handleError(
+        async () =>
+          handleWorkspace({
+            db: seenDb,
+            backend,
+            workspaceRoot,
+            dmBotRoot,
+            agentEnv,
+            selected: args[0],
+          }),
+        'Failed to switch workspace',
+      );
     }
 
     case 'backend': {
-      const selected = (args[0] ?? '').toLowerCase();
-
-      if (!selected) {
-        return `Backend: ${getAgentBackend(db)}.`;
-      }
-
-      const parsed = AgentBackendNameSchema.safeParse(selected);
-
-      if (!parsed.success) {
-        return `Usage: !backend [${AgentBackendNameSchema.options.join('|')}]`;
-      }
-
-      const nextBackendName = parsed.data;
-      const prevBackendName = getAgentBackend(db);
-
-      if (nextBackendName === prevBackendName) {
-        return `Backend unchanged: ${nextBackendName}.`;
-      }
-
-      setAgentBackend(db, nextBackendName);
-      setModelOverride(db, null);
-      const workspace = getWorkspaceTarget(db);
-      const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
-      const mode = getDefaultMode(db);
-      const modelOverride = getModelOverride(db);
-
-      const newBackend = createBackend({
-        name: nextBackendName,
-        dmBotRoot,
-        mode,
-        attachUrl,
-        modelOverride,
-      });
-
-      try {
-        const sessionId = createNewSession({
-          db,
-          backend: newBackend,
-          cwd,
-          env: agentEnv,
-        });
-
-        return `Backend switched: ${prevBackendName} -> ${nextBackendName}\nNew session: ${sessionId}`;
-      } catch (err) {
-        return `Backend switched to ${nextBackendName}, but failed to auto-create session: ${String(err)}`;
-      }
+      return handleError(
+        async () =>
+          handleBackend({
+            db: seenDb,
+            workspaceRoot,
+            dmBotRoot,
+            agentEnv,
+            attachUrl,
+            selected: args[0],
+          }),
+        'Failed to switch backend',
+      );
     }
 
     case 'mode':
@@ -362,92 +192,42 @@ export async function handleBangCommand({
     case 'plan':
     case 'agent': {
       const modeArg = cmd === 'mode' ? (args[0] ?? '').toLowerCase() : cmd;
-      const parsed = AgentModeSchema.safeParse(modeArg);
 
-      if (!parsed.success) {
-        return `Unknown mode: ${modeArg}. Possible values: ${AgentModeSchema.options.join(', ')}`;
-      }
-
-      const mode = parsed.data;
-      switch (mode) {
-        case 'free':
-        case 'ask':
-        case 'plan':
-        case 'agent':
-          setDefaultMode(db, mode);
-
-          return `Mode set to: ${mode}`;
-        default:
-          return assertUnreachable(mode);
-      }
+      return handleError(async () => handleMode({ db: seenDb, modeArg }), 'Failed to set mode');
     }
 
     case 'model': {
-      const selected = args[0];
-
-      if (!selected) {
-        const current = getModelOverride(db);
-
-        return `Model: ${current ?? 'auto (from backend config)'}.`;
-      }
-
-      if (selected.toLowerCase() === 'reset') {
-        setModelOverride(db, null);
-
-        return 'Model override cleared. Using backend config.';
-      }
-
-      setModelOverride(db, selected);
-
-      return `Model override set to: ${selected}.`;
+      return handleError(
+        async () => handleModel({ db: seenDb, selected: args[0] }),
+        'Failed to set model',
+      );
     }
 
     case 'models': {
-      try {
-        const backendName = getAgentBackend(db);
-        const mode = getDefaultMode(db);
-        const backend = createBackend({ name: backendName, dmBotRoot, mode, attachUrl });
-        const models = await backend.availableModels();
-
-        if (models.length === 0) {
-          return `No models found for backend '${backendName}'.`;
-        }
-
-        const current = getModelOverride(db) ?? backend.modelName;
-
-        const lines = models.map((m) => {
-          const marker = m === current ? ` ${C.green}*[current]${C.reset}` : '';
-
-          return `  ${m}${marker}`;
-        });
-
-        return `Available models for ${backendName}:\n${lines.join('\n')}`;
-      } catch (err) {
-        return `Failed to get models: ${String(err)}`;
-      }
+      return handleError(
+        async () => handleModels({ db: seenDb, dmBotRoot, attachUrl }),
+        'Failed to list models',
+      );
     }
 
     case 'wallet': {
-      if (!config.cashuMnemonic) {
-        return 'CASHU_MNEMONIC not set. Run `npm run wallet:setup` to configure your wallet.';
-      }
+      const mnemonic = config.cashuMnemonic;
+      const defaultMintUrl = config.cashuDefaultMintUrl;
 
       const subcmd = args[0]?.toLowerCase();
 
       if (subcmd === 'mint') {
         const url = args[1];
 
-        if (!url) {
-          const current = getWalletDefaultMintUrl(db, config);
-
-          return current
-            ? `Current mint: ${current}`
-            : 'No mint configured. Use: !wallet mint <url>';
-        }
-
-        setWalletDefaultMintUrl(db, url);
-
-        return `Mint set to: ${url}`;
+        return handleError(
+          async () =>
+            handleWalletMint({
+              seenDb: seenDb,
+              defaultMintUrl,
+              url,
+            }),
+          'Failed to set mint',
+        );
       }
 
       if (subcmd === 'mints') {
@@ -455,26 +235,25 @@ export async function handleBangCommand({
           return 'Wallet DB not available.';
         }
 
-        const result = getCashuMints(walletDb);
-
-        const mints = result.map((r) => `${r.mint}: ${r.total_amount} sats`);
-
-        return `Available mints:\n${mints.join('\n')}`;
+        return handleError(async () => handleWalletMints({ walletDb }), 'Failed to list mints');
       }
 
-      const mint = getWalletDefaultMintUrl(db, config);
-
-      if (!mint) {
-        return 'No mint configured. Set one with: !wallet mint <url>';
-      }
-
-      const currentWallet = new CashuWallet({ mnemonic: config.cashuMnemonic, mintUrl: mint });
+      const mint = getWalletDefaultMintUrl(seenDb, defaultMintUrl);
 
       switch (subcmd) {
         case 'balance': {
-          const { balanceSats } = await currentWallet.getBalanceByMint();
+          if (!mint) {
+            return 'No mint configured. Set one with: !wallet mint <url>';
+          }
 
-          return `Wallet balance on mint ${mint}: ${balanceSats} sats`;
+          if (!walletDb) {
+            return 'Wallet DB not available.';
+          }
+
+          return handleError(
+            async () => handleWalletBalance({ walletDb, mintUrl: mint }),
+            'Failed to get balance',
+          );
         }
 
         case 'decode': {
@@ -484,12 +263,20 @@ export async function handleBangCommand({
             return 'Usage: !wallet decode <cashu-token>';
           }
 
-          return currentWallet.decodeToken(token);
+          return handleError(async () => decodeToken(token), 'Failed to decode token');
         }
 
         case 'receive': {
           if (!walletDb) {
             return 'Wallet DB not available.';
+          }
+
+          if (!mnemonic) {
+            return 'No mnemonic configured. Set one with: npm run wallet:setup';
+          }
+
+          if (!mint) {
+            return 'No mint configured. Set one with: !wallet mint <url>';
           }
 
           const token = args[1];
@@ -498,39 +285,10 @@ export async function handleBangCommand({
             return 'Usage: !wallet receive <cashu-token>';
           }
 
-          const maxRetries = 3;
-
-          for (let attempt = 0; attempt < maxRetries; attempt++) {
-            try {
-              const { actuallyReceived, fee } = await currentWallet.receiveToken(token);
-              const message = `Received ${actuallyReceived} sats to mint ${mint}.`;
-
-              logWalletOperation(walletDb, {
-                ts: null,
-                mint_url: mint,
-                operation: 'in',
-                amount: actuallyReceived,
-                fee,
-                token,
-              });
-
-              return message;
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-
-              const isSignedError =
-                msg.includes('outputs have already been signed') || msg.includes('already signed');
-
-              if (isSignedError && attempt < maxRetries - 1) {
-                bumpCounters(walletDb); // bumps DB, next iteration's getWallet() picks it up
-                continue;
-              }
-
-              return `Failed to receive: ${msg}`;
-            }
-          }
-
-          return `Failed to receive after ${maxRetries} retries.`;
+          return handleError(
+            async () => handleWalletReceive({ mnemonic, walletDb, mintUrl: mint, token }),
+            'Failed to receive token',
+          );
         }
 
         case 'send': {
@@ -541,23 +299,21 @@ export async function handleBangCommand({
           const amount = parseInt(args[1], 10);
 
           if (isNaN(amount) || amount <= 0) {
-            return 'Usage: !wallet send <amount>';
+            return 'Usage: !wallet send <sats>';
           }
 
-          const { token, fee } = await currentWallet.sendToken(amount);
+          if (!mnemonic) {
+            return 'No mnemonic configured. Set one with: npm run wallet:setup';
+          }
 
-          log.info(`Sent ${amount} sats to mint ${mint}.`);
+          if (!mint) {
+            return 'No mint configured. Set one with: !wallet mint <url>';
+          }
 
-          logWalletOperation(walletDb, {
-            ts: null,
-            mint_url: mint,
-            operation: 'out',
-            amount,
-            fee,
-            token,
-          });
-
-          return token;
+          return handleError(
+            async () => handleWalletSend({ mnemonic, walletDb, amount, mintUrl: mint }),
+            'Failed to send token',
+          );
         }
 
         case 'history': {
@@ -565,26 +321,12 @@ export async function handleBangCommand({
             return 'Wallet DB not available.';
           }
 
-          const history = getWalletHistory(walletDb, 10);
+          const showToken = args[1] === '--token';
 
-          if (history.length === 0) {
-            return 'No wallet history yet.';
-          }
-
-          return history
-            .map((h) => {
-              const date = new Date(h.ts).toISOString().slice(0, 16).replace('T', ' ');
-              const shortMint = h.mint_url.replace(/^https?:\/\//, '').replace(/\/$/, '');
-
-              let message = `${date} | ${h.operation} | ${shortMint} | ${h.amount} sats | ${h.fee} sats fee`;
-
-              if (args[1] === '--token') {
-                message += `\n${h.token}`;
-              }
-
-              return message;
-            })
-            .join('\n');
+          return handleError(
+            async () => handleWalletHistory({ walletDb, showToken }),
+            'Failed to get history',
+          );
         }
 
         default:
@@ -599,39 +341,7 @@ export async function handleBangCommand({
         case 'set': {
           const name = args[1]?.toLowerCase();
 
-          if (!name) {
-            return `Usage: !provider set [${ProviderNameSchema.options.join('|')}]`;
-          }
-
-          const parsed = ProviderNameSchema.safeParse(name);
-
-          if (!parsed.success) {
-            return `Invalid provider: ${name}. Use: ${ProviderNameSchema.options.join(', ')}`;
-          }
-
-          if (parsed.data === 'routstr') {
-            const mint = getWalletDefaultMintUrl(db, config);
-            const skKey = getRoutstrSkKey(db);
-            const lines = ['Provider set to: routstr'];
-
-            if (!mint) {
-              lines.push('⚠ No mint set — use !wallet mint <url>');
-            }
-
-            if (!config.cashuMnemonic) {
-              lines.push('⚠ CASHU_MNEMONIC not set');
-            }
-
-            lines.push(
-              skKey
-                ? `Session key: ${skKey.slice(0, 16)}...`
-                : 'No session yet. Use !provider deposit <sats> or append !!<sats> to your prompt.',
-            );
-
-            return lines.join('\n');
-          }
-
-          return 'Provider set to: local';
+          return handleProviderSet({ seenDb, name });
         }
 
         case 'deposit': {
@@ -641,13 +351,15 @@ export async function handleBangCommand({
             return 'Usage: !provider deposit <sats>';
           }
 
-          const mint = getWalletDefaultMintUrl(db, config);
+          const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
 
-          if (!mint) {
+          if (!mintUrl) {
             return 'No mint configured. Use !wallet mint <url> first.';
           }
 
-          if (!config.cashuMnemonic) {
+          const mnemonic = config.cashuMnemonic;
+
+          if (!mnemonic) {
             return 'CASHU_MNEMONIC not set.';
           }
 
@@ -655,121 +367,85 @@ export async function handleBangCommand({
             return 'Provider DB not available.';
           }
 
-          const wallet = new CashuWallet({ mnemonic: config.cashuMnemonic, mintUrl: mint });
-          const { balanceSats } = await wallet.getBalanceByMint();
+          if (!walletDb) {
+            return 'Wallet DB not available.';
+          }
+
+          const { balanceSats } = await getBalanceByMint(walletDb, mintUrl);
 
           if (balanceSats < sats) {
-            return `Insufficient balance: ${balanceSats} sats available in mint ${mint}. Top up with !wallet receive <token>.`;
+            return `Insufficient balance: ${balanceSats} sats available in mint ${mintUrl}.\nTop up with !wallet receive <token> or check !wallet balance`;
           }
 
-          try {
-            const { skKey, wasNew } = await depositOrTopup({
-              wallet,
-              seenDb: db,
-              providerDb,
-              config,
-              baseUrl: routstrBaseUrl ?? config.routstrBaseUrl,
-              amountSats: sats,
-            });
-
-            setProviderName(db, 'routstr');
-            const action = wasNew ? 'Created new session' : 'Topped up existing session';
-
-            return `${action} with ${sats} sats.\nSession: ${skKey.slice(0, 16)}...\nProvider set to routstr.`;
-          } catch (err) {
-            return `Deposit failed: ${String(err)}`;
-          }
+          return handleError(
+            async () =>
+              handleProviderDeposit({
+                seenDb,
+                walletDb,
+                mnemonic,
+                providerDb,
+                mintUrl,
+                amountSats: sats,
+              }),
+            'Failed to deposit',
+          );
         }
 
         case 'refund': {
-          const mint = getWalletDefaultMintUrl(db, config);
+          const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
 
-          if (!mint) {
+          if (!mintUrl) {
             return 'No mint configured.';
           }
 
-          if (!config.cashuMnemonic) {
-            return 'Wallet not configured.';
+          const mnemonic = config.cashuMnemonic;
+
+          if (!mnemonic) {
+            return 'No mnemonic configured. Set one with: npm run wallet:setup';
           }
 
           if (!providerDb) {
             return 'Provider DB not available.';
           }
 
-          const wallet = new CashuWallet({ mnemonic: config.cashuMnemonic, mintUrl: mint });
-
-          try {
-            const sats = await refundRoutstr({
-              wallet,
-              seenDb: db,
-              providerDb,
-              config,
-              baseUrl: routstrBaseUrl ?? config.routstrBaseUrl,
-            });
-
-            return sats === 0
-              ? 'Nothing to refund (session balance was 0).'
-              : `Refunded ${sats} sats to local wallet. Session key kept for future use.`;
-          } catch (err) {
-            return `Refund failed: ${String(err)}`;
-          }
+          return handleError(
+            async () => handleProviderRefund({ seenDb, mnemonic, mintUrl, providerDb }),
+            'Failed to refund',
+          );
         }
 
         case 'balance': {
-          try {
-            const sats = await getRoutstrBalance(db, routstrBaseUrl ?? config.routstrBaseUrl);
-
-            return `Routstr session balance: ${sats} sats`;
-          } catch (err) {
-            return `Balance check failed: ${String(err)}`;
-          }
+          return handleError(async () => handleProviderBalance(seenDb), 'Failed to get balance');
         }
 
         case 'budget': {
           const budget = parseInt(args[1], 10);
 
           if (isNaN(budget) || budget <= 0) {
-            return `Current budget: ${getRoutstrBudget(db)} sats.\nUsage: !provider budget <sats>`;
+            return `Current budget: ${getRoutstrBudget(seenDb)} sats.\nUsage: !provider budget <sats>`;
           }
 
-          setRoutstrBudget(db, budget);
-
-          return `Budget set to: ${budget} sats`;
+          return handleError(
+            async () => handleProviderBudget(seenDb, budget),
+            'Failed to set budget',
+          );
         }
 
         case 'status': {
-          const name = getProviderName(db);
-          const skKey = getRoutstrSkKey(db);
-          const mint = getWalletDefaultMintUrl(db, config);
-          const model = getRoutstrModel(db);
-          const budget = getRoutstrBudget(db);
+          const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
 
-          if (name !== 'routstr') {
-            return 'Provider: local | no payment';
+          if (!mintUrl) {
+            return 'No mint configured. Use !wallet mint <url> first.';
           }
 
-          return [
-            `Provider:       routstr`,
-            `Session key:    ${skKey ? skKey.slice(0, 16) + '...' : 'none'}`,
-            `Mint:           ${mint ?? 'not set (!wallet mint <url>)'}`,
-            `Default budget: ${budget} sats`,
-            `Model:          ${model ? `routstr/${model}` : 'backend default'}`,
-          ].join('\n');
+          return handleError(
+            async () => handleProviderStatus({ seenDb, mintUrl }),
+            'Failed to get status',
+          );
         }
 
         case 'sync-models': {
-          if (!routstrBaseUrl) {
-            return 'Routstr not configured.';
-          }
-
-          try {
-            const models = await fetchRoutstrModels(routstrBaseUrl);
-            setCachedRoutstrModels(db, models);
-
-            return `Cached ${models.length} Routstr models.\nUse !models routstr [filter] to browse.`;
-          } catch (err) {
-            return `Failed to sync: ${String(err)}`;
-          }
+          return handleError(async () => handleProviderSyncModels(seenDb), 'Failed to sync models');
         }
 
         default:

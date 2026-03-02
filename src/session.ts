@@ -1,13 +1,12 @@
 // ---------------------------------------------------------------------------
 // session.ts — Session CRUD and management
 // ---------------------------------------------------------------------------
-import type { Database } from 'bun:sqlite';
-
 import type { AgentBackend } from './backends/types';
+import type { SeenDb } from './db';
 import { setState, STATE_CURRENT_SESSION } from './db';
 
 export type CreateNewSessionProps = {
-  db: Database;
+  db: SeenDb;
   backend: AgentBackend;
   cwd: string;
   env: Record<string, string | undefined>;
@@ -28,7 +27,7 @@ export function createNewSession({ db, backend, cwd, env }: CreateNewSessionProp
   return id;
 }
 
-export function getLatestSession(db: Database, backend: AgentBackend): string | null {
+export function getLatestSession(db: SeenDb, backend: AgentBackend): string | null {
   const row = db
     .prepare('SELECT id FROM sessions WHERE backend = ? ORDER BY created_at DESC LIMIT 1')
     .get(backend.name) as { id: string } | undefined;
@@ -37,7 +36,7 @@ export function getLatestSession(db: Database, backend: AgentBackend): string | 
 }
 
 export type GetOrCreateSessionProps = {
-  db: Database;
+  db: SeenDb;
   backend: AgentBackend;
   cwd: string;
   env: Record<string, string | undefined>;
@@ -66,7 +65,7 @@ export function getOrCreateCurrentSession({
   return createNewSession({ db, backend, cwd, env });
 }
 
-export function setCurrentSession(db: Database, sessionId: string): boolean {
+export function setCurrentSession(db: SeenDb, sessionId: string): boolean {
   const exists = db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(sessionId);
 
   if (!exists) {
@@ -79,7 +78,7 @@ export function setCurrentSession(db: Database, sessionId: string): boolean {
 }
 
 export function insertSessionMessage(
-  db: Database,
+  db: SeenDb,
   sessionId: string,
   role: 'user' | 'assistant',
   content: string,

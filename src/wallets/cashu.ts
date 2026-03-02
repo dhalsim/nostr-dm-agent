@@ -14,7 +14,17 @@ import {
   loadCounters,
   persistCounter,
 } from './db';
-import { InsufficientFundsError, type WalletInfo } from './types';
+import { InsufficientFundsError } from './types';
+
+export function decodeToken(encodedToken: string): string {
+  const decoded = getDecodedToken(encodedToken);
+
+  if (!decoded) {
+    throw new Error('Invalid token: no token data');
+  }
+
+  return `Decoded token: ${JSON.stringify(decoded, null, 2)}`;
+}
 
 export type CreateCashuWalletProps = {
   mnemonic: string;
@@ -46,38 +56,6 @@ export class CashuWallet {
     await wallet.loadMint();
 
     return wallet;
-  }
-
-  decodeToken(encodedToken: string): string {
-    const decoded = getDecodedToken(encodedToken);
-
-    if (!decoded) {
-      throw new Error('Invalid token: no token data');
-    }
-
-    return `Decoded token: ${JSON.stringify(decoded, null, 2)}`;
-  }
-
-  async getBalanceByMint(): Promise<WalletInfo> {
-    const proofs = loadProofs(this.db, this.mintUrl);
-
-    log.info(`Total balance on mint ${this.mintUrl}: ${totalBalance(proofs)} sats`);
-
-    const byKeyset: Record<string, { count: number; sats: number }> = {};
-    for (const p of proofs) {
-      if (!byKeyset[p.id]) {
-        byKeyset[p.id] = { count: 0, sats: 0 };
-      }
-
-      byKeyset[p.id].count++;
-      byKeyset[p.id].sats += p.amount;
-    }
-
-    for (const [id, info] of Object.entries(byKeyset)) {
-      log.info(`  keyset ${id}: ${info.count} proof(s) = ${info.sats} sats`);
-    }
-
-    return { balanceSats: totalBalance(proofs) };
   }
 
   async sendToken(amountSats: number): Promise<{ token: string; fee: number }> {
