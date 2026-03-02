@@ -26,7 +26,11 @@ export function getWalletDbPath(mnemonic: string): string {
   const entropy = bip39.mnemonicToEntropy(mnemonic, wordlist);
   const fingerprint = bytesToHex(entropy).slice(0, 8);
 
-  return join(CASHU_WALLET_DIR, `wallet-${fingerprint}.db`);
+  const walletDbPath = join(CASHU_WALLET_DIR, `wallet-${fingerprint}.db`);
+
+  log.info(`Wallet DB path: ${walletDbPath}`);
+
+  return walletDbPath;
 }
 
 export function openWalletDb(mnemonic: string): WalletDb {
@@ -57,17 +61,14 @@ export function openWalletDb(mnemonic: string): WalletDb {
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS spend_log (
-      id INTEGER PRIMARY KEY,
-      ts INTEGER NOT NULL, -- unix timestamp
-      provider TEXT NOT NULL,
-      mint_url TEXT NOT NULL,
-      budget_sats INTEGER NOT NULL,
-      refund_sats INTEGER NOT NULL DEFAULT 0,
-      spent_sats INTEGER NOT NULL,
-      model TEXT,
-      session_id TEXT,
-      prompt_prefix TEXT -- first 80 chars of prompt
+    CREATE TABLE IF NOT EXISTS wallet_log (
+      id        INTEGER PRIMARY KEY,
+      ts        INTEGER NOT NULL, -- unix milliseconds
+      mint_url  TEXT NOT NULL,
+      operation TEXT NOT NULL CHECK(operation IN ('in', 'out')),
+      amount    INTEGER NOT NULL
+      fee       INTEGER NOT NULL,
+      token     TEXT NOT NULL
     )
   `);
 
@@ -138,9 +139,9 @@ export function deleteProofs(db: WalletDb, proofs: Proof[]): void {
     return;
   }
 
-  const stmt = db.prepare('DELETE FROM proofs WHERE keyset_id = ?');
+  const stmt = db.prepare('DELETE FROM proofs WHERE secret = ?');
   for (const proof of proofs) {
-    stmt.run(proof.id); // keyset_id
+    stmt.run(proof.secret);
   }
 }
 
@@ -176,62 +177,38 @@ export function persistCounter(db: WalletDb, op: OperationCounters): void {
   log.ok(`  Counter for ${op.keysetId} persisted → next=${op.next}`);
 }
 
-export function logSpend(
-  db: WalletDb,
-  provider: string,
-  mintUrl: string,
-  budgetSats: number,
-  refundSats: number,
-  spentSats: number,
-  model?: string,
-  sessionId?: string,
-  promptPrefix?: string,
-): void {
+export function bumpCounters(db: WalletDb): void {
+  const counters = loadCounters(db);
+  for (const keysetId of Object.keys(counters)) {
+    const next = counters[keysetId] + 1;
+    db.run('INSERT OR REPLACE INTO counters (keyset_id, next) VALUES (?, ?)', [keysetId, next]);
+  }
+}
+
+export type WalletHistoryRow = {
+  ts: number;
+  mint_url: string;
+  operation: 'in' | 'out';
+  amount: number;
+  fee: number;
+  token: string;
+};
+
+type LogWalletOperationProps = Omit<WalletHistoryRow, 'ts'> & { ts: number | null };
+
+export function logWalletOperation(db: WalletDb, props: LogWalletOperationProps): void {
+  const { ts, mint_url, operation, amount, fee, token } = props;
+
   db.run(
-    `INSERT INTO spend_log (ts, provider, mint_url, budget_sats, refund_sats, spent_sats, model, session_id, prompt_prefix)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      Date.now(),
-      provider,
-      mintUrl,
-      budgetSats,
-      refundSats,
-      spentSats,
-      model ?? null,
-      sessionId ?? null,
-      promptPrefix?.slice(0, 80) ?? null,
-    ],
+    'INSERT INTO wallet_log (ts, mint_url, operation, amount, fee, token) VALUES (?, ?, ?, ?, ?, ?)',
+    [ts ?? Date.now(), mint_url, operation, amount, fee, token],
   );
 }
 
-export function getRecentSpendHistory(
-  db: WalletDb,
-  limit = 10,
-): {
-  ts: number;
-  provider: string;
-  mint_url: string;
-  budget_sats: number;
-  refund_sats: number;
-  spent_sats: number;
-  model: string | null;
-  session_id: string | null;
-}[] {
+export function getWalletHistory(db: WalletDb, limit = 20): WalletHistoryRow[] {
   return db
     .prepare(
-      `SELECT ts, provider, mint_url, budget_sats, refund_sats, spent_sats, model, session_id
-       FROM spend_log
-       ORDER BY ts DESC
-       LIMIT $limit`,
+      'SELECT ts, mint_url, operation, amount, fee, token FROM wallet_log ORDER BY ts DESC LIMIT ?',
     )
-    .all({ $limit: limit }) as {
-    ts: number;
-    provider: string;
-    mint_url: string;
-    budget_sats: number;
-    refund_sats: number;
-    spent_sats: number;
-    model: string | null;
-    session_id: string | null;
-  }[];
+    .all(limit) as WalletHistoryRow[];
 }

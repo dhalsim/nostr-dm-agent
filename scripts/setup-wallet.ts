@@ -9,7 +9,7 @@ function question(prompt: string, defaultValue?: string): Promise<string> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     const defaultPrompt = defaultValue ? ` (leave empty for ${defaultValue})` : '';
-    rl.question(`${prompt}${defaultPrompt}: `, (answer) => {
+    rl.question(`${prompt}${defaultPrompt}: \n > `, (answer) => {
       rl.close();
       resolve(answer.trim() ?? defaultValue ?? '');
     });
@@ -43,25 +43,32 @@ async function main() {
   console.log('╚══════════════════════════════════════════════════════════╝\n');
   console.log(`  ${mnemonic}\n`);
 
-  // Write to .env
-  appendFileSync(ENV_PATH, `\nCASHU_MNEMONIC="${mnemonic}"\n`);
-
-  console.log('✓ Written to .env');
-
   // two step confirmation
   // confirm backup phrase
 
-  await question('Press any key to confirm you backed up your mnemonic');
+  await question('Press enter to confirm you backed up your mnemonic');
 
   console.clear();
 
   // random number 0-11
+
+  const chosenWordIndices: number[] = [];
   
   for (let i = 0; i < 3; i++) {
     const randomNumber = Math.floor(Math.random() * 12);
-    const word = await question(`Enter the word at position ${randomNumber + 1} (1-12)`);
+    
+    while (true) {
+      if (chosenWordIndices.includes(randomNumber)) {
+        continue;
+      }
+      
+      chosenWordIndices.push(randomNumber);
+      break;
+    }
 
     console.clear();
+    
+    const word = await question(`Enter the word at position ${randomNumber + 1} (1-12)`);
     
     if (word !== mnemonic.split(' ')[randomNumber]) {
       console.error('Incorrect word. Try again.');
@@ -69,7 +76,12 @@ async function main() {
     }
   }
 
-  console.log('✓ Wallet setup complete. Mnemonic is in .env only.');
+  // Write to .env
+  appendFileSync(ENV_PATH, `\nCASHU_MNEMONIC="${mnemonic}"\n`);
+
+  console.log('✓ Written to .env');
+
+  console.log('✓ Wallet setup complete. Mnemonic is only in .env and your backup');
   console.log('  Start the bot normally: npm run start');
 
   process.exit(0);

@@ -80,6 +80,22 @@ export function openSeenDb(): SeenDb {
 
   db.run('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT)');
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS spend_log (
+      id            INTEGER PRIMARY KEY,
+      ts            INTEGER NOT NULL, -- unix milliseconds
+      provider      TEXT NOT NULL,
+      mint_url      TEXT NOT NULL,
+      budget_sats   INTEGER NOT NULL,
+      refund_sats   INTEGER NOT NULL DEFAULT 0,
+      spent_sats    INTEGER NOT NULL,
+      fee_sats      INTEGER NOT NULL DEFAULT 0,
+      model         TEXT,
+      session_id    TEXT,
+      prompt_prefix TEXT -- first 80 chars
+    )
+  `);
+
   return db as SeenDb;
 }
 

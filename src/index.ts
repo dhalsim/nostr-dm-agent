@@ -58,6 +58,7 @@ import {
   CHUNK_DELAY_MAX_MS,
 } from './messaging';
 import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
+import { asProviderDb } from './providers/db';
 import { createProvider } from './providers/factory';
 import { depositOrTopup, refundRoutstr, NoRoutstrSessionError } from './providers/routstr';
 import type { ProviderEnv } from './providers/types';
@@ -114,7 +115,7 @@ function main() {
   const pool = new SimplePool({ enablePing: true, enableReconnect: true });
 
   const seenDb = openSeenDb();
-
+  const providerDb = asProviderDb(seenDb);
   const walletDb = cashuMnemonic ? openWalletDb(cashuMnemonic) : null;
 
   function getWallet(): Either<string, CashuWallet> {
@@ -259,6 +260,7 @@ function main() {
         attachUrl: opencodeServeUrl,
         backend,
         walletDb,
+        providerDb,
         routstrBaseUrl,
         config,
       });
@@ -320,7 +322,7 @@ function main() {
         const { wasNew } = await depositOrTopup({
           wallet: wallet.value,
           seenDb,
-          walletDb,
+          providerDb,
           baseUrl: routstrBaseUrl,
           amountSats: inlineBudget,
         });
@@ -491,7 +493,7 @@ function main() {
             const recovered = await refundRoutstr({
               wallet: wallet.value,
               seenDb,
-              walletDb,
+              providerDb,
               baseUrl: routstrBaseUrl,
             });
 
@@ -513,6 +515,7 @@ function main() {
         success: true,
         sessionId,
         promptPrefix: effectiveContent,
+        model: backend.modelName,
       });
     }
   }

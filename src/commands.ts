@@ -34,12 +34,13 @@ import {
 } from './db';
 import type { BotConfig } from './env';
 import { C, assertUnreachable } from './logger';
+import type { ProviderDb } from './providers/db';
 import { depositOrTopup, refundRoutstr, getRoutstrBalance } from './providers/routstr';
 import { fetchRoutstrModels } from './providers/routstr-models';
 import { createNewSession, getLatestSession, setCurrentSession } from './session';
 import { CashuWallet } from './wallets/cashu';
 import type { WalletDb } from './wallets/db';
-import { getCashuMints, getRecentSpendHistory } from './wallets/db';
+import { bumpCounters, getCashuMints, getWalletHistory, logWalletOperation } from './wallets/db';
 
 export const EXIT_COMMAND_SENTINEL = '__DM_BOT_EXIT__';
 
@@ -104,6 +105,7 @@ export type HandleBangCommandProps = {
   backend: AgentBackend;
   db: SeenDb;
   walletDb: WalletDb | null;
+  providerDb: ProviderDb | null;
   config: BotConfig;
   routstrBaseUrl?: string;
 };
@@ -112,6 +114,7 @@ export async function handleBangCommand({
   input,
   relayUrls,
   db,
+  providerDb,
   version,
   workspaceRoot,
   dmBotRoot,
@@ -485,29 +488,75 @@ export async function handleBangCommand({
         }
 
         case 'receive': {
+          if (!walletDb) {
+            return 'Wallet DB not available.';
+          }
+
           const token = args[1];
 
           if (!token) {
             return 'Usage: !wallet receive <cashu-token>';
           }
 
-          try {
-            const { receivedSats } = await currentWallet.receiveToken(token);
+          const maxRetries = 3;
 
-            return `Received ${receivedSats} sats.`;
-          } catch (err) {
-            return `Failed to receive: ${String(err)}`;
+          for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+              const { actuallyReceived, fee } = await currentWallet.receiveToken(token);
+              const message = `Received ${actuallyReceived} sats to mint ${mint}.`;
+
+              logWalletOperation(walletDb, {
+                ts: null,
+                mint_url: mint,
+                operation: 'in',
+                amount: actuallyReceived,
+                fee,
+                token,
+              });
+
+              return message;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+
+              const isSignedError =
+                msg.includes('outputs have already been signed') || msg.includes('already signed');
+
+              if (isSignedError && attempt < maxRetries - 1) {
+                bumpCounters(walletDb); // bumps DB, next iteration's getWallet() picks it up
+                continue;
+              }
+
+              return `Failed to receive: ${msg}`;
+            }
           }
+
+          return `Failed to receive after ${maxRetries} retries.`;
         }
 
         case 'send': {
+          if (!walletDb) {
+            return 'Wallet DB not available.';
+          }
+
           const amount = parseInt(args[1], 10);
 
           if (isNaN(amount) || amount <= 0) {
             return 'Usage: !wallet send <amount>';
           }
 
-          return currentWallet.sendToken(amount);
+          const { token, fee } = await currentWallet.sendToken(amount);
+          const message = `Sent ${amount} sats to mint ${mint} as token ${token}.`;
+
+          logWalletOperation(walletDb, {
+            ts: null,
+            mint_url: mint,
+            operation: 'out',
+            amount,
+            fee,
+            token,
+          });
+
+          return `${message} (token: ${token})`;
         }
 
         case 'history': {
@@ -515,10 +564,10 @@ export async function handleBangCommand({
             return 'Wallet DB not available.';
           }
 
-          const history = getRecentSpendHistory(walletDb, 10);
+          const history = getWalletHistory(walletDb, 10);
 
           if (history.length === 0) {
-            return 'No spend history yet.';
+            return 'No wallet history yet.';
           }
 
           return history
@@ -526,7 +575,7 @@ export async function handleBangCommand({
               const date = new Date(h.ts).toISOString().slice(0, 16).replace('T', ' ');
               const shortMint = h.mint_url.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-              return `${date} | ${h.provider} | ${shortMint} | budget: ${h.budget_sats} | refund: ${h.refund_sats} | spent: ${h.spent_sats}`;
+              return `${date} | ${h.operation} | ${shortMint} | ${h.amount} sats`;
             })
             .join('\n');
         }
@@ -595,8 +644,8 @@ export async function handleBangCommand({
             return 'CASHU_MNEMONIC not set.';
           }
 
-          if (!walletDb) {
-            return 'Wallet DB not available.';
+          if (!providerDb) {
+            return 'Provider DB not available.';
           }
 
           const wallet = new CashuWallet({ mnemonic: config.cashuMnemonic, mintUrl: mint });
@@ -610,7 +659,7 @@ export async function handleBangCommand({
             const { skKey, wasNew } = await depositOrTopup({
               wallet,
               seenDb: db,
-              walletDb,
+              providerDb,
               baseUrl: routstrBaseUrl ?? config.routstrBaseUrl,
               amountSats: sats,
             });
@@ -631,8 +680,12 @@ export async function handleBangCommand({
             return 'No mint configured.';
           }
 
-          if (!config.cashuMnemonic || !walletDb) {
+          if (!config.cashuMnemonic) {
             return 'Wallet not configured.';
+          }
+
+          if (!providerDb) {
+            return 'Provider DB not available.';
           }
 
           const wallet = new CashuWallet({ mnemonic: config.cashuMnemonic, mintUrl: mint });
@@ -640,7 +693,7 @@ export async function handleBangCommand({
             const sats = await refundRoutstr({
               wallet,
               seenDb: db,
-              walletDb,
+              providerDb,
               baseUrl: routstrBaseUrl ?? config.routstrBaseUrl,
             });
 

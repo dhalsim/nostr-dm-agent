@@ -48,6 +48,16 @@ export class CashuWallet {
     return wallet;
   }
 
+  decodeToken(encodedToken: string): string {
+    const decoded = getDecodedToken(encodedToken);
+
+    if (!decoded) {
+      throw new Error('Invalid token: no token data');
+    }
+
+    return `Decoded token: ${JSON.stringify(decoded, null, 2)}`;
+  }
+
   async getBalanceByMint(): Promise<WalletInfo> {
     const proofs = loadProofs(this.db, this.mintUrl);
 
@@ -70,7 +80,7 @@ export class CashuWallet {
     return { balanceSats: totalBalance(proofs) };
   }
 
-  async sendToken(amountSats: number): Promise<string> {
+  async sendToken(amountSats: number): Promise<{ token: string; fee: number }> {
     const proofs = loadProofs(this.db, this.mintUrl);
     const balance = totalBalance(proofs);
 
@@ -82,13 +92,16 @@ export class CashuWallet {
 
     const wallet = await this.getWallet();
 
-    const { keep, send } = await wallet.ops.send(amountSats, proofs).asDeterministic().run();
-
     wallet.on.countersReserved((op: OperationCounters) => {
       log.info(`countersReserved event fired:`);
 
       persistCounter(this.db, op);
     });
+
+    const { keep, send } = await wallet.ops.send(amountSats, proofs).asDeterministic().run();
+
+    log.info(`keep: ${keep.length}, send: ${send.length}`);
+    log.info(`keep total: ${totalBalance(keep)} sats, send total: ${totalBalance(send)} sats`);
 
     deleteProofs(this.db, proofs);
 
@@ -102,20 +115,10 @@ export class CashuWallet {
       unit: 'sat',
     });
 
-    return encoded;
+    return { token: encoded, fee: totalBalance(send) - amountSats };
   }
 
-  decodeToken(encodedToken: string): string {
-    const decoded = getDecodedToken(encodedToken);
-
-    if (!decoded) {
-      throw new Error('Invalid token: no token data');
-    }
-
-    return `Decoded token: ${JSON.stringify(decoded, null, 2)}`;
-  }
-
-  async receiveToken(encodedToken: string): Promise<{ receivedSats: number }> {
+  async receiveToken(encodedToken: string): Promise<{ actuallyReceived: number; fee: number }> {
     const decoded = getDecodedToken(encodedToken);
 
     if (!decoded) {
@@ -138,16 +141,20 @@ export class CashuWallet {
 
     const wallet = await this.getWallet();
 
-    const newProofs = await wallet.ops.receive(encodedToken).asDeterministic().run();
-
     wallet.on.countersReserved((op: OperationCounters) => {
       log.info(`countersReserved event fired:`);
 
       persistCounter(this.db, op);
     });
 
+    const wouldReceive = totalBalance(decoded.proofs);
+    const newProofs = await wallet.ops.receive(encodedToken).asDeterministic().run();
+    const actuallyReceived = totalBalance(newProofs);
+
+    log.info(`newProofs: ${newProofs.length}`);
+
     saveProofs(this.db, this.mintUrl, newProofs);
 
-    return { receivedSats: totalBalance(newProofs) };
+    return { actuallyReceived, fee: wouldReceive - actuallyReceived };
   }
 }

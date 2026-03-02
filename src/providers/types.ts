@@ -6,9 +6,9 @@ export type PrepareRunOptions = {
 
 export type FinalizeRunOptions = {
   success: boolean;
-  sessionId?: string;
-  promptPrefix?: string;
-  model?: string;
+  sessionId: string | null;
+  promptPrefix: string | null;
+  model: string | null;
 };
 
 export type ProviderName = 'local' | 'routstr';
