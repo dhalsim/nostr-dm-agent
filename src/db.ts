@@ -31,7 +31,7 @@ export const STATE_REPLY_TRANSPORT = 'reply_transport';
 export const STATE_WORKSPACE_TARGET = 'workspace_target';
 export const STATE_MODEL_OVERRIDE = 'model_override';
 export const STATE_PROVIDER_NAME = 'provider_name';
-export const STATE_ROUTSTR_BUDGET_SATS = 'routstr_budget_sats';
+export const STATE_ROUTSTR_BUDGET_MSATS = 'routstr_budget_msats';
 export const STATE_ROUTSTR_SK_KEY = 'routstr_sk_key';
 export const STATE_ROUTSTR_MODEL = 'routstr_model';
 export const STATE_ROUTSTR_MODELS_CACHE = 'routstr_models_cache';
@@ -200,8 +200,8 @@ export function setProviderName(db: SeenDb, name: ProviderName): void {
   setState(db, STATE_PROVIDER_NAME, name);
 }
 
-export function getRoutstrBudget(db: SeenDb): number {
-  const v = getState(db, STATE_ROUTSTR_BUDGET_SATS);
+export function getRoutstrBudget(seenDb: SeenDb): number {
+  const v = getState(seenDb, STATE_ROUTSTR_BUDGET_MSATS);
   const parsed = z.coerce.number().safeParse(v);
 
   if (!parsed.success) {
@@ -211,8 +211,8 @@ export function getRoutstrBudget(db: SeenDb): number {
   return parsed.data;
 }
 
-export function setRoutstrBudget(db: SeenDb, budgetSats: number): void {
-  setState(db, STATE_ROUTSTR_BUDGET_SATS, String(budgetSats));
+export function setRoutstrBudget(db: SeenDb, budgetMSats: number): void {
+  setState(db, STATE_ROUTSTR_BUDGET_MSATS, String(budgetMSats));
 }
 
 export function getRoutstrSkKey(db: SeenDb): string | null {

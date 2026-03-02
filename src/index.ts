@@ -122,14 +122,6 @@ function main() {
     });
   }
 
-  const providerName = getProviderName(seenDb);
-
-  if (providerName === 'routstr') {
-    log.info(`Provider: routstr (budget: ${getRoutstrBudget(seenDb)} sats)`);
-  } else {
-    log.info('Provider: local (no payment)');
-  }
-
   const workspaceRoot = join(dmBotRoot, '..');
 
   const agentEnv: Record<string, string | undefined> = {
@@ -152,13 +144,13 @@ function main() {
 
   const statusLines = getStatusLines({
     relayUrls,
-    db: seenDb,
+    seenDb,
     version: VERSION,
     dmBotRoot,
     attachUrl: opencodeServeUrl,
   });
 
-  for (const line of statusLines) {
+  for (const line of statusLines.split('\n')) {
     log.info(line);
   }
 

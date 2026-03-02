@@ -39,7 +39,12 @@ import {
   handleWalletSend,
 } from './commands/wallet';
 import type { SeenDb } from './db';
-import { ProviderNameSchema, getRoutstrBudget, getWalletDefaultMintUrl } from './db';
+import {
+  getProviderName,
+  getRoutstrBudget,
+  getWalletDefaultMintUrl,
+  ProviderNameSchema,
+} from './db';
 import type { BotConfig } from './env';
 import type { ProviderDb } from './providers/db';
 import { decodeToken } from './wallets/cashu';
@@ -132,7 +137,7 @@ export async function handleBangCommand({
 
     case 'status': {
       return handleError(
-        async () => getStatusLines({ relayUrls, db: seenDb, version, dmBotRoot, attachUrl }),
+        async () => getStatusLines({ relayUrls, seenDb: seenDb, version, dmBotRoot, attachUrl }),
         'Failed to get status',
       );
     }
@@ -337,6 +342,19 @@ export async function handleBangCommand({
     case 'provider': {
       const subcmd = args[0]?.toLowerCase();
 
+      if (!subcmd) {
+        const name = getProviderName(seenDb);
+
+        const providerLine =
+          name === 'routstr'
+            ? `Provider: routstr (budget: ${getRoutstrBudget(seenDb)} msats)`
+            : 'Provider: local';
+
+        const usage = `Usage: !provider set [${ProviderNameSchema.options.join('|')}] | !provider deposit <sats> | !provider refund | !provider balance | !provider budget <sats> | !provider status | !provider sync-models`;
+
+        return `${providerLine}\n\n${usage}`;
+      }
+
       switch (subcmd) {
         case 'set': {
           const name = args[1]?.toLowerCase();
@@ -419,14 +437,14 @@ export async function handleBangCommand({
         }
 
         case 'budget': {
-          const budget = parseInt(args[1], 10);
+          const budgetMsats = parseInt(args[1], 10);
 
-          if (isNaN(budget) || budget <= 0) {
-            return `Current budget: ${getRoutstrBudget(seenDb)} sats.\nUsage: !provider budget <sats>`;
+          if (isNaN(budgetMsats) || budgetMsats <= 0) {
+            return `Current budget: ${getRoutstrBudget(seenDb)} msats.\nUsage: !provider budget <msats>`;
           }
 
           return handleError(
-            async () => handleProviderBudget(seenDb, budget),
+            async () => handleProviderBudget(seenDb, budgetMsats),
             'Failed to set budget',
           );
         }

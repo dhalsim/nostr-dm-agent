@@ -9,7 +9,9 @@ import {
   getAgentBackend,
   getDefaultMode,
   getModelOverride,
+  getProviderName,
   getReplyTransport,
+  getRoutstrBudget,
   getWorkspaceTarget,
   setAgentBackend,
   setDefaultMode,
@@ -24,7 +26,7 @@ import { createNewSession } from '../session';
 
 export type StatusProps = {
   relayUrls: string[];
-  db: SeenDb;
+  seenDb: SeenDb;
   version: string;
   dmBotRoot: string;
   attachUrl: string | null;
@@ -32,18 +34,18 @@ export type StatusProps = {
 
 export function getStatusLines({
   relayUrls,
-  db,
+  seenDb,
   version,
   dmBotRoot,
   attachUrl,
 }: StatusProps): string {
-  const cur = getState(db, STATE_CURRENT_SESSION);
-  const mode = getDefaultMode(db);
-  const backendName = getAgentBackend(db);
-  const replyTransport = getReplyTransport(db);
-  const workspace = getWorkspaceTarget(db);
+  const cur = getState(seenDb, STATE_CURRENT_SESSION);
+  const mode = getDefaultMode(seenDb);
+  const backendName = getAgentBackend(seenDb);
+  const replyTransport = getReplyTransport(seenDb);
+  const workspace = getWorkspaceTarget(seenDb);
   const serveUrl = process.env.BOT_OPENCODE_SERVE_URL;
-  const modelOverride = getModelOverride(db);
+  const modelOverride = getModelOverride(seenDb);
 
   const backend = createBackend({ name: backendName, dmBotRoot, mode, attachUrl, modelOverride });
 
@@ -54,8 +56,16 @@ export function getStatusLines({
     ? `${modelOverride} ${C.gray}(override)${C.reset}`
     : backend.modelName;
 
+  const providerName = getProviderName(seenDb);
+
+  const providerDisplay =
+    providerName === 'routstr'
+      ? `${C.magenta}routstr${C.reset} (budget: ${getRoutstrBudget(seenDb)} msats)`
+      : 'local';
+
   const lines = [
     `${lbl('Backend')} ${C.magenta}${backendName}${C.reset}`,
+    `${lbl('Provider')} ${providerDisplay}`,
     `${lbl('Version')} ${version}`,
     `${lbl('Mode')} ${mode}`,
     `${lbl('Model')} ${modelDisplay}`,

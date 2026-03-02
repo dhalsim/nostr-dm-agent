@@ -1,9 +1,9 @@
 import * as z from 'zod';
 
 import type { SeenDb } from '../db';
-import { getRoutstrSkKey, setRoutstrSkKey } from '../db';
+import { getRoutstrSkKey, setRoutstrBudget, setRoutstrSkKey } from '../db';
 import type { BotConfig } from '../env';
-import { log } from '../logger';
+import { debug, log } from '../logger';
 import { CashuWallet } from '../wallets/cashu';
 import type { WalletDb } from '../wallets/db';
 import { logWalletOperation } from '../wallets/db';
@@ -118,13 +118,26 @@ export async function depositOrTopup(
         throw new Error(`Create session failed: HTTP ${res.status}`);
       }
 
-      skKey = await res.text();
+      const json = await res.json();
 
-      if (!skKey) {
-        throw new Error(`Unexpected create response: ${skKey}`);
+      const balanceCreateResponseSchema = z.object({
+        api_key: z.string(),
+        balance_sats: z.number(), // msats
+      });
+
+      const parsed = balanceCreateResponseSchema.safeParse(json);
+
+      if (!parsed.success) {
+        debug(`Unexpected create response: ${JSON.stringify(json)}`);
+
+        throw new Error(`Unexpected create response: ${parsed.error}`);
       }
 
+      skKey = parsed.data.api_key;
+      const balanceMSats = parsed.data.balance_sats;
+
       setRoutstrSkKey(seenDb, skKey);
+      setRoutstrBudget(seenDb, balanceMSats);
     } else {
       const res = await fetch(`${ROUTSTR_BASE_URL}/balance/topup`, {
         method: 'POST',
@@ -150,6 +163,9 @@ export async function depositOrTopup(
       log.info(
         `${parsed.data.added_amount} sats added to routstr balance. New balance is ${parsed.data.new_balance}`,
       );
+
+      const balanceMSats = parsed.data.new_balance;
+      setRoutstrBudget(seenDb, balanceMSats);
     }
   } catch (err) {
     try {

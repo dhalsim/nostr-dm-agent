@@ -31,6 +31,8 @@ export function handleProviderSet({ seenDb, name }: HandleProviderSetProps): str
     return `Invalid provider: ${name}. Use: ${ProviderNameSchema.options.join('|')}`;
   }
 
+  setProviderName(seenDb, parsed.data);
+
   if (parsed.data === 'routstr') {
     // TODO: need to check the backend is OpenCode (cursor won't work with routstr)
     const skKey = getRoutstrSkKey(seenDb);
@@ -121,10 +123,10 @@ export async function handleProviderBalance(seenDb: SeenDb): Promise<string> {
   return `Routstr session balance: ${sats} sats`;
 }
 
-export function handleProviderBudget(seenDb: SeenDb, budget: number): string {
-  setRoutstrBudget(seenDb, budget);
+export function handleProviderBudget(seenDb: SeenDb, budgetMsats: number): string {
+  setRoutstrBudget(seenDb, budgetMsats);
 
-  return `Budget set to: ${budget} sats`;
+  return `Budget set to: ${budgetMsats} msats`;
 }
 
 export type HandleProviderStatusProps = {
@@ -141,13 +143,13 @@ export function handleProviderStatus({ seenDb, mintUrl }: HandleProviderStatusPr
 
   const skKey = getRoutstrSkKey(seenDb);
   const model = getRoutstrModel(seenDb);
-  const budget = getRoutstrBudget(seenDb);
+  const budgetMsats = getRoutstrBudget(seenDb);
 
   return [
     `Provider:       routstr`,
     `Session key:    ${skKey ? skKey.slice(0, 6) + '...' : 'none'}`,
     `Mint:           ${mintUrl}`,
-    `Default budget: ${budget} sats`,
+    `Default budget: ${budgetMsats} msats`,
     `Model:          ${model ? `routstr/${model}` : '(not set)'}`,
   ].join('\n');
 }
