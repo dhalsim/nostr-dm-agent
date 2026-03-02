@@ -1,15 +1,17 @@
 import type { SeenDb } from '../db';
 import { getRoutstrSkKey, getWalletDefaultMintUrl } from '../db';
+import type { BotConfig } from '../env';
 import type { CashuWallet } from '../wallets/cashu';
 
 import type { ProviderDb } from './db';
 import { logSpend } from './db';
-import type { AnyProvider, ProviderEnv, PrepareRunOptions, FinalizeRunOptions } from './types';
+import type { AnyProvider, PrepareRunOptions, FinalizeRunOptions } from './types';
 
 export type CreateRoutstrProviderProps = {
   baseUrl: string;
   providerDb: ProviderDb;
   seenDb: SeenDb;
+  config: BotConfig;
 };
 
 export class NoRoutstrSessionError extends Error {
@@ -24,26 +26,25 @@ export function createRoutstrProvider(props: CreateRoutstrProviderProps): AnyPro
   return {
     name: 'routstr',
 
-    async prepareRun(_opts: PrepareRunOptions): Promise<ProviderEnv> {
+    async prepareRun(_opts: PrepareRunOptions): Promise<void> {
       const skKey = getRoutstrSkKey(props.seenDb);
 
       if (!skKey) {
         throw new NoRoutstrSessionError();
       }
 
-      return {
-        OPENAI_API_KEY: skKey,
-        OPENAI_BASE_URL: props.baseUrl,
-      };
+      // TODO: check this once we have a proper environment
+      // return {
+      //   OPENAI_API_KEY: skKey,
+      //   OPENAI_BASE_URL: props.baseUrl,
+      // };
     },
 
-    async finalizeRun(_env: ProviderEnv, opts: FinalizeRunOptions): Promise<void> {
-      const mintUrl = getWalletDefaultMintUrl(props.seenDb) ?? 'unknown';
-
+    async finalizeRun(opts: FinalizeRunOptions): Promise<void> {
       logSpend(props.providerDb, {
         ts: null,
         provider: 'routstr',
-        mint_url: mintUrl,
+        mint_url: opts.mintUrl,
         budget_sats: 0,
         refund_sats: 0,
         spent_sats: 0,
@@ -66,6 +67,7 @@ export async function depositOrTopup(props: {
   wallet: CashuWallet;
   seenDb: SeenDb;
   providerDb: ProviderDb;
+  config: BotConfig;
   baseUrl: string;
   amountSats: number;
 }): Promise<{ skKey: string; wasNew: boolean }> {
@@ -127,7 +129,11 @@ export async function depositOrTopup(props: {
     throw err;
   }
 
-  const mintUrl = getWalletDefaultMintUrl(seenDb) ?? 'unknown';
+  const mintUrl = getWalletDefaultMintUrl(seenDb, props.config);
+
+  if (!mintUrl) {
+    throw new Error('No mint URL configured. Use !wallet mint <url> first.');
+  }
 
   // TODO: make sure we provide correct arguments
   logSpend(providerDb, {
@@ -151,10 +157,15 @@ export async function refundRoutstr(props: {
   seenDb: SeenDb;
   providerDb: ProviderDb;
   baseUrl: string;
+  config: BotConfig;
 }): Promise<number> {
   const { wallet, seenDb, providerDb, baseUrl } = props;
   const skKey = getRoutstrSkKey(seenDb);
-  const mintUrl = getWalletDefaultMintUrl(seenDb) ?? 'unknown';
+  const mintUrl = getWalletDefaultMintUrl(seenDb, props.config);
+
+  if (!mintUrl) {
+    throw new Error('No mint URL configured. Use !wallet mint <url> first.');
+  }
 
   if (!skKey) {
     throw new Error('No Routstr session to refund.');

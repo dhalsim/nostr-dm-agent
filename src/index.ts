@@ -61,7 +61,6 @@ import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
 import { asProviderDb } from './providers/db';
 import { createProvider } from './providers/factory';
 import { depositOrTopup, refundRoutstr, NoRoutstrSessionError } from './providers/routstr';
-import type { ProviderEnv } from './providers/types';
 import { getOrCreateCurrentSession, insertSessionMessage } from './session';
 import { CashuWallet } from './wallets/cashu';
 import { openWalletDb } from './wallets/db';
@@ -97,7 +96,6 @@ function main() {
     localCliEnabled,
     opencodeServeUrl,
     cashuMnemonic,
-    cashuDefaultMintUrl,
     routstrBaseUrl,
   } = config;
 
@@ -123,7 +121,7 @@ function main() {
       return left('Run `npm run wallet:setup` to configure your wallet.');
     }
 
-    const mint = getWalletDefaultMintUrl(seenDb) ?? cashuDefaultMintUrl;
+    const mint = getWalletDefaultMintUrl(seenDb, config);
 
     if (!mint) {
       return left('No mint is set. Set one with: !wallet mint <url>');
@@ -298,7 +296,6 @@ function main() {
     const isAutoFlow = inlineBudget !== null && getProviderName(seenDb) === 'routstr';
 
     const provider = getActiveProvider();
-    let providerEnv: ProviderEnv = {};
 
     if (isAutoFlow) {
       if (!walletDb) {
@@ -323,6 +320,7 @@ function main() {
           wallet: wallet.value,
           seenDb,
           providerDb,
+          config,
           baseUrl: routstrBaseUrl,
           amountSats: inlineBudget,
         });
@@ -345,7 +343,7 @@ function main() {
     }
 
     try {
-      providerEnv = await provider.prepareRun({
+      await provider.prepareRun({
         budgetSats: inlineBudget ?? getRoutstrBudget(seenDb),
       });
     } catch (e) {
@@ -495,6 +493,7 @@ function main() {
               seenDb,
               providerDb,
               baseUrl: routstrBaseUrl,
+              config,
             });
 
             if (recovered > 0) {
@@ -511,12 +510,19 @@ function main() {
         }
       }
 
-      await provider.finalizeRun(providerEnv, {
-        success: true,
-        sessionId,
-        promptPrefix: effectiveContent,
-        model: backend.modelName,
-      });
+      const mintUrl = getWalletDefaultMintUrl(seenDb, config);
+
+      if (!mintUrl) {
+        log.error('No mint URL configured. Use !wallet mint <url> first.');
+      } else {
+        await provider.finalizeRun({
+          success: true,
+          sessionId,
+          promptPrefix: effectiveContent,
+          model: backend.modelName,
+          mintUrl,
+        });
+      }
     }
   }
 

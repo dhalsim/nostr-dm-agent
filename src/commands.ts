@@ -438,7 +438,7 @@ export async function handleBangCommand({
         const url = args[1];
 
         if (!url) {
-          const current = getWalletDefaultMintUrl(db) ?? config.cashuDefaultMintUrl;
+          const current = getWalletDefaultMintUrl(db, config);
 
           return current
             ? `Current mint: ${current}`
@@ -462,7 +462,7 @@ export async function handleBangCommand({
         return `Available mints:\n${mints.join('\n')}`;
       }
 
-      const mint = getWalletDefaultMintUrl(db) ?? config.cashuDefaultMintUrl;
+      const mint = getWalletDefaultMintUrl(db, config);
 
       if (!mint) {
         return 'No mint configured. Set one with: !wallet mint <url>';
@@ -610,7 +610,7 @@ export async function handleBangCommand({
           }
 
           if (parsed.data === 'routstr') {
-            const mint = getWalletDefaultMintUrl(db);
+            const mint = getWalletDefaultMintUrl(db, config);
             const skKey = getRoutstrSkKey(db);
             const lines = ['Provider set to: routstr'];
 
@@ -641,7 +641,7 @@ export async function handleBangCommand({
             return 'Usage: !provider deposit <sats>';
           }
 
-          const mint = getWalletDefaultMintUrl(db);
+          const mint = getWalletDefaultMintUrl(db, config);
 
           if (!mint) {
             return 'No mint configured. Use !wallet mint <url> first.';
@@ -667,6 +667,7 @@ export async function handleBangCommand({
               wallet,
               seenDb: db,
               providerDb,
+              config,
               baseUrl: routstrBaseUrl ?? config.routstrBaseUrl,
               amountSats: sats,
             });
@@ -681,7 +682,7 @@ export async function handleBangCommand({
         }
 
         case 'refund': {
-          const mint = getWalletDefaultMintUrl(db);
+          const mint = getWalletDefaultMintUrl(db, config);
 
           if (!mint) {
             return 'No mint configured.';
@@ -696,11 +697,13 @@ export async function handleBangCommand({
           }
 
           const wallet = new CashuWallet({ mnemonic: config.cashuMnemonic, mintUrl: mint });
+
           try {
             const sats = await refundRoutstr({
               wallet,
               seenDb: db,
               providerDb,
+              config,
               baseUrl: routstrBaseUrl ?? config.routstrBaseUrl,
             });
 
@@ -737,7 +740,7 @@ export async function handleBangCommand({
         case 'status': {
           const name = getProviderName(db);
           const skKey = getRoutstrSkKey(db);
-          const mint = getWalletDefaultMintUrl(db);
+          const mint = getWalletDefaultMintUrl(db, config);
           const model = getRoutstrModel(db);
           const budget = getRoutstrBudget(db);
 

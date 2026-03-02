@@ -4,6 +4,7 @@
 import { Database } from 'bun:sqlite';
 import { z } from 'zod';
 
+import type { BotConfig } from './env';
 import { assertUnreachable } from './logger';
 import { SEEN_DB_PATH, RESTART_REQUESTED_PATH } from './paths';
 
@@ -223,8 +224,8 @@ export function setRoutstrSkKey(db: SeenDb, key: string): void {
   setState(db, STATE_ROUTSTR_SK_KEY, key);
 }
 
-export function getWalletDefaultMintUrl(db: SeenDb): string | null {
-  return getState(db, STATE_CASHU_DEFAULT_MINT_URL);
+export function getWalletDefaultMintUrl(db: SeenDb, config: BotConfig): string | null {
+  return getState(db, STATE_CASHU_DEFAULT_MINT_URL) ?? config.cashuDefaultMintUrl;
 }
 
 export function setWalletDefaultMintUrl(db: SeenDb, url: string): void {
