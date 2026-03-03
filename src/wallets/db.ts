@@ -28,7 +28,7 @@ export function getWalletDbPath(mnemonic: string): string {
   const entropy = bip39.mnemonicToEntropy(mnemonic, wordlist);
   const fingerprint = bytesToHex(entropy).slice(0, 8);
 
-  const walletDbPath = join(CASHU_WALLET_DIR, `wallet-${fingerprint}.db`);
+  const walletDbPath = join(CASHU_WALLET_DIR, `wallet-${fingerprint}.sqlite`);
 
   log.info(`Wallet DB path: ${walletDbPath}`);
 

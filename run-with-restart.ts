@@ -13,8 +13,13 @@ const DM_BOT_DIR = import.meta.dir ?? process.cwd();
 const RESTART_FILE = join(DM_BOT_DIR, 'restart.requested');
 const INDEX_TS = join(DM_BOT_DIR, 'src', 'index.ts');
 
+const RAPID_CRASH_WINDOW_MS = 5_000;
+const MAX_RAPID_CRASHES = 5;
+
 let child: ReturnType<typeof spawn>;
 let restartRequested = false;
+let rapidCrashCount = 0;
+let lastStartTime = 0;
 
 function runBot(): ReturnType<typeof spawn> {
   return spawn({
@@ -28,17 +33,43 @@ function runBot(): ReturnType<typeof spawn> {
 }
 
 function start(): void {
+  lastStartTime = Date.now();
   child = runBot();
 
   child.exited.then((code) => {
     if (restartRequested) {
       restartRequested = false;
+      rapidCrashCount = 0;
       console.log('\n[run-with-restart] Restarting bot...\n');
       start();
-    } else if (code !== 0 && code !== null && code !== 130) {
-      console.error(`[run-with-restart] Bot exited with code ${code}, respawning...`);
-      start();
+      return;
     }
+
+    if (code === 0 || code === null || code === 130) {
+      return;
+    }
+
+    const uptime = Date.now() - lastStartTime;
+
+    if (uptime < RAPID_CRASH_WINDOW_MS) {
+      rapidCrashCount++;
+      if (rapidCrashCount >= MAX_RAPID_CRASHES) {
+        console.error(
+          `[run-with-restart] ${MAX_RAPID_CRASHES} rapid crashes in a row. Stopping.`,
+        );
+        process.exit(1);
+      }
+      const delayMs = 1000 * rapidCrashCount;
+      console.error(
+        `[run-with-restart] Bot exited with code ${code}. Rapid crash #${rapidCrashCount}, waiting ${delayMs}ms...`,
+      );
+      setTimeout(() => start(), delayMs);
+      return;
+    }
+
+    rapidCrashCount = 0;
+    console.error(`[run-with-restart] Bot exited with code ${code}, respawning...`);
+    start();
   });
 }
 

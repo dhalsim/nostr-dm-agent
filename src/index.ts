@@ -29,6 +29,7 @@ import { getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import { hexToBytes } from 'nostr-tools/utils';
 
 import { createBackend } from './backends/factory';
+import type { AgentRunResult } from './backends/types';
 import { parseBudgetAnnotation } from './budget-annotation';
 import { handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
 import { getStatusLines } from './commands/bot';
@@ -47,7 +48,9 @@ import {
   getRoutstrModel,
   getRoutstrSkKey,
 } from './db';
+import type { AgentMode, SeenDb } from './db';
 import { loadBotConfig } from './env';
+import type { BotConfig } from './env';
 import { runPostAgentLint, formatLintSummary } from './lint';
 import { C, debug, log } from './logger';
 import {
@@ -61,15 +64,237 @@ import {
 } from './messaging';
 import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
 import { asProviderDb } from './providers/db';
+import type { ProviderDb } from './providers/db';
 import { createProvider } from './providers/factory';
 import { depositOrTopup, refundRoutstr, NoRoutstrSessionError } from './providers/routstr';
+import type { AnyProvider } from './providers/types';
 import { getOrCreateCurrentSession, insertSessionMessage } from './session';
 import { openWalletDb } from './wallets/db';
+import type { WalletDb } from './wallets/db';
 import { InsufficientFundsError } from './wallets/types';
 
 const POST_AGENT_LINT_PROMPT_PREFIX = '[Post-edit lint feedback]';
 
 type MessageSource = 'nostr' | 'local';
+
+async function prepareAutoFlowDeposit(opts: {
+  seenDb: SeenDb;
+  config: BotConfig;
+  walletDb: WalletDb | null;
+  providerDb: ProviderDb | null;
+  amountSats: number;
+}): Promise<string | null> {
+  if (!opts.walletDb) {
+    return 'Wallet not available. Run `npm run wallet:setup` to configure your wallet.';
+  }
+
+  const mintUrl = getWalletDefaultMintUrl(opts.seenDb, opts.config.cashuDefaultMintUrl);
+
+  if (!mintUrl) {
+    return 'No mint configured. Use !wallet mint <url> first.';
+  }
+
+  const mnemonic = opts.config.cashuMnemonic;
+
+  if (!mnemonic) {
+    return 'No mnemonic configured. Set one with: !wallet setup';
+  }
+
+  try {
+    const { wasNew } = await depositOrTopup({
+      mnemonic,
+      seenDb: opts.seenDb,
+      walletDb: opts.walletDb,
+      providerDb: opts.providerDb!,
+      mintUrl,
+      amountSats: opts.amountSats,
+    });
+
+    log.warn(`Auto-flow: ${wasNew ? 'created session' : 'topped up'} with ${opts.amountSats} sats`);
+
+    return null;
+  } catch (err) {
+    if (err instanceof InsufficientFundsError) {
+      return `Insufficient local balance: ${err.available} sats available, ${err.required} needed.\nTop up with: !wallet receive <token>`;
+    }
+
+    return `Deposit failed: ${String(err)}`;
+  }
+}
+
+async function prepareProviderRun(
+  provider: AnyProvider,
+  budgetSats: number,
+): Promise<string | null> {
+  try {
+    await provider.prepareRun({ budgetSats });
+
+    return null;
+  } catch (e) {
+    if (e instanceof NoRoutstrSessionError) {
+      return e.message;
+    }
+
+    if (e instanceof InsufficientFundsError) {
+      return `Wallet balance too low. Have ${e.available} sats, need ${e.required} sats. Top up with: !wallet receive <cashuXXX>`;
+    }
+
+    throw e;
+  }
+}
+
+async function runAgentWithLintFollowUp(opts: {
+  runAgentRound: (content: string, startLog: string) => Promise<AgentRunResult>;
+  effectiveContent: string;
+  mode: AgentMode;
+  currentWorkspace: string;
+  backendName: string;
+  seenDb: SeenDb;
+  sessionId: string;
+  cwd: string;
+}): Promise<{ output: string; result: AgentRunResult }> {
+  const initialResult = await opts.runAgentRound(
+    opts.effectiveContent,
+    `${C.dim}Starting ${opts.backendName} agent (${opts.mode})…${C.reset}\n`,
+  );
+
+  let finalOutput = initialResult.output;
+  let finalResult = initialResult;
+
+  if (opts.mode !== 'agent') {
+    return { output: finalOutput, result: finalResult };
+  }
+
+  const lintLabel = opts.currentWorkspace === 'bot' ? 'dm-bot' : 'workspace';
+  const lintResult = runPostAgentLint({ cwd: opts.cwd, label: lintLabel });
+
+  if (!lintResult.available) {
+    log.error(
+      `Skipping post-agent lint: npm run lint is unavailable in this runtime for ${lintLabel}.`,
+    );
+
+    return { output: finalOutput, result: finalResult };
+  }
+
+  const lintSummary = formatLintSummary(lintResult);
+  finalOutput = `${initialResult.output}\n\n${lintSummary}`;
+  const lintFailed = lintResult.exitCode !== 0;
+
+  if (!lintFailed) {
+    return { output: finalOutput, result: finalResult };
+  }
+
+  const lintPrompt = `${POST_AGENT_LINT_PROMPT_PREFIX}\n${lintSummary}\n\nFix any lint issues and provide your final summary.`;
+  insertSessionMessage(opts.seenDb, opts.sessionId, 'user', lintPrompt);
+
+  try {
+    const fixResult = await opts.runAgentRound(
+      lintPrompt,
+      `${C.dim}Starting ${opts.backendName} agent (lint feedback)…${C.reset}\n`,
+    );
+
+    finalOutput = `${finalOutput}\n\n${fixResult.output}`;
+    finalResult = fixResult;
+  } catch (lintFollowupErr) {
+    log.error(`Lint follow-up agent process error: ${String(lintFollowupErr)}`);
+    finalOutput = `${finalOutput}\n\nAutomatic lint-fix round failed: ${String(lintFollowupErr)}`;
+  }
+
+  return { output: finalOutput, result: finalResult };
+}
+
+async function sendChunkedReply(opts: {
+  source: MessageSource;
+  reply: string;
+  sendReplyForSource: (source: MessageSource, message: string) => Promise<void>;
+}): Promise<void> {
+  const chunks = chunkMessage(opts.reply);
+  const total = chunks.length;
+  let delayMs = CHUNK_DELAY_BASE_MS;
+
+  for (let i = 0; i < chunks.length; i++) {
+    const hasNextChunk = i < chunks.length - 1;
+
+    const maybeNextPrompt = hasNextChunk && opts.source === 'nostr' ? '\n<CHECK NEXT MESSAGE>' : '';
+
+    const chunkBody = `${chunks[i]}${maybeNextPrompt}`;
+    const chunk = total > 1 ? `(${i + 1}/${total}) ${chunkBody}` : chunkBody;
+
+    try {
+      await opts.sendReplyForSource(opts.source, chunk);
+    } catch (e) {
+      const targetLabel = opts.source === 'local' ? 'local output' : 'DM chunk';
+      log.error(`Failed to send ${targetLabel}: ${String(e)}`);
+    }
+
+    if (hasNextChunk) {
+      await sleep(delayMs);
+      delayMs = Math.min(delayMs * 2, CHUNK_DELAY_MAX_MS);
+    }
+  }
+}
+
+async function finalizeAutoFlowRefund(opts: {
+  isAutoFlow: boolean;
+  walletDb: WalletDb | null;
+  seenDb: SeenDb;
+  config: BotConfig;
+  providerDb: ProviderDb | null;
+  sendReply: (message: string) => Promise<void>;
+}): Promise<void> {
+  if (!opts.isAutoFlow) {
+    return;
+  }
+
+  if (!opts.walletDb) {
+    await opts.sendReply(
+      "Wallet not available. Auto-flow won't run. `npm run wallet:setup` to configure your wallet.",
+    );
+
+    return;
+  }
+
+  const skKey = getRoutstrSkKey(opts.seenDb);
+
+  if (!skKey) {
+    await opts.sendReply('No Routstr session key. Use !provider deposit <sats> first.');
+
+    return;
+  }
+
+  const mnemonic = opts.config.cashuMnemonic;
+
+  if (!mnemonic) {
+    await opts.sendReply(
+      'No mnemonic configured. Run `npm run wallet:setup` to configure your wallet.',
+    );
+
+    return;
+  }
+
+  const mintUrl = getWalletDefaultMintUrl(opts.seenDb, opts.config.cashuDefaultMintUrl);
+
+  if (!mintUrl) {
+    await opts.sendReply('No mint configured. Use !wallet mint <url> first.');
+
+    return;
+  }
+
+  if (!opts.providerDb) {
+    return;
+  }
+
+  const recovered = await refundRoutstr({
+    mnemonic,
+    providerDb: opts.providerDb,
+    mintUrl,
+    skKey,
+  });
+
+  if (recovered > 0) {
+    log.warn(`Auto-flow: recovered ${recovered} sats`);
+  }
+}
 
 let redrawPrompt: (() => void) | null = null;
 
@@ -268,83 +493,30 @@ function main() {
 
     const { prompt: effectiveContent, budgetSats: inlineBudget } = parseBudgetAnnotation(content);
     const isAutoFlow = inlineBudget !== null && getProviderName(seenDb) === 'routstr';
-
     const provider = getActiveProvider();
 
     if (isAutoFlow) {
-      if (!walletDb) {
-        await sendReplyForSource(
-          source,
-          'Wallet not available. Run `npm run wallet:setup` to configure your wallet.',
-        );
+      const depositErr = await prepareAutoFlowDeposit({
+        seenDb,
+        config,
+        walletDb,
+        providerDb,
+        amountSats: inlineBudget,
+      });
 
-        return;
-      }
-
-      try {
-        const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
-
-        if (!mintUrl) {
-          await sendReplyForSource(source, 'No mint configured. Use !wallet mint <url> first.');
-
-          return;
-        }
-
-        const mnemonic = config.cashuMnemonic;
-
-        if (!mnemonic) {
-          await sendReplyForSource(source, 'No mnemonic configured. Set one with: !wallet setup');
-
-          return;
-        }
-
-        const { wasNew } = await depositOrTopup({
-          mnemonic,
-          seenDb,
-          walletDb,
-          providerDb,
-          mintUrl,
-          amountSats: inlineBudget,
-        });
-
-        log.warn(
-          `Auto-flow: ${wasNew ? 'created session' : 'topped up'} with ${inlineBudget} sats`,
-        );
-      } catch (err) {
-        if (err instanceof InsufficientFundsError) {
-          await sendReplyForSource(
-            source,
-            `Insufficient local balance: ${err.available} sats available, ${err.required} needed.\nTop up with: !wallet receive <token>`,
-          );
-        } else {
-          await sendReplyForSource(source, `Deposit failed: ${String(err)}`);
-        }
+      if (depositErr) {
+        await sendReplyForSource(source, depositErr);
 
         return;
       }
     }
 
-    try {
-      await provider.prepareRun({
-        budgetSats: inlineBudget ?? getRoutstrBudget(seenDb),
-      });
-    } catch (e) {
-      if (e instanceof NoRoutstrSessionError) {
-        await sendReplyForSource(source, e.message);
+    const prepareErr = await prepareProviderRun(provider, inlineBudget ?? getRoutstrBudget(seenDb));
 
-        return;
-      }
+    if (prepareErr) {
+      await sendReplyForSource(source, prepareErr);
 
-      if (e instanceof InsufficientFundsError) {
-        await sendReplyForSource(
-          source,
-          `Wallet balance too low. Have ${e.available} sats, need ${e.required} sats. Top up with: !wallet receive <cashuXXX>`,
-        );
-
-        return;
-      }
-
-      throw e;
+      return;
     }
 
     const runAgentRound = async (roundContent: string, startLog: string) => {
@@ -379,46 +551,16 @@ function main() {
     };
 
     try {
-      const initialResult = await runAgentRound(
+      const { output: finalOutput, result: finalResult } = await runAgentWithLintFollowUp({
+        runAgentRound,
         effectiveContent,
-        `${C.dim}Starting ${backend.name} agent (${mode})…${C.reset}\n`,
-      );
-
-      let finalOutput = initialResult.output;
-      let finalResult = initialResult;
-
-      if (mode === 'agent') {
-        const lintLabel = currentWorkspace === 'bot' ? 'dm-bot' : 'workspace';
-        const lintResult = runPostAgentLint({ cwd, label: lintLabel });
-
-        if (lintResult.available) {
-          const lintSummary = formatLintSummary(lintResult);
-          finalOutput = `${initialResult.output}\n\n${lintSummary}`;
-          const lintFailed = lintResult.exitCode !== 0;
-
-          if (lintFailed) {
-            const lintPrompt = `${POST_AGENT_LINT_PROMPT_PREFIX}\n${lintSummary}\n\nFix any lint issues and provide your final summary.`;
-            insertSessionMessage(seenDb, sessionId, 'user', lintPrompt);
-
-            try {
-              const fixResult = await runAgentRound(
-                lintPrompt,
-                `${C.dim}Starting ${backend.name} agent (lint feedback)…${C.reset}\n`,
-              );
-
-              finalOutput = `${finalOutput}\n\n${fixResult.output}`;
-              finalResult = fixResult;
-            } catch (lintFollowupErr) {
-              log.error(`Lint follow-up agent process error: ${String(lintFollowupErr)}`);
-              finalOutput = `${finalOutput}\n\nAutomatic lint-fix round failed: ${String(lintFollowupErr)}`;
-            }
-          }
-        } else {
-          log.error(
-            `Skipping post-agent lint: npm run lint is unavailable in this runtime for ${lintLabel}.`,
-          );
-        }
-      }
+        mode,
+        currentWorkspace,
+        backendName: backend.name,
+        seenDb,
+        sessionId,
+        cwd,
+      });
 
       const isErrorResponse =
         finalOutput.startsWith('Unexpected error') ||
@@ -436,28 +578,12 @@ function main() {
       const prefix = modePrefix(mode, isLocal);
       const footer = tokenFooter(finalResult, isLocal);
       const fullReply = prefix + finalOutput + footer;
-      const chunks = chunkMessage(fullReply);
-      const total = chunks.length;
-      let delayMs = CHUNK_DELAY_BASE_MS;
 
-      for (let i = 0; i < chunks.length; i++) {
-        const hasNextChunk = i < chunks.length - 1;
-        const maybeNextPrompt = hasNextChunk && source === 'nostr' ? '\n<CHECK NEXT MESSAGE>' : '';
-        const chunkBody = `${chunks[i]}${maybeNextPrompt}`;
-        const chunk = total > 1 ? `(${i + 1}/${total}) ${chunkBody}` : chunkBody;
-
-        try {
-          await sendReplyForSource(source, chunk);
-        } catch (e) {
-          const targetLabel = source === 'local' ? 'local output' : 'DM chunk';
-          log.error(`Failed to send ${targetLabel}: ${String(e)}`);
-        }
-
-        if (hasNextChunk) {
-          await sleep(delayMs);
-          delayMs = Math.min(delayMs * 2, CHUNK_DELAY_MAX_MS);
-        }
-      }
+      await sendChunkedReply({
+        source,
+        reply: fullReply,
+        sendReplyForSource,
+      });
     } catch (err) {
       log.error(`${C.red}Agent process error:${C.reset} ${String(err)}`);
 
@@ -465,42 +591,18 @@ function main() {
         log.error(`Failed to send error reply: ${String(e)}`),
       );
     } finally {
-      if (isAutoFlow) {
-        if (walletDb) {
-          const skKey = getRoutstrSkKey(seenDb);
-          const mnemonic = config.cashuMnemonic;
-          const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
-
-          if (!skKey || !mnemonic || !mintUrl) {
-            await sendReplyForSource(
-              source,
-              'No Routstr session key. Use !provider deposit <sats> first.',
-            );
-          } else {
-            const recovered = await refundRoutstr({
-              mnemonic,
-              providerDb,
-              mintUrl,
-              skKey,
-            });
-
-            if (recovered > 0) {
-              log.warn(`Auto-flow: recovered ${recovered} sats`);
-            }
-          }
-        } else {
-          await sendReplyForSource(
-            source,
-            "Wallet not available. Auto-flow won't run. `npm run wallet:setup` to configure your wallet.",
-          );
-        }
-      }
+      await finalizeAutoFlowRefund({
+        isAutoFlow,
+        walletDb,
+        seenDb,
+        config,
+        providerDb,
+        sendReply: (msg) => sendReplyForSource(source, msg),
+      });
 
       const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
 
-      if (!mintUrl) {
-        log.error('No mint URL configured. Use !wallet mint <url> first.');
-      } else {
+      if (mintUrl) {
         await provider.finalizeRun({
           success: true,
           sessionId,
@@ -508,6 +610,8 @@ function main() {
           model: backend.modelName,
           mintUrl,
         });
+      } else {
+        log.error('No mint URL configured. Use !wallet mint <url> first.');
       }
     }
   }

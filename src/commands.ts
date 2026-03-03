@@ -52,7 +52,7 @@ import { getBalanceByMint, type WalletDb } from './wallets/db';
 
 export const EXIT_COMMAND_SENTINEL = '__DM_BOT_EXIT__';
 
-async function handleError(fn: () => Promise<string>, errorPrefix: string): Promise<string> {
+export async function handleError(fn: () => Promise<string>, errorPrefix: string): Promise<string> {
   try {
     return await fn();
   } catch (err) {
