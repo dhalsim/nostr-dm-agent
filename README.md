@@ -20,21 +20,98 @@ Control AI agents remotely via Nostr DMs. A bridge between encrypted messaging a
 
 Built with Bun, nostr-tools, and TypeScript.
 
-## Quick start
+## How to use the bot (practical workflow)
+
+You have an existing project — we call it the **parent** in workspace terms.
+
+1. **Put the bot in your project**  
+   Fork and clone this repo into your project, naming the directory `dm-bot`:
+
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/nostr-dm-bot.git dm-bot
+   ```
+
+   Add `dm-bot/` to your project’s `.gitignore` so the bot can have its own git repo.
+
+2. **Quick start (from the bot directory)**
 
 ```bash
 cd dm-bot
 bun install
 
-# Setup nostr identity, relays, and publish kind 10050
+# Setup Nostr identity, relays, and publish kind 10050
 npm run nostr:setup
 
-# Optional: setup Cashu wallet for paid AI
+# Optional: setup Cashu wallet for paid AI (Routstr)
 npm run wallet:setup
 
 # Start the bot
 bun run start
 ```
+
+3. **Workspace**  
+   The default workspace is **parent**. When you send a question or a coding task, the agent works on your parent project (the repo that contains the bot).
+
+4. **Choose a backend**  
+   Pick an AI agent backend that runs on your machine: OpenCode (CLI or SDK) or Cursor. See [Backends](#backends) for how to install them. Switch with `!backend <name>`.
+
+5. **Choose a provider**  
+   **Local** (no payment) — works with any backend and is ideal if you already have a subscription (e.g. Cursor, or [OpenCode providers](https://opencode.ai/docs/providers/) such as OpenAI, Anthropic, OpenCode Zen). If you don’t have a subscription, use **Routstr** and pay as you go with sats via Cashu. See [Choosing a provider](#choosing-a-provider). Switch with `!provider set local|routstr`.
+
+6. **Chat and iterate**  
+   Send messages via Nostr DM or the local terminal. Set a mode with `!ask`, `!plan`, or `!agent`. Use **agent** mode when you want the bot to apply changes, commit, and push.
+
+**Summary:** Clone into your project (add to `.gitignore`) → choose backend → choose provider → Nostr setup → chat → choose mode → iterate.
+
+## Backends
+
+The bot needs an AI agent backend on your machine. Install one and ensure it’s on your PATH.
+
+### Cursor Agent CLI
+
+- Install and sign in via [Cursor](https://cursor.com). The `agent` CLI must be on your PATH.
+- The bot runs `agent create-chat` and `agent -p --resume <id> ...` for each request.
+- Switch to this backend with `!backend cursor`. Only the **local** provider is supported (no Routstr with Cursor yet).
+
+### OpenCode
+
+- Install [OpenCode](https://opencode.ai) so the `opencode` CLI is on your PATH.
+- **opencode** (CLI): the bot shells out to `opencode run ...`. Use `!backend opencode`.
+- **opencode-sdk**: the bot starts an in-process OpenCode server. Use `!backend opencode-sdk`. Requires `opencode` to be installed; the SDK runs the server for you.
+- OpenCode supports both **local** (your API keys / opencode.json) and **Routstr** (pay with sats).
+
+## Choosing a provider
+
+- **Local** — No payment layer. The backend uses your own config: Cursor’s auth, or for OpenCode your [providers](https://opencode.ai/docs/providers/) (e.g. OpenAI, Anthropic, OpenCode Zen) and API keys in `opencode.json`. Ideal if you already have a subscription.
+- **Routstr** — Pay per request with Bitcoin (sats) via Cashu. Use this if you don’t have a subscription. Requires a Cashu wallet and a mint that Routstr works with.
+
+### Using Routstr
+
+1. **Setup a Cashu wallet**  
+   Run `npm run wallet:setup` and store the mnemonic in `.env` as `CASHU_MNEMONIC`.
+
+2. **Add a mint**  
+   Use a mint that Routstr accepts. Official options:
+   - https://mint.minibits.cash/Bitcoin
+   - https://mint.cubabitcoin.org
+   - https://ecashmint.otrta.me
+   - https://mint.coinos.io  
+
+   Add one with: `!wallet mint <mintURL>`.
+
+3. **Receive sats into your local wallet**  
+   Use `!wallet receive <token>`. You can get a token from another Cashu wallet (e.g. [cashu.me](https://cashu.me)): create an invoice, pay with Lightning, then paste the received token into `!wallet receive <token>`.
+
+4. **Switch to Routstr and deposit**  
+   `!provider set routstr`, then `!provider deposit <sats>` (or use auto-flow by appending `!!<sats>` to a prompt).
+
+5. **Set a Routstr model**  
+   `!provider models` then `!model set routstr/<model-id>`.
+
+6. **Apply changes**  
+   Use **agent** mode (`!agent` or `!mode agent`) when you want the bot to apply edits, commit, and push.
+
+For wallet commands, auto-flow, and troubleshooting, see [Cashu / Routstr Integration](#cashu--routstr-integration-optional).
 
 ## Configuration
 
@@ -92,11 +169,7 @@ The agent is scoped to the **project root** (one level up from the dm-bot direct
 
 On startup the bot sends one DM to the master: `Agent is ready.` Then it listens for your messages. Plain messages (no `!`) are sent to the agent in the current session; replies are prefixed with `<ask>`, `<plan>`, `<agent>` or similar according to the current mode.
 
-**Prerequisite:** [Cursor Agent CLI](https://cursor.com) must be installed and authenticated (`agent` on your PATH). The bot runs `agent create-chat` and `agent -p --resume <id> ...` for each request.
-
-or 
-
-or [OpenCode](https://opencode.ai) must be installed (`opencode` on your PATH).
+**Prerequisite:** Install a [backend](#backends) (Cursor Agent CLI or OpenCode) and ensure it’s on your PATH.
 
 ## Commands
 
@@ -137,6 +210,18 @@ The bot supports paid AI providers via Cashu tokens and [Routstr](https://routst
 2. **Manual flow**: Pre-fund a Routstr session, then use normally
    - `!provider deposit <sats>` to fund the session
    - `!provider refund` to recover unspent balance when done
+
+### Cashu and the bot wallet
+
+The bot’s wallet holds Cashu eCash tokens (sats) that you can spend on Routstr. **The bot does not support minting via Lightning** — you cannot create a Lightning invoice inside the bot and pay it to receive sats directly.
+
+To add funds, use an external Cashu-capable wallet (e.g. [cashu.me](https://cashu.me)). There you can receive sats (e.g. by creating a Lightning invoice and paying it from any Lightning wallet). After payment you receive a **Cashu token**. Paste that token into the bot with:
+
+```bash
+!wallet receive <token>
+```
+
+The bot will redeem the token and the sats will appear in your local wallet balance. You can then use them for Routstr (`!provider deposit` or auto-flow with `!!sats`).
 
 ### One-Time Setup
 
@@ -215,20 +300,17 @@ The bot will:
 3. Run the agent with those funds
 4. Automatically refund unspent sats back to your local wallet
 
-### External Wallet Top-Up
+### External wallet options
 
-To add funds to your local Cashu wallet:
+Ways to get Cashu tokens that you can paste into the bot with `!wallet receive <token>`:
 
-1. **Minibits**: App → Wallet → Receive → Copy Lightning invoice → Pay from any Lightning wallet
-2. **cashu.me**: Receive tab → Create invoice → Pay from Lightning wallet
-3. **Alby**: Account → Lightning → Receive → Create invoice
-
-Once paid, the sender will receive a Cashu token. Use `!wallet receive <token>` to add it to your local wallet.
+1. **[cashu.me](https://cashu.me)** — Receive tab → Create invoice → Pay from a Lightning wallet → Copy the token and paste into the bot
+2. **Minibits** — App → Wallet → Receive → Copy Lightning invoice → Pay from any Lightning wallet → receive token, then `!wallet receive <token>` in the bot
 
 ### Troubleshooting
 
 - **"No mint configured"**: Run `!wallet mint <url>` first
-- **"Wallet not available"**: Make sure `CASHU_MNEMONIC` is set in `.env` and run `npm run wallet:setup`
+- **"Wallet not available"**: Make sure to run `npm run wallet:setup` to create a Cashu wallet and set the mnemonic in `.env`
 - **"Insufficient balance"**: Top up with `!wallet receive <token>` from external wallet
 - **"No Routstr session"**: Run `!provider deposit <sats>` or append `!!sats` to your prompt
 
