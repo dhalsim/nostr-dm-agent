@@ -11,7 +11,6 @@ export type BotConfig = {
   masterPubkey: string;
   relayUrls: string[];
   agentPath: string;
-  localCliEnabled: boolean;
   opencodeServeUrl: string | null;
   cashuMnemonic: string | null;
   cashuDefaultMintUrl: string | null;
@@ -72,8 +71,7 @@ export function loadBotConfig(): BotConfig {
     botPubkey: process.env.BOT_PUBKEY ?? null,
     masterPubkey,
     relayUrls,
-    agentPath: normalizePath(process.env.BOT_AGENT_PATH ?? process.env.PATH ?? ''),
-    localCliEnabled: (process.env.BOT_LOCAL_CLI ?? '1') !== '0',
+    agentPath: normalizePath(process.env.PATH ?? ''),
     opencodeServeUrl: process.env.BOT_OPENCODE_SERVE_URL ?? null,
     cashuMnemonic: process.env.CASHU_MNEMONIC ?? null,
     cashuDefaultMintUrl: process.env.CASHU_DEFAULT_MINT_URL ?? null,

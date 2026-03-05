@@ -9,8 +9,6 @@
  *   BOT_RELAYS              - Comma-separated relay URLs (e.g. wss://relay.damus.io,wss://relay.nos.social)
  *   DEBUG                   - Set to 1 for extra logging (subscription, received events, send targets)
  *   LOG                     - Set to 0 to suppress all log()/logError() output. Default 1.
- *   BOT_LOCAL_CLI           - Set to 0 to disable local terminal input (default: 1)
- *   BOT_AGENT_PATH          - Override PATH for locating agent binaries
  *   BOT_OPENCODE_SERVE_URL  - Attach to a running opencode server (e.g. http://localhost:4096)
  *   CASHU_DEFAULT_MINT_URL  - Default Cashu mint URL to use for auto-flow
  *
@@ -331,7 +329,6 @@ function main() {
     masterPubkey,
     relayUrls,
     agentPath,
-    localCliEnabled,
     opencodeServeUrl,
     cashuMnemonic,
     routstrBaseUrl,
@@ -678,7 +675,7 @@ function main() {
     }
   }
 
-  if (localCliEnabled && process.stdin.isTTY) {
+  if (process.stdin.isTTY) {
     const startLocalCli = () => {
       console.log(
         `${C.dim}Type a prompt or ${C.reset}${C.white}!help${C.reset}${C.dim} to list commands.${C.reset}\n`,
@@ -718,8 +715,6 @@ function main() {
     };
 
     readyDmPromise.finally(startLocalCli);
-  } else {
-    debug('Local terminal chat disabled (BOT_LOCAL_CLI=0 or non-TTY stdin).');
   }
 
   pool.subscribe(relayUrls, dmFilter, {

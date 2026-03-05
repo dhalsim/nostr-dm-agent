@@ -91,5 +91,5 @@ Colors are applied for local terminal output and stripped (`stripAnsi()`) before
 ## Environment (runtime)
 
 - Required: `BOT_KEY`, `BOT_MASTER_PUBKEY`, `BOT_RELAYS`.
-- Optional: `BOT_PUBKEY`, `DEBUG=1`, `BOT_LOCAL_CLI=0`, `BOT_AGENT_PATH`, `BOT_OPENCODE_SERVE_URL`.
+- Optional: `BOT_PUBKEY`, `DEBUG=1`, `BOT_OPENCODE_SERVE_URL`.
 - See `index.ts` top comment and `.env.example`.
