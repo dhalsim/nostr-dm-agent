@@ -1,6 +1,8 @@
 import type { SeenDb } from '../db';
 import {
   ProviderNameSchema,
+  getAgentBackend,
+  getModelOverride,
   getProviderName,
   setProviderName,
   getRoutstrBudget,
@@ -10,6 +12,7 @@ import {
   setCachedRoutstrModels,
   getCachedRoutstrModels,
 } from '../db';
+import { log } from '../logger';
 import type { ProviderDb } from '../providers/db';
 import { depositOrTopup, refundRoutstr, getRoutstrBalance } from '../providers/routstr';
 import { fetchRoutstrModels } from '../providers/routstr-models';
@@ -36,7 +39,6 @@ export function handleProviderSet({ seenDb, name }: HandleProviderSetProps): str
   setProviderName(seenDb, parsed.data);
 
   if (parsed.data === 'routstr') {
-    // TODO: need to check the backend is OpenCode (cursor won't work with routstr)
     const skKey = getRoutstrSkKey(seenDb);
     const lines = ['Provider set to: routstr'];
 
@@ -45,6 +47,31 @@ export function handleProviderSet({ seenDb, name }: HandleProviderSetProps): str
         ? `Session key: ${skKey.slice(0, 16)}...`
         : 'No session yet. Use !provider deposit <sats> or append !!<sats> to your prompt.',
     );
+
+    const backendName = getAgentBackend(seenDb);
+
+    if (backendName === 'cursor') {
+      log.warn(
+        'cursor backend does not support routstr. Switch backend with !backend opencode-sdk',
+      );
+    }
+
+    const modelOverride = getModelOverride(seenDb);
+    const routstrModel = getRoutstrModel(seenDb);
+
+    if (modelOverride && !modelOverride.startsWith('routstr/')) {
+      log.warn(
+        `Current model override "${modelOverride}" is not a routstr model — it will likely fail.
+        \nRun "!provider models" to list available models for the provider and then
+        \nRun "!model set routstr/<id>" to set the model.`,
+      );
+    } else if (!routstrModel && !modelOverride?.startsWith('routstr/')) {
+      log.warn(
+        `No routstr model configured. Run "!provider models" to list available models for the provider 
+        and then
+        \nRun "!model set routstr/<id>" to set the model.`,
+      );
+    }
 
     return lines.join('\n');
   }
