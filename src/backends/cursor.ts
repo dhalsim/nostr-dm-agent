@@ -12,7 +12,7 @@ export function createCursorBackend(modelOverride?: string | null): AgentBackend
     name: 'cursor',
     modelName: effectiveModel,
 
-    createSession({ cwd, env }: CreateSessionProps): string {
+    async createSession({ cwd, env }: CreateSessionProps): Promise<string> {
       const proc = spawnSync(['agent', 'create-chat'], {
         cwd,
         stdout: 'pipe',
@@ -75,6 +75,7 @@ export function createCursorBackend(modelOverride?: string | null): AgentBackend
       const err = await new Response(proc.stderr).text();
 
       return {
+        type: 'success',
         output: (out + (err ? '\n' + err : '')).trim() || '(no output)',
         sessionId,
       };

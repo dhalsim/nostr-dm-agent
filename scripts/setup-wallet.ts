@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, appendFileSync } from 'fs';
 import * as bip39 from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import readline from 'readline';
+
+import { getEnvFromFile, setEnvInFile } from '../src/env-file';
 
 const ENV_PATH = '.env';
 
@@ -17,19 +18,15 @@ function question(prompt: string, defaultValue?: string): Promise<string> {
 }
 
 async function main() {
-  // Check if already set
-  if (existsSync(ENV_PATH)) {
-    const content = readFileSync(ENV_PATH, 'utf-8');
-    if (content.includes('CASHU_MNEMONIC=')) {
-      console.error('CASHU_MNEMONIC already exists in .env. Remove it first if you want to regenerate.');
-      process.exit(1);
-    }
+  if (getEnvFromFile(ENV_PATH, 'CASHU_MNEMONIC')) {
+    console.error('CASHU_MNEMONIC already exists in .env. Remove it first if you want to regenerate.');
+    process.exit(1);
   }
 
   const defaultMintUrl = await question('Enter your default Cashu mint URL', 'https://mint.minibits.cash/Bitcoin');
 
   if (defaultMintUrl) {
-    appendFileSync(ENV_PATH, `\nCASHU_DEFAULT_MINT_URL="${defaultMintUrl}"\n`);
+    setEnvInFile(ENV_PATH, 'CASHU_DEFAULT_MINT_URL', defaultMintUrl);
   }
 
   const mnemonic = bip39.generateMnemonic(wordlist, 128); // 12 words
@@ -76,8 +73,7 @@ async function main() {
     }
   }
 
-  // Write to .env
-  appendFileSync(ENV_PATH, `\nCASHU_MNEMONIC="${mnemonic}"\n`);
+  setEnvInFile(ENV_PATH, 'CASHU_MNEMONIC', mnemonic);
 
   console.log('✓ Written to .env');
 

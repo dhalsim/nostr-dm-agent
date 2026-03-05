@@ -69,7 +69,9 @@ export async function handleWalletReceive({
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const { actuallyReceived, fee } = await wallet.receiveToken(token);
-      const message = `Received ${actuallyReceived} sats to mint ${mintUrl}.`;
+      log.ok(`Received ${actuallyReceived} sats to mint ${mintUrl}.`);
+
+      await getBalanceByMint(walletDb, mintUrl);
 
       logWalletOperation(walletDb, {
         ts: null,
@@ -80,7 +82,7 @@ export async function handleWalletReceive({
         token,
       });
 
-      return message;
+      return 'Token received successfully.';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
 

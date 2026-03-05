@@ -2,17 +2,22 @@
 // db.ts — SQLite persistence: seen events, state, sessions schema
 // ---------------------------------------------------------------------------
 import { Database } from 'bun:sqlite';
+import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44';
+import { hexToBytes } from 'nostr-tools/utils';
 import { z } from 'zod';
 
-import { assertUnreachable } from './logger';
+import { assertUnreachable, log } from './logger';
 import { SEEN_DB_PATH, RESTART_REQUESTED_PATH } from './paths';
+import { msats, msatsRaw } from './types';
+import type { Brand } from './types';
+import type { Msats } from './types';
 
 export { SEEN_DB_PATH, RESTART_REQUESTED_PATH };
 
 export const AgentModeSchema = z.enum(['free', 'ask', 'plan', 'agent']);
 export type AgentMode = z.infer<typeof AgentModeSchema>;
 
-export const AgentBackendNameSchema = z.enum(['cursor', 'opencode']);
+export const AgentBackendNameSchema = z.enum(['cursor', 'opencode', 'opencode-sdk']);
 export type AgentBackendName = z.infer<typeof AgentBackendNameSchema>;
 
 export const ProviderNameSchema = z.enum(['local', 'routstr']);
@@ -23,6 +28,9 @@ export type ReplyTransport = z.infer<typeof ReplyTransportSchema>;
 
 export const WorkspaceTargetSchema = z.enum(['parent', 'bot']);
 export type WorkspaceTarget = z.infer<typeof WorkspaceTargetSchema>;
+
+export const LintingSchema = z.enum(['on', 'off']);
+export type Linting = z.infer<typeof LintingSchema>;
 
 export const STATE_CURRENT_SESSION = 'current_session_id';
 export const STATE_DEFAULT_MODE = 'default_mode';
@@ -37,15 +45,20 @@ export const STATE_ROUTSTR_MODEL = 'routstr_model';
 export const STATE_ROUTSTR_MODELS_CACHE = 'routstr_models_cache';
 export const STATE_ROUTSTR_MODELS_CACHE_TS = 'routstr_models_cache_ts';
 export const STATE_CASHU_DEFAULT_MINT_URL = 'cashu_default_mint_url';
+export const STATE_LINTING = 'linting';
 
 export const DEFAULT_MODE: AgentMode = 'ask';
 export const DEFAULT_BACKEND: AgentBackendName = 'cursor';
 export const DEFAULT_REPLY_TRANSPORT: ReplyTransport = 'remote';
 export const DEFAULT_WORKSPACE_TARGET: WorkspaceTarget = 'parent';
 export const DEFAULT_PROVIDER: ProviderName = 'local';
-export const DEFAULT_ROUTSTR_BUDGET_SATS = 2000;
+export const DEFAULT_LINTING: Linting = 'on';
 
-type Brand<T, B> = T & { readonly __brand: B };
+let skKeyConversationKey: Uint8Array | null = null;
+
+export function initSkKeyEncryption(botKeyHex: string, botPubkey: string): void {
+  skKeyConversationKey = getConversationKey(hexToBytes(botKeyHex), botPubkey);
+}
 
 export type SeenDb = Brand<Database, 'SeenDb'>;
 
@@ -82,17 +95,18 @@ export function openSeenDb(): SeenDb {
 
   db.run(`
     CREATE TABLE IF NOT EXISTS spend_log (
-      id            INTEGER PRIMARY KEY,
-      ts            INTEGER NOT NULL, -- unix milliseconds
-      provider      TEXT NOT NULL,
-      mint_url      TEXT NOT NULL,
-      budget_sats   INTEGER NOT NULL,
-      refund_sats   INTEGER NOT NULL DEFAULT 0,
-      spent_sats    INTEGER NOT NULL,
-      fee_sats      INTEGER NOT NULL DEFAULT 0,
-      model         TEXT,
-      session_id    TEXT,
-      prompt_prefix TEXT -- first 80 chars
+      id             INTEGER PRIMARY KEY,
+      ts             INTEGER NOT NULL,
+      provider       TEXT NOT NULL,
+      mint_url       TEXT NOT NULL,
+      budget_msats   INTEGER NOT NULL,
+      refund_msats   INTEGER NOT NULL DEFAULT 0,
+      spent_msats    INTEGER NOT NULL,
+      fee_msats      INTEGER NOT NULL DEFAULT 0,
+      model          TEXT,
+      session_id     TEXT,
+      prompt_prefix  TEXT,
+      type           TEXT NOT NULL DEFAULT 'run'
     )
   `);
 
@@ -200,27 +214,55 @@ export function setProviderName(db: SeenDb, name: ProviderName): void {
   setState(db, STATE_PROVIDER_NAME, name);
 }
 
-export function getRoutstrBudget(seenDb: SeenDb): number {
+export function getRoutstrBudget(seenDb: SeenDb): Msats {
   const v = getState(seenDb, STATE_ROUTSTR_BUDGET_MSATS);
+
+  if (v === null) {
+    return msats(0);
+  }
+
   const parsed = z.coerce.number().safeParse(v);
 
   if (!parsed.success) {
-    return DEFAULT_ROUTSTR_BUDGET_SATS;
+    throw new Error(`Corrupt routstr budget in DB: "${v}"`);
   }
 
-  return parsed.data;
+  return msats(parsed.data);
 }
 
-export function setRoutstrBudget(db: SeenDb, budgetMSats: number): void {
-  setState(db, STATE_ROUTSTR_BUDGET_MSATS, String(budgetMSats));
+export function setRoutstrBudget(db: SeenDb, budgetMSats: Msats): void {
+  setState(db, STATE_ROUTSTR_BUDGET_MSATS, String(msatsRaw(budgetMSats)));
 }
 
 export function getRoutstrSkKey(db: SeenDb): string | null {
-  return getState(db, STATE_ROUTSTR_SK_KEY);
+  const stored = getState(db, STATE_ROUTSTR_SK_KEY);
+
+  if (!stored) {
+    return null;
+  }
+
+  if (!skKeyConversationKey) {
+    log.warn('SK key encryption not initialized — returning raw value');
+
+    return stored;
+  }
+
+  try {
+    return decrypt(stored, skKeyConversationKey);
+  } catch {
+    return stored;
+  }
 }
 
 export function setRoutstrSkKey(db: SeenDb, key: string): void {
-  setState(db, STATE_ROUTSTR_SK_KEY, key);
+  if (!skKeyConversationKey) {
+    log.warn('SK key encryption not initialized — storing raw value');
+    setState(db, STATE_ROUTSTR_SK_KEY, key);
+
+    return;
+  }
+
+  setState(db, STATE_ROUTSTR_SK_KEY, encrypt(key, skKeyConversationKey));
 }
 
 export function getWalletDefaultMintUrl(db: SeenDb, defaultMintUrl: string | null): string | null {
@@ -268,4 +310,14 @@ export function getCachedRoutstrModels(db: SeenDb): {
 export function setCachedRoutstrModels(db: SeenDb, models: RoutstrModelCache): void {
   setState(db, STATE_ROUTSTR_MODELS_CACHE, JSON.stringify(models));
   setState(db, STATE_ROUTSTR_MODELS_CACHE_TS, String(Date.now()));
+}
+
+export function getLinting(db: SeenDb): Linting {
+  const v = getState(db, STATE_LINTING);
+
+  return LintingSchema.safeParse(v).data ?? DEFAULT_LINTING;
+}
+
+export function setLinting(db: SeenDb, value: Linting): void {
+  setState(db, STATE_LINTING, value);
 }

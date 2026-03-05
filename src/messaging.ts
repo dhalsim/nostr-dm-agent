@@ -63,13 +63,13 @@ export function modePrefix(mode: AgentMode, local: boolean): string {
   return `${colors[mode]}<${mode}>${C.reset} `;
 }
 
-export function tokenFooter(result: AgentRunResult, local: boolean): string {
-  if (!result.tokens) {
+export function tokenFooter(result: AgentRunResult, local: boolean, spentMsats = 0): string {
+  if (result.type !== 'success' || !result.tokens) {
     return '';
   }
 
   const { input, output } = result.tokens;
-  const costStr = result.cost != null ? ` | cost: $${result.cost.toFixed(4)}` : '';
+  const costStr = spentMsats > 0 ? ` | spent: ${spentMsats} msats` : '';
   const modelStr = result.model ? ` | model: ${result.model}` : '';
   const raw = `[tokens: ${input} in / ${output} out${costStr}${modelStr}]`;
 
@@ -82,16 +82,14 @@ export async function getMasterDmRelays(
   masterPubkey: string,
 ): Promise<string[]> {
   try {
-    const events = await pool.querySync(Array.from(PROFILE_RELAYS).concat(botRelayUrl), {
+    const event = await pool.get(Array.from(PROFILE_RELAYS).concat(botRelayUrl), {
       kinds: [10050],
       authors: [masterPubkey],
       limit: 1,
     });
 
-    if (events?.length > 0) {
-      const urls = events[0].tags
-        .filter((t) => t[0] === 'relay' && t[1])
-        .map((t) => ensureWss(t[1]));
+    if (event) {
+      const urls = event.tags.filter((t) => t[0] === 'relay' && t[1]).map((t) => ensureWss(t[1]));
 
       if (urls.length > 0) {
         debug('Master kind:10050 relays:', urls);
@@ -173,12 +171,19 @@ export async function sendDm({
     throw new Error(`DM publish failed on all relays: ${reasons || 'unknown error'}`);
   }
 
-  const sentLine = `${C.gray}[sent]${C.reset} ${message}`;
+  const lines = message.split('\n');
+  const lastLine = lines[lines.length - 1] ?? '';
+  const lastIsTokens = lines.length > 0 && /^\[tokens:/.test(lastLine.trimStart());
+  const body = lastIsTokens ? lines.slice(0, -1).join('\n') : message;
+  const tokensLine = lastIsTokens ? lastLine : null;
+  const bodyStyled = `${C.greenBright}${body}${C.reset}`;
+  const tokensStyled = tokensLine ? `\n${C.dim}${tokensLine}${C.reset}` : '';
+  const sentLine = `${C.green}[sent]${C.reset} ${bodyStyled}${tokensStyled}`;
 
   if (redrawPrompt) {
     process.stdout.write(`\n${sentLine}\n`);
     redrawPrompt();
   } else {
-    log.info(sentLine);
+    process.stdout.write(`\n${sentLine}\n`);
   }
 }

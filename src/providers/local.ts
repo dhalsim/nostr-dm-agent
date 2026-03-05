@@ -1,15 +1,18 @@
-import type { AnyProvider, ProviderEnv, PrepareRunOptions, FinalizeRunOptions } from './types';
+import type {
+  AnyProvider,
+  FinalizeRunOptions,
+  FinalizeRunResult,
+  PrepareRunOptions,
+} from './types';
 
 export function createLocalProvider(): AnyProvider {
   return {
     name: 'local',
 
-    async prepareRun(_opts: PrepareRunOptions): Promise<ProviderEnv> {
-      return {};
-    },
+    async prepareRun(_opts: PrepareRunOptions): Promise<void> {},
 
-    async finalizeRun(_env: ProviderEnv, _opts: FinalizeRunOptions): Promise<void> {
-      // No-op for local provider
+    async finalizeRun(_opts: FinalizeRunOptions): Promise<FinalizeRunResult> {
+      return { spentMsats: 0 };
     },
 
     async getStatus(): Promise<string> {

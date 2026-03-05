@@ -35,6 +35,7 @@ import { handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
 import { getStatusLines } from './commands/bot';
 import {
   openSeenDb,
+  initSkKeyEncryption,
   alreadyHaveEvent,
   markSeen,
   getDefaultMode,
@@ -45,6 +46,7 @@ import {
   getProviderName,
   getRoutstrBudget,
   getWalletDefaultMintUrl,
+  getLinting,
   getRoutstrModel,
   getRoutstrSkKey,
 } from './db';
@@ -66,9 +68,15 @@ import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
 import { asProviderDb } from './providers/db';
 import type { ProviderDb } from './providers/db';
 import { createProvider } from './providers/factory';
-import { depositOrTopup, refundRoutstr, NoRoutstrSessionError } from './providers/routstr';
-import type { AnyProvider } from './providers/types';
+import {
+  depositOrTopup,
+  refundRoutstr,
+  NoRoutstrSessionError,
+  ZeroRoutstrBalanceError,
+} from './providers/routstr';
+import type { AnyProvider, ProviderName } from './providers/types';
 import { getOrCreateCurrentSession, insertSessionMessage } from './session';
+import { msatsRaw } from './types';
 import { openWalletDb } from './wallets/db';
 import type { WalletDb } from './wallets/db';
 import { InsufficientFundsError } from './wallets/types';
@@ -108,6 +116,7 @@ async function prepareAutoFlowDeposit(opts: {
       providerDb: opts.providerDb!,
       mintUrl,
       amountSats: opts.amountSats,
+      forceNew: false,
     });
 
     log.warn(`Auto-flow: ${wasNew ? 'created session' : 'topped up'} with ${opts.amountSats} sats`);
@@ -131,7 +140,7 @@ async function prepareProviderRun(
 
     return null;
   } catch (e) {
-    if (e instanceof NoRoutstrSessionError) {
+    if (e instanceof NoRoutstrSessionError || e instanceof ZeroRoutstrBalanceError) {
       return e.message;
     }
 
@@ -161,7 +170,13 @@ async function runAgentWithLintFollowUp(opts: {
   let finalOutput = initialResult.output;
   let finalResult = initialResult;
 
-  if (opts.mode !== 'agent') {
+  if (initialResult.type === 'error') {
+    return { output: finalOutput, result: finalResult };
+  }
+
+  const linting = getLinting(opts.seenDb);
+
+  if (opts.mode !== 'agent' || linting === 'off') {
     return { output: finalOutput, result: finalResult };
   }
 
@@ -287,6 +302,7 @@ async function finalizeAutoFlowRefund(opts: {
   const recovered = await refundRoutstr({
     mnemonic,
     providerDb: opts.providerDb,
+    seenDb: opts.seenDb,
     mintUrl,
     skKey,
   });
@@ -334,18 +350,11 @@ function main() {
 
   const pool = new SimplePool({ enablePing: true, enableReconnect: true });
 
+  initSkKeyEncryption(botKeyHex, botPubkey);
+
   const seenDb = openSeenDb();
   const providerDb = asProviderDb(seenDb);
   const walletDb = cashuMnemonic ? openWalletDb(cashuMnemonic) : null;
-
-  function getActiveProvider() {
-    return createProvider({
-      name: getProviderName(seenDb),
-      walletDb,
-      seenDb,
-      routstrBaseUrl,
-    });
-  }
 
   const workspaceRoot = join(dmBotRoot, '..');
 
@@ -353,6 +362,25 @@ function main() {
     ...process.env,
     PATH: agentPath,
   };
+
+  function getAgentEnv(): Record<string, string | undefined> {
+    const env = { ...agentEnv };
+
+    const backendName = getAgentBackend(seenDb);
+
+    if (
+      getProviderName(seenDb) === 'routstr' &&
+      (backendName === 'opencode' || backendName === 'opencode-sdk')
+    ) {
+      const skKey = getRoutstrSkKey(seenDb);
+
+      if (skKey) {
+        env.ROUTSTR_API_KEY = skKey;
+      }
+    }
+
+    return env;
+  }
 
   const packageJson = readFileSync(join(dmBotRoot, 'package.json'), 'utf-8');
   const packageJsonData = JSON.parse(packageJson) as { version: string };
@@ -386,15 +414,19 @@ function main() {
 
   debug('PWD:', pwdOutput);
 
-  const readyDmPromise = sendDm({
-    pool,
-    botRelayUrl: primaryRelay,
-    senderSecretKey: botSecretKey,
-    recipientPubkey: masterPubkey,
-    message: `Agent is ready.`,
-    signAuthEvent,
-    redrawPrompt,
-  }).catch((err) => log.error(`Failed to send ready DM: ${String(err)}`));
+  const readyDmEnabled = (process.env.READY_ENABLED ?? '1') !== '0';
+
+  const readyDmPromise = readyDmEnabled
+    ? sendDm({
+        pool,
+        botRelayUrl: primaryRelay,
+        senderSecretKey: botSecretKey,
+        recipientPubkey: masterPubkey,
+        message: `Agent is ready.`,
+        signAuthEvent,
+        redrawPrompt,
+      }).catch((err) => log.error(`Failed to send ready DM: ${String(err)}`))
+    : Promise.resolve();
 
   const dmFilter = {
     kinds: [1059] as number[],
@@ -406,10 +438,16 @@ function main() {
 
   async function sendReplyForSource(source: MessageSource, message: string): Promise<void> {
     const replyTransport = getReplyTransport(seenDb);
-    const shouldBypassNostr = source === 'local' || replyTransport === 'local';
+    const sourceIsLocal = source === 'local';
+    const replyTransportIsLocal = replyTransport === 'local';
+    const shouldBypassNostr = sourceIsLocal || replyTransportIsLocal;
 
     if (shouldBypassNostr) {
-      log.info(`${C.white}[bot]${C.reset}\n${message}`);
+      log.info(
+        `${C.dim}[bypassing to send as a DM because ${sourceIsLocal ? 'source is local' : 'reply transport is local'}]${C.reset}\n`,
+      );
+
+      console.log(message ?? '(no message)');
 
       return;
     }
@@ -425,26 +463,19 @@ function main() {
     });
   }
 
-  const defaultModelOverride = getModelOverride(seenDb);
-  const defaultBackend = getAgentBackend(seenDb);
-  const mode = getDefaultMode(seenDb);
-
-  const backend = createBackend({
-    name: defaultBackend,
-    dmBotRoot,
-    mode,
-    attachUrl: opencodeServeUrl,
-    modelOverride: defaultModelOverride,
-  });
-
   async function handleUserMessage(content: string, source: MessageSource): Promise<void> {
-    const sourceLabel =
-      source === 'local' ? `${C.white}local${C.reset}` : `${C.magenta}master${C.reset}`;
-
     const isLocal = source === 'local' || getReplyTransport(seenDb) === 'local';
-    log.sep();
-    log.info(`[${sourceLabel}] ${content}`);
-    log.sep();
+    process.stdout.write(`${C.dim}${C.magenta} > ${content}${C.reset}\n`);
+
+    const backend = createBackend({
+      backendName: getAgentBackend(seenDb),
+      dmBotRoot,
+      mode: getDefaultMode(seenDb),
+      attachUrl: opencodeServeUrl,
+      modelOverride: getModelOverride(seenDb),
+      providerName: getProviderName(seenDb),
+      seenDb,
+    });
 
     if (content.trim().startsWith('!')) {
       const reply = await handleBangCommand({
@@ -454,7 +485,7 @@ function main() {
         version: VERSION,
         workspaceRoot,
         dmBotRoot,
-        agentEnv,
+        agentEnv: getAgentEnv(),
         attachUrl: opencodeServeUrl,
         backend,
         walletDb,
@@ -472,7 +503,7 @@ function main() {
       } else if (reply) {
         await sendReplyForSource(source, reply);
       } else if (source === 'local') {
-        log.info(`${C.white}[bot]${C.reset}\n${C.dim}Command applied.${C.reset}`);
+        log.info(`${C.green}[bot]${C.reset}\n${C.dim}Command applied.${C.reset}`);
       }
 
       return;
@@ -482,18 +513,36 @@ function main() {
     const currentWorkspace = getWorkspaceTarget(seenDb);
     const cwd = currentWorkspace === 'bot' ? dmBotRoot : workspaceRoot;
 
-    const sessionId = getOrCreateCurrentSession({
+    const sessionId = await getOrCreateCurrentSession({
       db: seenDb,
       backend,
       cwd,
-      env: agentEnv,
+      env: getAgentEnv(),
     });
 
     insertSessionMessage(seenDb, sessionId, 'user', content);
 
     const { prompt: effectiveContent, budgetSats: inlineBudget } = parseBudgetAnnotation(content);
-    const isAutoFlow = inlineBudget !== null && getProviderName(seenDb) === 'routstr';
-    const provider = getActiveProvider();
+
+    const configuredBackendName = getAgentBackend(seenDb);
+    const configuredProviderName = getProviderName(seenDb);
+
+    // cursor backend cannot use routstr — use local for this run's provider
+    const effectiveProviderName: ProviderName =
+      configuredBackendName === 'cursor' && configuredProviderName === 'routstr'
+        ? 'local'
+        : configuredProviderName;
+
+    const isAutoFlow = inlineBudget !== null && effectiveProviderName === 'routstr';
+
+    const provider = createProvider({
+      name: effectiveProviderName,
+      walletDb,
+      seenDb,
+      providerDb,
+      config,
+      routstrBaseUrl,
+    });
 
     if (isAutoFlow) {
       const depositErr = await prepareAutoFlowDeposit({
@@ -511,7 +560,10 @@ function main() {
       }
     }
 
-    const prepareErr = await prepareProviderRun(provider, inlineBudget ?? getRoutstrBudget(seenDb));
+    const prepareErr = await prepareProviderRun(
+      provider,
+      inlineBudget != null ? inlineBudget * 1000 : msatsRaw(getRoutstrBudget(seenDb)),
+    );
 
     if (prepareErr) {
       await sendReplyForSource(source, prepareErr);
@@ -525,19 +577,22 @@ function main() {
       const modelOverride = getModelOverride(seenDb);
       const backendName = getAgentBackend(seenDb);
       const routstrModel = getRoutstrModel(seenDb);
-      const activeProviderName = getProviderName(seenDb);
 
       const finalModelOverride =
-        activeProviderName === 'routstr' && routstrModel
+        effectiveProviderName === 'routstr' && routstrModel
           ? `routstr/${routstrModel}`
-          : (modelOverride ?? undefined);
+          : (modelOverride ?? null);
+
+      log.info(`finalModelOverride: ${finalModelOverride}`);
 
       const roundBackend = createBackend({
-        name: backendName,
+        backendName,
         dmBotRoot,
         mode,
         attachUrl: opencodeServeUrl,
         modelOverride: finalModelOverride,
+        providerName: configuredProviderName,
+        seenDb,
       });
 
       return roundBackend.runMessage({
@@ -545,7 +600,7 @@ function main() {
         content: roundContent,
         mode,
         cwd,
-        env: agentEnv,
+        env: getAgentEnv(),
         modelOverride: finalModelOverride,
       });
     };
@@ -563,6 +618,7 @@ function main() {
       });
 
       const isErrorResponse =
+        finalResult.type === 'error' ||
         finalOutput.startsWith('Unexpected error') ||
         finalOutput.startsWith('Error:') ||
         finalOutput.includes('check log file at') ||
@@ -575,8 +631,28 @@ function main() {
         log.error(finalOutput);
       }
 
+      const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
+      let spentMsats = 0;
+
+      if (mintUrl) {
+        const cost = finalResult.type === 'success' ? finalResult.cost : undefined;
+        const tokens = finalResult.type === 'success' ? finalResult.tokens : undefined;
+
+        const result = await provider.finalizeRun({
+          success: finalResult.type === 'success',
+          sessionId,
+          promptPrefix: effectiveContent,
+          model: backend.modelName,
+          mintUrl,
+          cost,
+          tokens,
+        });
+
+        spentMsats = result.spentMsats;
+      }
+
       const prefix = modePrefix(mode, isLocal);
-      const footer = tokenFooter(finalResult, isLocal);
+      const footer = tokenFooter(finalResult, isLocal, spentMsats);
       const fullReply = prefix + finalOutput + footer;
 
       await sendChunkedReply({
@@ -599,26 +675,12 @@ function main() {
         providerDb,
         sendReply: (msg) => sendReplyForSource(source, msg),
       });
-
-      const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
-
-      if (mintUrl) {
-        await provider.finalizeRun({
-          success: true,
-          sessionId,
-          promptPrefix: effectiveContent,
-          model: backend.modelName,
-          mintUrl,
-        });
-      } else {
-        log.error('No mint URL configured. Use !wallet mint <url> first.');
-      }
     }
   }
 
   if (localCliEnabled && process.stdin.isTTY) {
     const startLocalCli = () => {
-      log.info(
+      console.log(
         `${C.dim}Type a prompt or ${C.reset}${C.white}!help${C.reset}${C.dim} to list commands.${C.reset}\n`,
       );
 

@@ -13,6 +13,8 @@ import {
 import type { ProviderDb } from '../providers/db';
 import { depositOrTopup, refundRoutstr, getRoutstrBalance } from '../providers/routstr';
 import { fetchRoutstrModels } from '../providers/routstr-models';
+import { formatMsats, msatsRaw } from '../types';
+import type { Msats } from '../types';
 import type { WalletDb } from '../wallets/db';
 
 export type HandleProviderSetProps = {
@@ -57,6 +59,7 @@ export type HandleProviderDepositProps = {
   mintUrl: string;
   providerDb: ProviderDb;
   amountSats: number;
+  forceNew: boolean;
 };
 
 export async function handleProviderDeposit({
@@ -66,6 +69,7 @@ export async function handleProviderDeposit({
   mintUrl,
   providerDb,
   amountSats,
+  forceNew,
 }: HandleProviderDepositProps): Promise<string> {
   const { skKey, wasNew } = await depositOrTopup({
     seenDb,
@@ -74,6 +78,7 @@ export async function handleProviderDeposit({
     providerDb,
     mintUrl,
     amountSats,
+    forceNew,
   });
 
   if (!skKey) {
@@ -83,7 +88,7 @@ export async function handleProviderDeposit({
   setProviderName(seenDb, 'routstr');
   const action = wasNew ? 'Created new session' : 'Topped up existing session';
 
-  return `${action} with ${amountSats} sats.\nSession: ${skKey.slice(0, 16)}...\nProvider set to routstr.`;
+  return `${action} with ${amountSats} sats.\nSession: ${skKey.slice(0, 8)}...\nProvider set to routstr.`;
 }
 
 type HandleProviderRefundProps = {
@@ -108,6 +113,7 @@ export async function handleProviderRefund({
   const sats = await refundRoutstr({
     mnemonic,
     providerDb,
+    seenDb,
     mintUrl,
     skKey,
   });
@@ -118,15 +124,24 @@ export async function handleProviderRefund({
 }
 
 export async function handleProviderBalance(seenDb: SeenDb): Promise<string> {
-  const sats = await getRoutstrBalance(seenDb);
+  const balance = await getRoutstrBalance(seenDb);
+  const currentBudget = getRoutstrBudget(seenDb);
 
-  return `Routstr session balance: ${sats} sats`;
+  const changed = msatsRaw(currentBudget) !== msatsRaw(balance);
+
+  if (changed) {
+    setRoutstrBudget(seenDb, balance);
+  }
+
+  const suffix = changed ? ' (budget updated)' : '';
+
+  return `Routstr session balance: ${formatMsats(balance)}${suffix}`;
 }
 
-export function handleProviderBudget(seenDb: SeenDb, budgetMsats: number): string {
+export function handleProviderBudget(seenDb: SeenDb, budgetMsats: Msats): string {
   setRoutstrBudget(seenDb, budgetMsats);
 
-  return `Budget set to: ${budgetMsats} msats`;
+  return `Budget set to: ${formatMsats(budgetMsats)}`;
 }
 
 export type HandleProviderStatusProps = {
@@ -149,7 +164,7 @@ export function handleProviderStatus({ seenDb, mintUrl }: HandleProviderStatusPr
     `Provider:       routstr`,
     `Session key:    ${skKey ? skKey.slice(0, 6) + '...' : 'none'}`,
     `Mint:           ${mintUrl}`,
-    `Default budget: ${budgetMsats} msats`,
+    `Default budget: ${formatMsats(budgetMsats)}`,
     `Model:          ${model ? `routstr/${model}` : '(not set)'}`,
   ].join('\n');
 }
@@ -167,4 +182,49 @@ export async function handleProviderSyncModels(db: SeenDb): Promise<string> {
   const { models, ts } = result;
 
   return `Found ${models.length} cached Routstr models. Last updated: ${new Date(ts).toLocaleString()}`;
+}
+
+export type HandleProviderModelsProps = {
+  seenDb: SeenDb;
+  filter?: string;
+};
+
+export async function handleProviderModels({
+  seenDb,
+  filter,
+}: HandleProviderModelsProps): Promise<string> {
+  let result = getCachedRoutstrModels(seenDb);
+
+  if (!result) {
+    const models = await fetchRoutstrModels();
+    setCachedRoutstrModels(seenDb, models);
+    result = { models, ts: Date.now() };
+  }
+
+  const { models, ts } = result;
+
+  const needle = filter?.trim().toLowerCase() ?? '';
+
+  const filtered =
+    needle === ''
+      ? models
+      : models.filter(
+          (m) =>
+            m.id.toLowerCase().includes(needle) ||
+            (m.name?.toLowerCase().includes(needle) ?? false),
+        );
+
+  if (filtered.length === 0) {
+    return needle
+      ? `No Routstr models matching "${filter}". Run !provider sync-models then !provider models.`
+      : 'No Routstr models cached. Run !provider sync-models first.';
+  }
+
+  const lines = filtered.map((m) => {
+    const ctx = m.context_length != null ? ` (${m.context_length} ctx)` : '';
+
+    return `  routstr/${m.id}${m.name ? ` — ${m.name}` : ''}${ctx}`;
+  });
+
+  return `Routstr models${needle ? ` matching "${filter}"` : ''} (${filtered.length}, cached ${new Date(ts).toLocaleString()}):\n${lines.join('\n')}`;
 }

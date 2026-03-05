@@ -1,16 +1,23 @@
 import * as z from 'zod';
 
 import type { SeenDb } from '../db';
-import { getRoutstrSkKey, setRoutstrBudget, setRoutstrSkKey } from '../db';
+import { getRoutstrBudget, getRoutstrSkKey, setRoutstrBudget, setRoutstrSkKey } from '../db';
 import type { BotConfig } from '../env';
-import { debug, log } from '../logger';
+import { debug, debugAsync, log } from '../logger';
+import { formatMsats, msats, msatsRaw } from '../types';
+import type { Msats } from '../types';
 import { CashuWallet } from '../wallets/cashu';
 import type { WalletDb } from '../wallets/db';
-import { logWalletOperation } from '../wallets/db';
+import { getBalanceByMint, logWalletOperation } from '../wallets/db';
 
 import type { ProviderDb } from './db';
 import { logSpend } from './db';
-import type { AnyProvider, PrepareRunOptions, FinalizeRunOptions } from './types';
+import type {
+  AnyProvider,
+  PrepareRunOptions,
+  FinalizeRunOptions,
+  FinalizeRunResult,
+} from './types';
 
 const ROUTSTR_BASE_URL = 'https://api.routstr.com/v1';
 
@@ -29,6 +36,12 @@ export class NoRoutstrSessionError extends Error {
   }
 }
 
+export class ZeroRoutstrBalanceError extends Error {
+  constructor() {
+    super('Routstr session balance is 0. Use !provider deposit <sats> first.');
+  }
+}
+
 export function createRoutstrProvider(props: CreateRoutstrProviderProps): AnyProvider {
   return {
     name: 'routstr',
@@ -40,26 +53,52 @@ export function createRoutstrProvider(props: CreateRoutstrProviderProps): AnyPro
         throw new NoRoutstrSessionError();
       }
 
-      // TODO: check this once we have a proper environment
-      // return {
-      //   OPENAI_API_KEY: skKey,
-      //   OPENAI_BASE_URL: props.baseUrl,
-      // };
+      if (msatsRaw(getRoutstrBudget(props.seenDb)) <= 0) {
+        throw new ZeroRoutstrBalanceError();
+      }
     },
 
-    async finalizeRun(opts: FinalizeRunOptions): Promise<void> {
+    async finalizeRun(opts: FinalizeRunOptions): Promise<FinalizeRunResult> {
+      const oldBudget = getRoutstrBudget(props.seenDb);
+      const oldRaw = msatsRaw(oldBudget);
+
+      let spentMsats: number;
+      let newBalance: Msats;
+
+      if (opts.cost != null && opts.cost > 0) {
+        spentMsats = Math.round(opts.cost * 1000);
+        newBalance = msats(Math.max(0, oldRaw - spentMsats));
+        setRoutstrBudget(props.seenDb, newBalance);
+      } else {
+        try {
+          newBalance = await getRoutstrBalance(props.seenDb);
+        } catch (e) {
+          debug(`finalizeRun: could not fetch balance (${e instanceof Error ? e.message : e})`);
+
+          newBalance = oldBudget;
+        }
+
+        const newRaw = msatsRaw(newBalance);
+
+        spentMsats = Math.max(0, oldRaw - newRaw);
+        setRoutstrBudget(props.seenDb, newBalance);
+      }
+
       logSpend(props.providerDb, {
         ts: null,
         provider: 'routstr',
         mint_url: opts.mintUrl,
-        budget_sats: 0,
-        refund_sats: 0,
-        spent_sats: 0,
-        fee_sats: 0,
+        budget_msats: msatsRaw(newBalance),
+        refund_msats: 0,
+        spent_msats: spentMsats,
+        fee_msats: 0,
         model: opts.model,
         session_id: opts.sessionId,
         prompt_prefix: opts.promptPrefix,
+        type: 'run',
       });
+
+      return { spentMsats };
     },
 
     async getStatus(): Promise<string> {
@@ -71,10 +110,7 @@ export function createRoutstrProvider(props: CreateRoutstrProviderProps): AnyPro
 }
 
 const TopupResponseSchema = z.object({
-  old_balance: z.number(),
-  added_amount: z.number(),
-  new_balance: z.number(),
-  transaction_id: z.string(),
+  msats: z.number(),
 });
 
 type DepositOrTopupProps = {
@@ -84,12 +120,13 @@ type DepositOrTopupProps = {
   providerDb: ProviderDb;
   mintUrl: string;
   amountSats: number;
+  forceNew: boolean;
 };
 
 export async function depositOrTopup(
   props: DepositOrTopupProps,
 ): Promise<{ skKey: string | null; wasNew: boolean }> {
-  const { mnemonic, seenDb, walletDb, providerDb, mintUrl, amountSats } = props;
+  const { mnemonic, seenDb, walletDb, providerDb, mintUrl, amountSats, forceNew } = props;
 
   const wallet = new CashuWallet({ mnemonic, mintUrl });
 
@@ -104,7 +141,7 @@ export async function depositOrTopup(
     token,
   });
 
-  const existingKey = getRoutstrSkKey(seenDb);
+  const existingKey = forceNew ? null : getRoutstrSkKey(seenDb);
 
   let skKey = existingKey;
 
@@ -122,7 +159,7 @@ export async function depositOrTopup(
 
       const balanceCreateResponseSchema = z.object({
         api_key: z.string(),
-        balance_sats: z.number(), // msats
+        balance: z.number(), // msats
       });
 
       const parsed = balanceCreateResponseSchema.safeParse(json);
@@ -134,7 +171,7 @@ export async function depositOrTopup(
       }
 
       skKey = parsed.data.api_key;
-      const balanceMSats = parsed.data.balance_sats;
+      const balanceMSats = msats(parsed.data.balance);
 
       setRoutstrSkKey(seenDb, skKey);
       setRoutstrBudget(seenDb, balanceMSats);
@@ -149,10 +186,18 @@ export async function depositOrTopup(
       });
 
       if (!res.ok) {
+        debugAsync(async () => {
+          const json = await res.json();
+
+          return `Unexpected topup response: ${JSON.stringify(json)}`;
+        });
+
         throw new Error(`Top-up failed: HTTP ${res.status}`);
       }
 
       const json = await res.json();
+
+      debug(`Routstr topup response: ${JSON.stringify(json)}`);
 
       const parsed = TopupResponseSchema.safeParse(json);
 
@@ -160,11 +205,9 @@ export async function depositOrTopup(
         throw new Error(`routstr topup response was not expected: ${parsed.error}`);
       }
 
-      log.info(
-        `${parsed.data.added_amount} sats added to routstr balance. New balance is ${parsed.data.new_balance}`,
-      );
+      const balanceMSats = msats(parsed.data.msats);
 
-      const balanceMSats = parsed.data.new_balance;
+      log.info(`Routstr topup successful. Balance: ${formatMsats(balanceMSats)}`);
       setRoutstrBudget(seenDb, balanceMSats);
     }
   } catch (err) {
@@ -183,6 +226,10 @@ export async function depositOrTopup(
         fee: receivedFee,
         token,
       });
+
+      await getBalanceByMint(walletDb, mintUrl);
+
+      log.info(`refunded ${actuallyReceived} sats from routstr`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
 
@@ -192,20 +239,21 @@ export async function depositOrTopup(
     throw err;
   }
 
-  const wasNew = !!existingKey;
+  const wasNew = !existingKey;
 
   // TODO: make sure we provide correct arguments
   logSpend(providerDb, {
     ts: null,
     provider: 'routstr',
     mint_url: mintUrl,
-    budget_sats: amountSats,
-    refund_sats: 0,
-    spent_sats: amountSats,
-    fee_sats: 0,
+    budget_msats: amountSats * 1000,
+    refund_msats: 0,
+    spent_msats: amountSats * 1000,
+    fee_msats: 0,
     model: null,
-    session_id: wasNew ? 'create-session' : 'topup',
+    session_id: null,
     prompt_prefix: null,
+    type: 'topup',
   });
 
   return { skKey, wasNew };
@@ -213,13 +261,14 @@ export async function depositOrTopup(
 
 export type RefundRoutstrProps = {
   mnemonic: string;
+  seenDb: SeenDb;
   providerDb: ProviderDb;
   mintUrl: string;
   skKey: string;
 };
 
 export async function refundRoutstr(props: RefundRoutstrProps): Promise<number> {
-  const { mnemonic, mintUrl, skKey, providerDb } = props;
+  const { mnemonic, seenDb, mintUrl, skKey, providerDb } = props;
 
   const res = await fetch(`${ROUTSTR_BASE_URL}/balance/refund`, {
     method: 'POST',
@@ -232,13 +281,14 @@ export async function refundRoutstr(props: RefundRoutstrProps): Promise<number> 
       ts: null,
       provider: 'routstr',
       mint_url: mintUrl,
-      budget_sats: 0,
-      refund_sats: 0,
-      spent_sats: 0,
-      fee_sats: 0,
+      budget_msats: 0,
+      refund_msats: 0,
+      spent_msats: 0,
+      fee_msats: 0,
       model: null,
-      session_id: 'refund-empty',
+      session_id: null,
       prompt_prefix: null,
+      type: 'refund',
     });
 
     return 0;
@@ -263,35 +313,57 @@ export async function refundRoutstr(props: RefundRoutstrProps): Promise<number> 
     ts: null,
     provider: 'routstr',
     mint_url: mintUrl,
-    budget_sats: 0,
-    refund_sats: actuallyReceived,
-    spent_sats: 0,
-    fee_sats: receivedFee,
+    budget_msats: 0,
+    refund_msats: actuallyReceived * 1000,
+    spent_msats: 0,
+    fee_msats: receivedFee * 1000,
     model: null,
-    session_id: 'refund',
+    session_id: null,
     prompt_prefix: null,
+    type: 'refund',
   });
+
+  setRoutstrBudget(seenDb, msats(0));
 
   return actuallyReceived;
 }
 
-export async function getRoutstrBalance(seenDb: SeenDb): Promise<number> {
+const BalanceInfoResponseSchema = z
+  .object({
+    balance: z.number(),
+  })
+  .loose();
+
+export async function getRoutstrBalance(seenDb: SeenDb): Promise<Msats> {
   const skKey = getRoutstrSkKey(seenDb);
 
   if (!skKey) {
     throw new Error('No Routstr session key. Use !provider deposit <sats> first.');
   }
 
-  const res = await fetch(`${ROUTSTR_BASE_URL}/balance`, {
+  const res = await fetch(`${ROUTSTR_BASE_URL}/balance/info`, {
     headers: { Authorization: `Bearer ${skKey}` },
   });
 
   if (!res.ok) {
+    debugAsync(async () => {
+      const json = await res.json();
+
+      return `Unexpected balance response: ${JSON.stringify(json)}`;
+    });
+
     throw new Error(`Balance check failed: HTTP ${res.status}`);
   }
 
-  const data = (await res.json()) as { balance?: number; msats?: number };
-  const msats = data.msats ?? data.balance ?? 0;
+  const json = await res.json();
 
-  return Math.floor(Number(msats) / 1000);
+  debug(`Routstr balance response: ${JSON.stringify(json)}`);
+
+  const data = BalanceInfoResponseSchema.safeParse(json);
+
+  if (!data.success) {
+    throw new Error(`Unexpected balance response: ${data.error}`);
+  }
+
+  return msats(data.data.balance);
 }

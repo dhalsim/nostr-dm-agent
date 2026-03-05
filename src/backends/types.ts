@@ -3,7 +3,17 @@
 // ---------------------------------------------------------------------------
 import type { AgentMode, AgentBackendName } from '../db';
 
-export type AgentRunResult = {
+export type AgentRunResult = AgentErrorResult | AgentSuccessResult;
+
+export type AgentErrorResult = {
+  type: 'error';
+  output: string;
+  sessionId: string;
+  statusCode?: number;
+};
+
+export type AgentSuccessResult = {
+  type: 'success';
   output: string;
   sessionId: string;
   model?: string;
@@ -17,7 +27,7 @@ export type RunMessageProps = {
   mode: AgentMode;
   cwd: string;
   env: Record<string, string | undefined>;
-  modelOverride?: string;
+  modelOverride: string | null;
 };
 
 export type CreateSessionProps = {
@@ -28,7 +38,7 @@ export type CreateSessionProps = {
 export type AgentBackend = {
   name: AgentBackendName;
   modelName: string;
-  createSession(props: CreateSessionProps): string;
+  createSession(props: CreateSessionProps): Promise<string>;
   runMessage(props: RunMessageProps): Promise<AgentRunResult>;
   availableModels(): Promise<string[]>;
 };

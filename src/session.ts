@@ -12,8 +12,13 @@ export type CreateNewSessionProps = {
   env: Record<string, string | undefined>;
 };
 
-export function createNewSession({ db, backend, cwd, env }: CreateNewSessionProps): string {
-  const id = backend.createSession({ cwd, env });
+export async function createNewSession({
+  db,
+  backend,
+  cwd,
+  env,
+}: CreateNewSessionProps): Promise<string> {
+  const id = await backend.createSession({ cwd, env });
   const now = Math.floor(Date.now() / 1000);
 
   db.run('INSERT OR IGNORE INTO sessions (id, created_at, backend) VALUES (?, ?, ?)', [
@@ -42,12 +47,12 @@ export type GetOrCreateSessionProps = {
   env: Record<string, string | undefined>;
 };
 
-export function getOrCreateCurrentSession({
+export async function getOrCreateCurrentSession({
   db,
   backend,
   cwd,
   env,
-}: GetOrCreateSessionProps): string {
+}: GetOrCreateSessionProps): Promise<string> {
   const cur = db.prepare('SELECT value FROM state WHERE key = ?').get(STATE_CURRENT_SESSION) as
     | { value: string }
     | undefined;

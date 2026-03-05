@@ -3,7 +3,7 @@ import type { SeenDb } from '../db';
 import { getDefaultMode, getState, getWorkspaceTarget, STATE_CURRENT_SESSION } from '../db';
 import { createNewSession, getLatestSession, setCurrentSession } from '../session';
 
-export function handleNewSession({
+export async function handleNewSession({
   db,
   backend,
   workspaceRoot,
@@ -15,12 +15,12 @@ export function handleNewSession({
   workspaceRoot: string;
   dmBotRoot: string;
   agentEnv: Record<string, string | undefined>;
-}): string {
+}): Promise<string> {
   const workspace = getWorkspaceTarget(db);
   const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
   const mode = getDefaultMode(db);
 
-  const id = createNewSession({
+  const id = await createNewSession({
     db,
     backend,
     cwd,

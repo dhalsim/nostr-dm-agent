@@ -8,13 +8,12 @@ import * as bip39 from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { Database } from 'bun:sqlite';
 
-type Brand<T, B> = T & { readonly __brand: B };
-
-export type WalletDb = Brand<Database, 'WalletDb'>;
-
 import { log } from '../logger';
+import type { Brand } from '../types';
 
 import type { WalletInfo } from './types';
+
+export type WalletDb = Brand<Database, 'WalletDb'>;
 
 const CASHU_WALLET_DIR = join(homedir(), '.cashu-wallet');
 

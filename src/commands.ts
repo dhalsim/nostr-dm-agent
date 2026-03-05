@@ -2,12 +2,15 @@
 // commands.ts — ! command handler
 // ---------------------------------------------------------------------------
 
+import { join } from 'path';
+
 import type { AgentBackend } from './backends/types';
 import {
   getStatusLines,
   handleBackend,
   getHelpText,
   handleLocal,
+  handleLint,
   handleRemote,
   handleWorkspace,
   handleMode,
@@ -18,6 +21,7 @@ import {
   handleProviderBalance,
   handleProviderBudget,
   handleProviderDeposit,
+  handleProviderModels,
   handleProviderRefund,
   handleProviderSet,
   handleProviderStatus,
@@ -46,7 +50,10 @@ import {
   ProviderNameSchema,
 } from './db';
 import type { BotConfig } from './env';
+import { getEnvFromFile, setEnvInFile } from './env-file';
+import { getInfoLogsEnabled, setInfoLogsEnabled } from './logger';
 import type { ProviderDb } from './providers/db';
+import { formatMsats, msats } from './types';
 import { decodeToken } from './wallets/cashu';
 import { getBalanceByMint, type WalletDb } from './wallets/db';
 
@@ -103,7 +110,8 @@ export async function handleBangCommand({
   switch (cmd) {
     case 'new-session': {
       return handleError(
-        async () => handleNewSession({ db: seenDb, backend, workspaceRoot, dmBotRoot, agentEnv }),
+        async () =>
+          await handleNewSession({ db: seenDb, backend, workspaceRoot, dmBotRoot, agentEnv }),
         'Failed to create new session',
       );
     }
@@ -165,7 +173,7 @@ export async function handleBangCommand({
     case 'workspace': {
       return handleError(
         async () =>
-          handleWorkspace({
+          await handleWorkspace({
             db: seenDb,
             backend,
             workspaceRoot,
@@ -180,7 +188,7 @@ export async function handleBangCommand({
     case 'backend': {
       return handleError(
         async () =>
-          handleBackend({
+          await handleBackend({
             db: seenDb,
             workspaceRoot,
             dmBotRoot,
@@ -201,6 +209,13 @@ export async function handleBangCommand({
       return handleError(async () => handleMode({ db: seenDb, modeArg }), 'Failed to set mode');
     }
 
+    case 'lint': {
+      return handleError(
+        async () => handleLint({ db: seenDb, selected: args[0] }),
+        'Failed to set linting',
+      );
+    }
+
     case 'model': {
       return handleError(
         async () => handleModel({ db: seenDb, selected: args[0] }),
@@ -210,7 +225,7 @@ export async function handleBangCommand({
 
     case 'models': {
       return handleError(
-        async () => handleModels({ db: seenDb, dmBotRoot, attachUrl }),
+        async () => handleModels({ seenDb: seenDb, dmBotRoot, attachUrl }),
         'Failed to list models',
       );
     }
@@ -347,10 +362,10 @@ export async function handleBangCommand({
 
         const providerLine =
           name === 'routstr'
-            ? `Provider: routstr (budget: ${getRoutstrBudget(seenDb)} msats)`
+            ? `Provider: routstr (budget: ${formatMsats(getRoutstrBudget(seenDb))})`
             : 'Provider: local';
 
-        const usage = `Usage: !provider set [${ProviderNameSchema.options.join('|')}] | !provider deposit <sats> | !provider refund | !provider balance | !provider budget <sats> | !provider status | !provider sync-models`;
+        const usage = `Usage: !provider set [${ProviderNameSchema.options.join('|')}] | !provider deposit <sats> [--new] | !provider refund | !provider balance | !provider budget <sats> | !provider status | !provider models [filter] | !provider sync-models`;
 
         return `${providerLine}\n\n${usage}`;
       }
@@ -363,10 +378,13 @@ export async function handleBangCommand({
         }
 
         case 'deposit': {
-          const sats = parseInt(args[1], 10);
+          const depositArgs = args.slice(1);
+          const forceNew = depositArgs.includes('--new');
+          const satsArg = depositArgs.find((a) => a !== '--new');
+          const sats = parseInt(satsArg ?? '', 10);
 
           if (isNaN(sats) || sats <= 0) {
-            return 'Usage: !provider deposit <sats>';
+            return 'Usage: !provider deposit <sats> [--new]';
           }
 
           const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
@@ -404,6 +422,7 @@ export async function handleBangCommand({
                 providerDb,
                 mintUrl,
                 amountSats: sats,
+                forceNew,
               }),
             'Failed to deposit',
           );
@@ -440,11 +459,11 @@ export async function handleBangCommand({
           const budgetMsats = parseInt(args[1], 10);
 
           if (isNaN(budgetMsats) || budgetMsats <= 0) {
-            return `Current budget: ${getRoutstrBudget(seenDb)} msats.\nUsage: !provider budget <msats>`;
+            return `Current budget: ${formatMsats(getRoutstrBudget(seenDb))}.\nUsage: !provider budget <msats>`;
           }
 
           return handleError(
-            async () => handleProviderBudget(seenDb, budgetMsats),
+            async () => handleProviderBudget(seenDb, msats(budgetMsats)),
             'Failed to set budget',
           );
         }
@@ -462,13 +481,64 @@ export async function handleBangCommand({
           );
         }
 
+        case 'models': {
+          return handleError(
+            async () => handleProviderModels({ seenDb, filter: args[1] }),
+            'Failed to list models',
+          );
+        }
+
         case 'sync-models': {
           return handleError(async () => handleProviderSyncModels(seenDb), 'Failed to sync models');
         }
 
         default:
-          return `Usage: !provider set [${ProviderNameSchema.options.join('|')}] | !provider deposit <sats> | !provider refund | !provider balance | !provider budget <sats> | !provider status | !provider sync-models`;
+          return `Usage: !provider set [${ProviderNameSchema.options.join('|')}] | !provider deposit <sats> [--new] | !provider refund | !provider balance | !provider budget <sats> | !provider status | !provider models [filter] | !provider sync-models`;
       }
+    }
+
+    case 'log': {
+      const logSub = args[0]?.toLowerCase();
+
+      if (logSub !== 'info') {
+        const current = getInfoLogsEnabled() ? 'on' : 'off';
+
+        return `Usage: !log info [on|off]. Info logs: ${current}.`;
+      }
+
+      const logArg = (args[1] ?? '').toLowerCase();
+
+      if (logArg !== 'on' && logArg !== 'off') {
+        const current = getInfoLogsEnabled() ? 'on' : 'off';
+
+        return `Info logs: ${current}. Usage: !log info [on|off]`;
+      }
+
+      const envPath = join(dmBotRoot, '.env');
+
+      setEnvInFile(envPath, 'INFO_ENABLED', logArg === 'on' ? '1' : '0');
+      setInfoLogsEnabled(logArg === 'on');
+
+      return `Info logs: ${logArg}. Written to .env.`;
+    }
+
+    case 'ready': {
+      const readyArg = (args[0] ?? '').toLowerCase();
+      const envPathForReady = join(dmBotRoot, '.env');
+
+      const readyCurrent =
+        (getEnvFromFile(envPathForReady, 'READY_ENABLED') ?? process.env.READY_ENABLED ?? '1') !==
+        '0'
+          ? 'on'
+          : 'off';
+
+      if (readyArg !== 'on' && readyArg !== 'off') {
+        return `Ready DM on startup: ${readyCurrent}. Usage: !ready [on|off]`;
+      }
+
+      setEnvInFile(envPathForReady, 'READY_ENABLED', readyArg === 'on' ? '1' : '0');
+
+      return `Ready DM on startup: ${readyArg}. Written to .env. Takes effect on next restart.`;
     }
 
     case 'exit':

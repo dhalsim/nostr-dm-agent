@@ -1,13 +1,21 @@
 import { createBackend } from '../backends/factory';
 import type { AgentBackend } from '../backends/types';
-import type { SeenDb } from '../db';
 import {
+  type AgentBackendName,
+  type AgentMode,
+  type Linting,
+  type ProviderName,
+  type ReplyTransport,
+  type SeenDb,
+  type WorkspaceTarget,
   AgentBackendNameSchema,
   AgentModeSchema,
+  LintingSchema,
   ProviderNameSchema,
   WorkspaceTargetSchema,
   getAgentBackend,
   getDefaultMode,
+  getLinting,
   getModelOverride,
   getProviderName,
   getReplyTransport,
@@ -15,14 +23,27 @@ import {
   getWorkspaceTarget,
   setAgentBackend,
   setDefaultMode,
+  setLinting,
   setModelOverride,
   setReplyTransport,
   setWorkspaceTarget,
   getState,
   STATE_CURRENT_SESSION,
 } from '../db';
-import { C, assertUnreachable } from '../logger';
+import { C, assertUnreachable, debug } from '../logger';
 import { createNewSession } from '../session';
+import { formatMsats } from '../types';
+
+/** Display-only emoji + value for status lines (not stored in DB). */
+const STATUS_EMOJI = {
+  backend: (v: AgentBackendName) =>
+    v === 'cursor' ? '🖱️' : v === 'opencode-sdk' ? '📦 (SDK)' : '📦',
+  provider: (v: ProviderName) => (v === 'local' ? '💻' : '🌐'),
+  mode: (v: AgentMode) => ({ free: '🆓', ask: '💬', plan: '📋', agent: '🤖' })[v],
+  linting: (v: Linting) => (v === 'on' ? '✅' : '❌'),
+  workspace: (v: WorkspaceTarget) => (v === 'bot' ? '🤖' : '📁'),
+  transport: (v: ReplyTransport) => (v === 'remote' ? '📡' : '💻'),
+} as const;
 
 export type StatusProps = {
   relayUrls: string[];
@@ -41,13 +62,23 @@ export function getStatusLines({
 }: StatusProps): string {
   const cur = getState(seenDb, STATE_CURRENT_SESSION);
   const mode = getDefaultMode(seenDb);
+  const linting = getLinting(seenDb);
   const backendName = getAgentBackend(seenDb);
   const replyTransport = getReplyTransport(seenDb);
   const workspace = getWorkspaceTarget(seenDb);
   const serveUrl = process.env.BOT_OPENCODE_SERVE_URL;
   const modelOverride = getModelOverride(seenDb);
+  const providerName = getProviderName(seenDb);
 
-  const backend = createBackend({ name: backendName, dmBotRoot, mode, attachUrl, modelOverride });
+  const backend = createBackend({
+    backendName,
+    dmBotRoot,
+    mode,
+    attachUrl,
+    modelOverride,
+    providerName,
+    seenDb,
+  });
 
   const col = 14;
   const lbl = (name: string) => `${C.bold}${(name + ':').padEnd(col)}${C.reset}`;
@@ -56,21 +87,20 @@ export function getStatusLines({
     ? `${modelOverride} ${C.gray}(override)${C.reset}`
     : backend.modelName;
 
-  const providerName = getProviderName(seenDb);
-
   const providerDisplay =
     providerName === 'routstr'
-      ? `${C.magenta}routstr${C.reset} (budget: ${getRoutstrBudget(seenDb)} msats)`
-      : 'local';
+      ? `${STATUS_EMOJI.provider('routstr')} ${C.magenta}routstr${C.reset} (budget: ${formatMsats(getRoutstrBudget(seenDb))})`
+      : `${STATUS_EMOJI.provider('local')} local`;
 
   const lines = [
-    `${lbl('Backend')} ${C.magenta}${backendName}${C.reset}`,
+    `${lbl('Backend')} ${STATUS_EMOJI.backend(backendName)} ${C.magenta}${backendName}${C.reset}`,
     `${lbl('Provider')} ${providerDisplay}`,
     `${lbl('Version')} ${version}`,
-    `${lbl('Mode')} ${mode}`,
+    `${lbl('Mode')} ${STATUS_EMOJI.mode(mode)} ${mode}`,
+    `${lbl('Linting')} ${STATUS_EMOJI.linting(linting)} ${linting}`,
     `${lbl('Model')} ${modelDisplay}`,
-    `${lbl('Workspace')} ${workspace}`,
-    `${lbl('Transport')} ${replyTransport}`,
+    `${lbl('Workspace')} ${STATUS_EMOJI.workspace(workspace)} ${workspace}`,
+    `${lbl('Transport')} ${STATUS_EMOJI.transport(replyTransport)} ${replyTransport}`,
     `${lbl('Relays')} ${relayUrls.join(', ')}`,
     `${lbl('Session')} ${cur ?? `${C.gray}(none)${C.reset}`}`,
   ];
@@ -103,14 +133,14 @@ export type HandleWorkspaceProps = {
   selected?: string;
 };
 
-export function handleWorkspace({
+export async function handleWorkspace({
   db,
   backend,
   workspaceRoot,
   dmBotRoot,
   agentEnv,
   selected,
-}: HandleWorkspaceProps): string {
+}: HandleWorkspaceProps): Promise<string> {
   if (!selected) {
     return `Workspace: ${getWorkspaceTarget(db)}.`;
   }
@@ -131,7 +161,7 @@ export function handleWorkspace({
   setWorkspaceTarget(db, nextTarget);
   const cwd = nextTarget === 'bot' ? dmBotRoot : workspaceRoot;
   try {
-    const sessionId = createNewSession({
+    const sessionId = await createNewSession({
       db,
       backend,
       cwd,
@@ -153,14 +183,14 @@ export type HandleBackendProps = {
   selected?: string;
 };
 
-export function handleBackend({
+export async function handleBackend({
   db,
   dmBotRoot,
   attachUrl,
   agentEnv,
   workspaceRoot,
   selected,
-}: HandleBackendProps): string {
+}: HandleBackendProps): Promise<string> {
   if (!selected) {
     return `Backend: ${getAgentBackend(db)}.`;
   }
@@ -184,17 +214,20 @@ export function handleBackend({
   const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
   const mode = getDefaultMode(db);
   const modelOverride = getModelOverride(db);
+  const providerName = getProviderName(db);
 
   const newBackend = createBackend({
-    name: nextBackendName,
+    backendName: nextBackendName,
     dmBotRoot,
     mode,
     attachUrl,
     modelOverride,
+    providerName,
+    seenDb: db,
   });
 
   try {
-    const sessionId = createNewSession({
+    const sessionId = await createNewSession({
       db,
       backend: newBackend,
       cwd,
@@ -247,29 +280,41 @@ export function handleModel({ db, selected }: { db: SeenDb; selected?: string })
 }
 
 export type HandleModelsProps = {
-  db: SeenDb;
+  seenDb: SeenDb;
   dmBotRoot: string;
   attachUrl: string | null;
 };
 
 export async function handleModels({
-  db,
+  seenDb,
   dmBotRoot,
   attachUrl,
 }: HandleModelsProps): Promise<string> {
-  const backendName = getAgentBackend(db);
-  const mode = getDefaultMode(db);
-  const backend = createBackend({ name: backendName, dmBotRoot, mode, attachUrl });
+  const backendName = getAgentBackend(seenDb);
+  const mode = getDefaultMode(seenDb);
+  const modelOverride = getModelOverride(seenDb);
+  const providerName = getProviderName(seenDb);
+
+  debug(`modelOverride: ${modelOverride}`);
+
+  const backend = createBackend({
+    backendName,
+    dmBotRoot,
+    mode,
+    attachUrl,
+    modelOverride,
+    providerName,
+    seenDb,
+  });
+
   const models = await backend.availableModels();
 
   if (models.length === 0) {
     return `No models found for backend '${backendName}'.`;
   }
 
-  const current = getModelOverride(db) ?? backend.modelName;
-
   const lines = models.map((m) => {
-    const marker = m === current ? ` ${C.green}*[current]${C.reset}` : '';
+    const marker = m === backend.modelName ? ` ${C.green}*[current (override)]${C.reset}` : '';
 
     return `  ${m}${marker}`;
   });
@@ -279,6 +324,22 @@ export async function handleModels({
 
 export function handleVersion({ version }: { version: string }): string {
   return `Version: ${version}`;
+}
+
+export function handleLint({ db, selected }: { db: SeenDb; selected?: string }): string {
+  if (!selected) {
+    return `Linting: ${getLinting(db)}.`;
+  }
+
+  const parsed = LintingSchema.safeParse(selected.toLowerCase());
+
+  if (!parsed.success) {
+    return `Usage: !lint [${LintingSchema.options.join('|')}]`;
+  }
+
+  setLinting(db, parsed.data);
+
+  return `Linting set to: ${parsed.data}.`;
 }
 
 export function getHelpText(): string {
@@ -298,12 +359,16 @@ export function getHelpText(): string {
 !models — list available models for current backend
 !model [name|reset] — show/set model override (cleared on !backend)
 !mode ask | !mode plan | !mode agent | !ask | !plan | !agent — set mode
+!lint [on|off] — show/set post-agent lint follow-up (agent mode only)
+!log info [on|off] — show/set info-level console logs
+!ready [on|off] — show/set startup "Agent is ready" DM (default on)
 !wallet balance — show Cashu wallet balance
 !wallet receive <token> — receive a Cashu token
 !wallet history — show recent spend history
 !provider set [${ProviderNameSchema.options.join('|')}] — set payment provider
 !provider budget <sats> — set per-run budget
 !provider status — show provider status
+!provider models [filter] — list Routstr models, optional filter by name
 !provider sync-models — sync models from Routstr
 !exit — stop the bot process`;
 }
