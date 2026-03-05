@@ -1,6 +1,24 @@
-# NIP-17 DM Bot
+# Nostr DM Bot
 
-A small Bun script that listens for private DMs from a master pubkey and replies to commands. Uses [nostr-tools](https://github.com/nbd-wtf/nostr-tools) with NIP-17 (Private Direct Messages), NIP-42 (relay auth), and kind 10050 for DM relay discovery.
+Control AI agents remotely via Nostr DMs. A bridge between encrypted messaging and local AI coding assistants.
+
+## What it does
+
+- DM your bot from any Nostr client → it spawns Cursor or OpenCode to work on your codebase
+- Work on projects from your phone, anywhere in the world
+- Pay for AI compute with Bitcoin over Cashu using Routstr
+- Three safety modes: ask (read-only), plan (strategy), agent (full edits)
+
+## Key features
+
+- **NIP-17 encrypted DMs** — Private messages over any Nostr relay
+- **Remote agent control** — Cursor Agent or OpenCode integration
+- **Session persistence** — Resume previous conversations, switch contexts
+- **Bitcoin payments** — Pay-per-use AI with sats via Cashu using Routstr
+- **Dual interface** — Nostr DMs + local terminal chat
+- **Granular permissions** — Control what the agent can do
+
+Built with Bun, nostr-tools, and TypeScript.
 
 ## Quick start
 

@@ -1,3 +1,5 @@
+import { readFile, writeFile } from 'node:fs/promises';
+
 import type { SeenDb } from '../db';
 import {
   ProviderNameSchema,
@@ -15,7 +17,7 @@ import {
 import { log } from '../logger';
 import type { ProviderDb } from '../providers/db';
 import { depositOrTopup, refundRoutstr, getRoutstrBalance } from '../providers/routstr';
-import { fetchRoutstrModels } from '../providers/routstr-models';
+import { buildOpenCodeModelEntry, fetchRoutstrModels } from '../providers/routstr-models';
 import { formatMsats, msatsRaw } from '../types';
 import type { Msats } from '../types';
 import type { WalletDb } from '../wallets/db';
@@ -254,4 +256,61 @@ export async function handleProviderModels({
   });
 
   return `Routstr models${needle ? ` matching "${filter}"` : ''} (${filtered.length}, cached ${new Date(ts).toLocaleString()}):\n${lines.join('\n')}`;
+}
+
+export type HandleProviderAddModelProps = {
+  seenDb: SeenDb;
+  modelId: string;
+  openCodeJsonPath: string;
+};
+
+export async function handleProviderAddModel({
+  seenDb,
+  modelId,
+  openCodeJsonPath,
+}: HandleProviderAddModelProps): Promise<string> {
+  let result = getCachedRoutstrModels(seenDb);
+
+  if (!result) {
+    const models = await fetchRoutstrModels();
+    setCachedRoutstrModels(seenDb, models);
+    result = { models, ts: Date.now() };
+  }
+
+  const model = result.models.find((m) => m.id === modelId);
+
+  if (!model) {
+    return `Model "${modelId}" not found in cached Routstr models. Try !provider sync-models first.`;
+  }
+
+  const raw = await readFile(openCodeJsonPath, 'utf-8');
+  const config = JSON.parse(raw) as Record<string, unknown>;
+
+  if (typeof config.provider !== 'object' || config.provider === null) {
+    config.provider = {};
+  }
+
+  const provider = config.provider as Record<string, unknown>;
+
+  if (typeof provider.routstr !== 'object' || provider.routstr === null) {
+    provider.routstr = {};
+  }
+
+  const routstr = provider.routstr as Record<string, unknown>;
+
+  if (typeof routstr.models !== 'object' || routstr.models === null) {
+    routstr.models = {};
+  }
+
+  const models = routstr.models as Record<string, unknown>;
+  const entry = buildOpenCodeModelEntry(model);
+  const isUpdate = modelId in models;
+
+  models[modelId] = entry;
+
+  await writeFile(openCodeJsonPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+
+  const action = isUpdate ? 'Updated' : 'Added';
+
+  return `${action} model "${modelId}" in opencode.json:\n${JSON.stringify(entry, null, 2)}`;
 }

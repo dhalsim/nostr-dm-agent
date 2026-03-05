@@ -18,6 +18,7 @@ import {
   handleModels,
 } from './commands/bot';
 import {
+  handleProviderAddModel,
   handleProviderBalance,
   handleProviderBudget,
   handleProviderDeposit,
@@ -365,7 +366,7 @@ export async function handleBangCommand({
             ? `Provider: routstr (budget: ${formatMsats(getRoutstrBudget(seenDb))})`
             : 'Provider: local';
 
-        const usage = `Usage: !provider set [${ProviderNameSchema.options.join('|')}] | !provider deposit <sats> [--new] | !provider refund | !provider balance | !provider budget <sats> | !provider status | !provider models [filter] | !provider sync-models`;
+        const usage = `Usage: !provider set [${ProviderNameSchema.options.join('|')}] | !provider deposit <sats> [--new] | !provider refund | !provider balance | !provider budget <sats> | !provider status | !provider models [filter] | !provider sync-models | !provider add-model <id>`;
 
         return `${providerLine}\n\n${usage}`;
       }
@@ -492,8 +493,23 @@ export async function handleBangCommand({
           return handleError(async () => handleProviderSyncModels(seenDb), 'Failed to sync models');
         }
 
+        case 'add-model': {
+          const modelId = args[1];
+
+          if (!modelId) {
+            return 'Usage: !provider add-model <model-id>';
+          }
+
+          const openCodeJsonPath = join(dmBotRoot, 'opencode.json');
+
+          return handleError(
+            async () => handleProviderAddModel({ seenDb, modelId, openCodeJsonPath }),
+            'Failed to add model',
+          );
+        }
+
         default:
-          return `Usage: !provider set [${ProviderNameSchema.options.join('|')}] | !provider deposit <sats> [--new] | !provider refund | !provider balance | !provider budget <sats> | !provider status | !provider models [filter] | !provider sync-models`;
+          return `Usage: !provider set [${ProviderNameSchema.options.join('|')}] | !provider deposit <sats> [--new] | !provider refund | !provider balance | !provider budget <sats> | !provider status | !provider models [filter] | !provider sync-models | !provider add-model <id>`;
       }
     }
 
