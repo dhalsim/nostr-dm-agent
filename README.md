@@ -22,6 +22,8 @@ Control AI agents remotely via Nostr DMs. A bridge between encrypted messaging a
 
 Built with Bun, nostr-tools, and TypeScript.
 
+**Links:** [Nostr](https://nostr.com/) · [NIP-17 (encrypted DMs)](https://github.com/nostr-protocol/nips/blob/master/17.md) · [Cursor](https://cursor.com) · [OpenCode](https://opencode.ai) · [Cashu](https://cashu.space) · [Routstr](https://routstr.com)
+
 ## How to use the bot (practical workflow)
 
 You have an existing project — we call it the **parent** in workspace terms.
