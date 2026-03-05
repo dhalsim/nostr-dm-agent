@@ -71,7 +71,17 @@ The bot needs an AI agent backend on your machine. Install one and ensure it’s
 
 - Install and sign in via [Cursor](https://cursor.com). The `agent` CLI must be on your PATH.
 - The bot runs `agent create-chat` and `agent -p --resume <id> ...` for each request.
-- Switch to this backend with `!backend cursor`. Only the **local** provider is supported (no Routstr with Cursor yet).
+- Switch to this backend with `!backend cursor`. Supports both **local** (Cursor’s own auth) and **Routstr** (pay with sats) when Cursor is configured to use Routstr — see [Cursor + Routstr](#cursor--routstr).
+
+### Cursor + Routstr
+
+You can use the Cursor backend with the Routstr provider by pointing Cursor at Routstr in its settings:
+
+1. In Cursor: **Cursor Settings → Models → API Keys**
+2. **Open API Key:** your Routstr session key (starts with `sk-...`). Create and fund a session via the bot: `!provider set routstr`, then `!provider deposit <sats>`; the key is stored in the bot (see [Cashu / Routstr Integration](#cashu--routstr-integration-optional)).
+3. **Override OpenAI Base URL:** `https://api.routstr.com/v1`
+
+After that, set the bot’s provider to Routstr (`!provider set routstr`) and use `!backend cursor` as usual. Cursor will send requests to Routstr and you pay with sats.
 
 ### OpenCode
 

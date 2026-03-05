@@ -1,9 +1,8 @@
 // ---------------------------------------------------------------------------
 // backends/factory.ts
 // ---------------------------------------------------------------------------
-import type { AgentBackendName, AgentMode, SeenDb } from '../db';
-import { setProviderName } from '../db';
-import { assertUnreachable, log } from '../logger';
+import type { AgentBackendName, AgentMode } from '../db';
+import { assertUnreachable } from '../logger';
 import type { ProviderName } from '../providers/types';
 
 import { createCursorBackend } from './cursor';
@@ -18,7 +17,6 @@ type CreateBackendProps = {
   attachUrl: string | null;
   modelOverride: string | null;
   providerName: ProviderName | null;
-  seenDb: SeenDb;
 };
 
 export function createBackend({
@@ -28,16 +26,9 @@ export function createBackend({
   attachUrl,
   modelOverride,
   providerName,
-  seenDb,
 }: CreateBackendProps): AgentBackend {
   switch (backendName) {
     case 'cursor':
-      if (providerName === 'routstr') {
-        log.warn('cursor backend does not support routstr provider; overriding provider to local');
-
-        setProviderName(seenDb, 'local');
-      }
-
       return createCursorBackend(modelOverride);
     case 'opencode':
       return createOpenCodeBackend({ dmBotRoot, mode, attachUrl, modelOverride, providerName });

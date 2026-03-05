@@ -77,7 +77,6 @@ export function getStatusLines({
     attachUrl,
     modelOverride,
     providerName,
-    seenDb,
   });
 
   const col = 14;
@@ -223,7 +222,6 @@ export async function handleBackend({
     attachUrl,
     modelOverride,
     providerName,
-    seenDb: db,
   });
 
   try {
@@ -304,7 +302,6 @@ export async function handleModels({
     attachUrl,
     modelOverride,
     providerName,
-    seenDb,
   });
 
   const models = await backend.availableModels();

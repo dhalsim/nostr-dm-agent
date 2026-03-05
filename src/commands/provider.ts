@@ -3,7 +3,6 @@ import { readFile, writeFile } from 'node:fs/promises';
 import type { SeenDb } from '../db';
 import {
   ProviderNameSchema,
-  getAgentBackend,
   getModelOverride,
   getProviderName,
   setProviderName,
@@ -49,14 +48,6 @@ export function handleProviderSet({ seenDb, name }: HandleProviderSetProps): str
         ? `Session key: ${skKey.slice(0, 16)}...`
         : 'No session yet. Use !provider deposit <sats> or append !!<sats> to your prompt.',
     );
-
-    const backendName = getAgentBackend(seenDb);
-
-    if (backendName === 'cursor') {
-      log.warn(
-        'cursor backend does not support routstr. Switch backend with !backend opencode-sdk',
-      );
-    }
 
     const modelOverride = getModelOverride(seenDb);
     const routstrModel = getRoutstrModel(seenDb);

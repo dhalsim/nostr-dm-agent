@@ -72,7 +72,7 @@ import {
   NoRoutstrSessionError,
   ZeroRoutstrBalanceError,
 } from './providers/routstr';
-import type { AnyProvider, ProviderName } from './providers/types';
+import type { AnyProvider } from './providers/types';
 import { getOrCreateCurrentSession, insertSessionMessage } from './session';
 import { msatsRaw } from './types';
 import { openWalletDb } from './wallets/db';
@@ -471,7 +471,6 @@ function main() {
       attachUrl: opencodeServeUrl,
       modelOverride: getModelOverride(seenDb),
       providerName: getProviderName(seenDb),
-      seenDb,
     });
 
     if (content.trim().startsWith('!')) {
@@ -521,19 +520,12 @@ function main() {
 
     const { prompt: effectiveContent, budgetSats: inlineBudget } = parseBudgetAnnotation(content);
 
-    const configuredBackendName = getAgentBackend(seenDb);
     const configuredProviderName = getProviderName(seenDb);
 
-    // cursor backend cannot use routstr — use local for this run's provider
-    const effectiveProviderName: ProviderName =
-      configuredBackendName === 'cursor' && configuredProviderName === 'routstr'
-        ? 'local'
-        : configuredProviderName;
-
-    const isAutoFlow = inlineBudget !== null && effectiveProviderName === 'routstr';
+    const isAutoFlow = inlineBudget !== null && configuredProviderName === 'routstr';
 
     const provider = createProvider({
-      name: effectiveProviderName,
+      name: configuredProviderName,
       walletDb,
       seenDb,
       providerDb,
@@ -576,7 +568,7 @@ function main() {
       const routstrModel = getRoutstrModel(seenDb);
 
       const finalModelOverride =
-        effectiveProviderName === 'routstr' && routstrModel
+        configuredProviderName === 'routstr' && routstrModel
           ? `routstr/${routstrModel}`
           : (modelOverride ?? null);
 
@@ -589,7 +581,6 @@ function main() {
         attachUrl: opencodeServeUrl,
         modelOverride: finalModelOverride,
         providerName: configuredProviderName,
-        seenDb,
       });
 
       return roundBackend.runMessage({
