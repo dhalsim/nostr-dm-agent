@@ -43,7 +43,19 @@ function getPortsToTry(): number[] {
   return DEFAULT_PORTS;
 }
 
-async function getOrInitSdk(): Promise<SdkInstance> {
+function applyEnvToProcess(env: Record<string, string | undefined>): void {
+  for (const [k, v] of Object.entries(env)) {
+    if (v !== undefined) {
+      process.env[k] = v;
+    }
+  }
+}
+
+async function getOrInitSdk(env?: Record<string, string | undefined>): Promise<SdkInstance> {
+  if (env) {
+    applyEnvToProcess(env);
+  }
+
   if (sdk) {
     return sdk;
   }
@@ -162,8 +174,8 @@ export function createOpencodeSDKBackend({
     name: 'opencode-sdk',
     modelName,
 
-    async createSession({ cwd }: CreateSessionProps): Promise<string> {
-      const { client } = await getOrInitSdk();
+    async createSession({ cwd, env }: CreateSessionProps): Promise<string> {
+      const { client } = await getOrInitSdk(env);
 
       const result = await client.session.create({
         body: {},
@@ -195,9 +207,10 @@ export function createOpencodeSDKBackend({
       content,
       mode: runMode,
       cwd,
+      env,
       modelOverride: runModelOverride,
     }: RunMessageProps): Promise<AgentRunResult> {
-      const { client } = await getOrInitSdk();
+      const { client } = await getOrInitSdk(env);
 
       const effectiveModel = runModelOverride ?? modelName;
       const model = modelToProviderAndId(effectiveModel);
@@ -219,6 +232,12 @@ export function createOpencodeSDKBackend({
           | { data?: { message?: string }; statusCode?: number }
           | undefined;
 
+        debug('opencode-sdk prompt error:', {
+          statusCode: err?.statusCode,
+          data: err?.data,
+          raw: result.error,
+        });
+
         const output = err?.data?.message ?? String(result.error);
         const statusCode = err?.statusCode;
 
@@ -238,6 +257,8 @@ export function createOpencodeSDKBackend({
         | undefined;
 
       if (!data) {
+        debug('opencode-sdk prompt: result.data missing, raw result:', JSON.stringify(result));
+
         return {
           type: 'success',
           output: '(no output)',
@@ -254,6 +275,14 @@ export function createOpencodeSDKBackend({
         .map((p) => stripAnsi(p.text));
 
       const output = textParts.join('') || '(no output)';
+
+      if (output === '(no output)') {
+        debug('opencode-sdk prompt: no text in parts', {
+          partsLength: data.parts?.length ?? 0,
+          parts: data.parts,
+          info: data.info,
+        });
+      }
 
       const info = data.info;
 

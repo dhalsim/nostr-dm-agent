@@ -58,27 +58,3 @@ export async function fetchRoutstrModels(): Promise<RoutstrModel[]> {
 
   return data.data ?? data.models ?? [];
 }
-
-export function buildRoutstrProviderConfig(models: RoutstrModel[]): object {
-  const modelEntries = Object.fromEntries(
-    models.map((m) => [
-      m.id,
-      {
-        name: `${m.id} (Routstr)`,
-        ...(m.context_length ? { limit: { context: m.context_length, output: 16384 } } : {}),
-      },
-    ]),
-  );
-
-  return {
-    routstr: {
-      npm: '@ai-sdk/openai-compatible',
-      name: 'Routstr (Cashu)',
-      options: {
-        baseURL: 'https://api.routstr.com/v1',
-        apiKey: '{env:ROUTSTR_API_KEY}',
-      },
-      models: modelEntries,
-    },
-  };
-}
