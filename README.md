@@ -1,3 +1,5 @@
+Main repo: https://gitworkshop.dev/dhalsim@dhalsim.github.io/nostr-dm-agent
+
 # Nostr DM Bot
 
 Control AI agents remotely via Nostr DMs. A bridge between encrypted messaging and local AI coding assistants.
