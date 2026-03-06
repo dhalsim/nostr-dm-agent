@@ -110,6 +110,44 @@ export function openSeenDb(): SeenDb {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id             TEXT    PRIMARY KEY,
+      name           TEXT    NOT NULL UNIQUE,
+      schedule       TEXT    NOT NULL,
+      prompt         TEXT    NOT NULL,
+      enabled        INTEGER NOT NULL DEFAULT 1,
+      created_at     INTEGER NOT NULL,
+      last_run_at    INTEGER,
+      next_run_at    INTEGER,
+      backend        TEXT    NOT NULL,
+      provider       TEXT    NOT NULL,
+      model          TEXT    NOT NULL,
+      mode           TEXT    NOT NULL,
+      budget_sats    INTEGER,
+      instructions   TEXT,
+      execution_type TEXT    NOT NULL DEFAULT 'cron',
+      run_at         INTEGER,
+      max_runs       INTEGER
+    )
+  `);
+
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS tasks_name_unique ON tasks(name)');
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS task_runs (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id            TEXT    NOT NULL,
+      started_at         INTEGER NOT NULL,
+      finished_at        INTEGER,
+      status             TEXT    NOT NULL,
+      output             TEXT,
+      error              TEXT,
+      budget_used_msats  INTEGER,
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+    )
+  `);
+
   return db as SeenDb;
 }
 

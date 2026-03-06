@@ -368,5 +368,6 @@ export function getHelpText(): string {
 !provider models [filter] — list Routstr models, optional filter by name
 !provider sync-models — sync models from Routstr
 !provider add-model <id> — add a Routstr model to opencode.json
+!task create-with|confirm|list|show|enable|disable|delete|history|run|help — scheduled prompts
 !exit — stop the bot process`;
 }

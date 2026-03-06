@@ -74,6 +74,9 @@ import {
 } from './providers/routstr';
 import type { AnyProvider } from './providers/types';
 import { getOrCreateCurrentSession, insertSessionMessage } from './session';
+import { createTaskEngine } from './tasks/engine';
+import type { TaskRunnerContext } from './tasks/runner';
+import { runTask } from './tasks/runner';
 import { msatsRaw } from './types';
 import { openWalletDb } from './wallets/db';
 import type { WalletDb } from './wallets/db';
@@ -433,6 +436,74 @@ function main() {
 
   debug('Subscription filter:', JSON.stringify(dmFilter));
 
+  const RECONNECT_BASE_MS = 2_000;
+  const RECONNECT_MAX_MS = 60_000;
+  let dmReconnectAttempt = 0;
+
+  function subscribeDm(): void {
+    debug('Subscribing to DM relays:', relayUrls.join(', '));
+
+    pool.subscribe(relayUrls, dmFilter, {
+      onauth: signAuthEvent,
+      alreadyHaveEvent: alreadyHaveEvent(seenDb),
+      onevent: async (wrap: NostrEvent) => {
+        debug('Received event kind:', wrap.kind, 'id:', wrap.id);
+
+        dmReconnectAttempt = 0;
+
+        try {
+          const rumor = unwrapEvent(wrap, botSecretKey);
+
+          if (rumor.pubkey !== masterPubkey) {
+            debug('Ignoring rumor from non-master:', rumor.pubkey);
+
+            return;
+          }
+
+          const content = rumor.content?.trim() ?? '';
+          const kind = rumor.kind ?? 0;
+
+          if (kind !== 14) {
+            debug('Ignoring non–kind-14 rumor:', kind);
+
+            return;
+          }
+
+          if (getReplyTransport(seenDb) === 'local') {
+            markSeen(seenDb, wrap.id);
+            debug('Reply transport is local; ignoring incoming Nostr message.');
+
+            redrawPrompt?.();
+
+            return;
+          }
+
+          markSeen(seenDb, wrap.id);
+          await handleUserMessage(content, 'nostr');
+        } catch (err) {
+          debug('Unwrap failed (not for us or wrong format):', err);
+        }
+      },
+      onclose(reasons) {
+        debug('Subscription closed:', reasons);
+
+        dmReconnectAttempt += 1;
+
+        const backoffMs = Math.min(
+          RECONNECT_BASE_MS * Math.pow(2, dmReconnectAttempt - 1),
+          RECONNECT_MAX_MS,
+        );
+
+        debug(`Reconnecting DM subscription in ${backoffMs}ms (attempt ${dmReconnectAttempt})…`);
+
+        setTimeout(() => {
+          debug('Reconnecting DM subscription now.');
+          subscribeDm();
+        }, backoffMs);
+      },
+    });
+  }
+
   async function sendReplyForSource(source: MessageSource, message: string): Promise<void> {
     const replyTransport = getReplyTransport(seenDb);
     const sourceIsLocal = source === 'local';
@@ -459,6 +530,34 @@ function main() {
       redrawPrompt: null,
     });
   }
+
+  const taskRunnerContext: TaskRunnerContext = {
+    workspaceRoot,
+    dmBotRoot,
+    attachUrl: opencodeServeUrl,
+    getAgentEnv,
+    walletDb,
+    providerDb,
+    config,
+    routstrBaseUrl,
+    sendDm: (message) =>
+      sendDm({
+        pool,
+        botRelayUrl: primaryRelay,
+        senderSecretKey: botSecretKey,
+        recipientPubkey: masterPubkey,
+        message,
+        signAuthEvent,
+        redrawPrompt: null,
+      }),
+  };
+
+  const taskEngineContext = {
+    runTask: (task: import('./tasks/types').Task, db: SeenDb) =>
+      runTask(task, db, taskRunnerContext),
+  };
+
+  createTaskEngine(seenDb, taskEngineContext).start();
 
   async function handleUserMessage(content: string, source: MessageSource): Promise<void> {
     const isLocal = source === 'local' || getReplyTransport(seenDb) === 'local';
@@ -487,6 +586,7 @@ function main() {
         walletDb,
         providerDb,
         config,
+        taskEngine: taskEngineContext,
       });
 
       if (reply === EXIT_COMMAND_SENTINEL) {
@@ -708,49 +808,7 @@ function main() {
     readyDmPromise.finally(startLocalCli);
   }
 
-  pool.subscribe(relayUrls, dmFilter, {
-    onauth: signAuthEvent,
-    alreadyHaveEvent: alreadyHaveEvent(seenDb),
-    onevent: async (wrap: NostrEvent) => {
-      debug('Received event kind:', wrap.kind, 'id:', wrap.id);
-
-      try {
-        const rumor = unwrapEvent(wrap, botSecretKey);
-
-        if (rumor.pubkey !== masterPubkey) {
-          debug('Ignoring rumor from non-master:', rumor.pubkey);
-
-          return;
-        }
-
-        const content = rumor.content?.trim() ?? '';
-        const kind = rumor.kind ?? 0;
-
-        if (kind !== 14) {
-          debug('Ignoring non–kind-14 rumor:', kind);
-
-          return;
-        }
-
-        if (getReplyTransport(seenDb) === 'local') {
-          markSeen(seenDb, wrap.id);
-          debug('Reply transport is local; ignoring incoming Nostr message.');
-
-          redrawPrompt?.();
-
-          return;
-        }
-
-        markSeen(seenDb, wrap.id);
-        await handleUserMessage(content, 'nostr');
-      } catch (err) {
-        debug('Unwrap failed (not for us or wrong format):', err);
-      }
-    },
-    onclose(reasons) {
-      debug('Subscription closed:', reasons);
-    },
-  });
+  subscribeDm();
 }
 
 main();

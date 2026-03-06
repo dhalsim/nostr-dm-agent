@@ -205,7 +205,8 @@ export function createOpencodeSDKBackend({
     async runMessage({
       sessionId,
       content,
-      mode: runMode,
+      mode,
+      // TODO: need to change according to the workspace, no?
       cwd,
       env,
       modelOverride: runModelOverride,
@@ -215,17 +216,21 @@ export function createOpencodeSDKBackend({
       const effectiveModel = runModelOverride ?? modelName;
       const model = modelToProviderAndId(effectiveModel);
 
-      const agent = runMode === 'agent' ? 'build' : runMode;
-
-      const result = await client.session.prompt({
+      const input = {
         path: { id: sessionId },
         body: {
           parts: [{ type: 'text', text: content }],
           model,
-          agent,
+          agent: mode,
         },
         query: { directory: cwd },
-      });
+      };
+
+      debug('opencode-sdk session.prompt input', JSON.stringify(input, null, 2));
+
+      const result = await client.session.prompt(input as any);
+
+      debug('opencode-sdk session.prompt result', JSON.stringify(result, null, 2));
 
       if (result.error) {
         const err = result.error as
@@ -251,8 +256,15 @@ export function createOpencodeSDKBackend({
 
       const data = result.data as
         | {
-            info: { cost?: number; tokens?: { input: number; output: number } };
-            parts: Array<{ type: string; text?: string }>;
+            info?: {
+              cost?: number;
+              tokens?: { input: number; output: number };
+              structured_output?: unknown;
+            };
+            parts?: Array<{ type?: string; text?: string; content?: string } | string>;
+            output?: string;
+            content?: string;
+            text?: string;
           }
         | undefined;
 
@@ -267,20 +279,64 @@ export function createOpencodeSDKBackend({
         };
       }
 
-      const textParts = (data.parts ?? [])
-        .filter(
-          (p): p is { type: string; text: string } =>
-            p.type === 'text' && typeof p.text === 'string',
-        )
-        .map((p) => stripAnsi(p.text));
+      let output = '';
 
-      const output = textParts.join('') || '(no output)';
+      const parts = data.parts ?? [];
 
-      if (output === '(no output)') {
+      if (parts.length > 0) {
+        const textParts = parts
+          .map((p) => {
+            if (p && typeof p === 'object' && typeof (p as { text?: string }).text === 'string') {
+              return stripAnsi((p as { text: string }).text);
+            }
+
+            if (
+              p &&
+              typeof p === 'object' &&
+              typeof (p as { content?: string }).content === 'string'
+            ) {
+              return stripAnsi((p as { content: string }).content);
+            }
+
+            if (typeof p === 'string') {
+              return stripAnsi(p);
+            }
+
+            return '';
+          })
+          .filter((s) => s.length > 0);
+
+        output = textParts.join('');
+      }
+
+      if (!output && typeof data.output === 'string' && data.output.length > 0) {
+        output = stripAnsi(data.output);
+      }
+
+      if (!output && typeof data.content === 'string' && data.content.length > 0) {
+        output = stripAnsi(data.content);
+      }
+
+      if (!output && typeof data.text === 'string' && data.text.length > 0) {
+        output = stripAnsi(data.text);
+      }
+
+      if (!output && data.info?.structured_output != null) {
+        output =
+          typeof data.info.structured_output === 'string'
+            ? data.info.structured_output
+            : JSON.stringify(data.info.structured_output);
+      }
+
+      if (!output) {
+        output = '(no output)';
+
         debug('opencode-sdk prompt: no text in parts', {
-          partsLength: data.parts?.length ?? 0,
+          partsLength: parts.length,
           parts: data.parts,
           info: data.info,
+          dataKeys: data ? Object.keys(data) : [],
+          dataSample: data ? JSON.stringify(data).slice(0, 500) : 'null',
         });
       }
 

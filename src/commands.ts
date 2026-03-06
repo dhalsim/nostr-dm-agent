@@ -35,6 +35,7 @@ import {
   handleResumeSession,
   handleShowLastMessages,
 } from './commands/session';
+import { handleTask } from './commands/tasks';
 import {
   handleWalletBalance,
   handleWalletHistory,
@@ -54,6 +55,7 @@ import type { BotConfig } from './env';
 import { getEnvFromFile, setEnvInFile } from './env-file';
 import { getInfoLogsEnabled, setInfoLogsEnabled } from './logger';
 import type { ProviderDb } from './providers/db';
+import type { TaskEngineContext } from './tasks/engine';
 import { formatMsats, msats } from './types';
 import { decodeToken } from './wallets/cashu';
 import { getBalanceByMint, type WalletDb } from './wallets/db';
@@ -81,6 +83,7 @@ export type HandleBangCommandProps = {
   walletDb: WalletDb | null;
   providerDb: ProviderDb | null;
   config: BotConfig;
+  taskEngine: TaskEngineContext | null;
 };
 
 export async function handleBangCommand({
@@ -96,6 +99,7 @@ export async function handleBangCommand({
   backend,
   walletDb,
   config,
+  taskEngine,
 }: HandleBangCommandProps): Promise<string | null> {
   const raw = input.trim();
 
@@ -156,6 +160,21 @@ export async function handleBangCommand({
 
     case 'help':
       return getHelpText();
+
+    case 'task': {
+      return handleError(
+        async () =>
+          handleTask({
+            args,
+            db: seenDb,
+            taskEngine,
+            backend,
+            workspaceRoot,
+            agentEnv,
+          }),
+        'Task command failed',
+      );
+    }
 
     case 'local': {
       return handleError(

@@ -209,6 +209,67 @@ All commands are prefixed with `!`. The bot responds only to the master pubkey.
 | `!ask` | Shortcut for `!mode ask` (read-only). |
 | `!mode ask` \| `!mode plan` \| `!mode agent` | Set execution mode. Default is **ask** (read-only). **plan** = read-only planning. **agent** = full access (edits, shell). |
 
+## Recurring and one-time tasks
+
+You can schedule prompts to run on a **cron schedule** (recurring) or **once at a specific time** (one-time). The bot evaluates due tasks every minute, runs them with the configured backend/provider/model/mode, and sends the output to you by DM prefixed with `[Task: <name>]`.
+
+Task creation is only via **`!task create-with <natural language prompt>`**: the AI suggests parameters (recurring cron or one-time run-at, plus name, prompt, backend, provider, model, mode, budget, instructions). You then confirm, revise, or discard the draft. One-time tasks run once at the given time; after that, `next_run_at` is cleared and the task no longer runs.
+
+### Task commands
+
+| Command | Description |
+|--------|-------------|
+| `!task create-with <prompt>` | Create a task from natural language. AI suggests params (cron or one-time); you confirm/revise/discard. |
+| `!task drafts` | List pending create-with drafts. |
+| `!task confirm <draft_id>` | Create the task from a create-with draft. |
+| `!task revise <draft_id> <corrections>` | Ask AI to revise the draft params. |
+| `!task discard <draft_id>` | Discard a draft without creating the task. |
+| `!task list` | List all tasks (id, name, schedule/once, next run, context). |
+| `!task show <id>` | Show full task details including execution type and instructions. |
+| `!task enable <id>` | Enable a disabled task. |
+| `!task disable <id>` | Disable a task (stops scheduling). |
+| `!task delete <id>` | Delete a task and its run history. |
+| `!task history <id> [N]` | Show last N runs (default 10) with status and duration. |
+| `!task run <id>` | Run the task once immediately (result sent by DM). |
+| `!task help` | Show task command summary. |
+
+### Schedule and one-time
+
+- **Recurring (cron):** Standard 5-field expression `minute hour day-of-month month day-of-week`.  
+  Examples: `0 8 * * *` (daily 08:00), `0 8 * * 1` (Mondays 08:00), `*/30 * * * *` (every 30 minutes). The AI can also suggest a **max runs** limit (e.g. “every hour for the rest of the day”).
+- **One-time:** The AI infers a single run time from phrases like “in 2 hours” or “tomorrow at 9am” and sets `run_at`. The task runs once then stops.
+
+Invalid cron expressions are rejected. One-time `run_at` must be in the future.
+
+### Execution context
+
+Each task stores **backend**, **provider**, **model**, **mode**, and an optional **budget** (sats). The create-with flow uses current bot settings as defaults. Task runs use a dedicated agent session and do not change your current interactive session. You can ask the AI for **instructions** in natural language; they are stored and prepended to the prompt at run time: `Instructions:\n…\n\nTask:\n…`.
+
+**Budget and auto-flow:** If budget is set and the task's provider is `routstr`, each run automatically deposits that many sats from your local Cashu wallet into a Routstr session before the agent runs, then refunds the unspent remainder. Leave budget unset to use the pre-funded Routstr session balance.
+
+### Example
+
+```
+# Create recurring task (AI suggests cron and params)
+!task create-with send me a morning brief every day at 8am summarizing my top 3 priorities
+# → Bot replies with draft (execution_type: cron, schedule: 0 8 * * *, etc.)
+!task confirm abc1
+# → Task created
+
+# One-time task
+!task create-with run a cost report tomorrow at 9am
+# → AI suggests execution_type: one-time, run_at: <ISO date>
+
+# Revise and confirm
+!task revise abc1 use 9am instead of 8am
+!task confirm abc1
+
+!task list
+!task history abc1 5
+```
+
+For programmatic use (e.g. from cron or scripts), the optional **`task:create`** npm script accepts `--schedule <cron>` for recurring or `--run-at <ISO date>` for one-time, plus the usual task fields.
+
 ## Cashu / Routstr Integration (Optional)
 
 The bot supports paid AI providers via Cashu tokens and [Routstr](https://routstr.com). This is optional — by default the bot uses your existing `OPENAI_API_KEY` from the environment.
@@ -236,35 +297,6 @@ To add funds, use an external Cashu-capable wallet (e.g. [cashu.me](https://cash
 ```
 
 The bot will redeem the token and the sats will appear in your local wallet balance. You can then use them for Routstr (`!provider deposit` or auto-flow with `!!sats`).
-
-### One-Time Setup
-
-```bash
-# 1. Generate a new Cashu wallet
-npm run wallet:setup
-# This creates a 12-word mnemonic and saves it to .env
-# WRITE DOWN THE MNEMONIC — it's only shown once!
-
-# 2. Start/restart the bot
-bun run start
-# or if already running, the bot will pick up the new .env on next start
-
-# 3. Set your preferred Cashu mint
-!wallet mint https://mint.minibits.cash/Bitcoin
-# Common mints:
-#   - https://mint.minibits.cash/Bitcoin (mainnet)
-#   - https://testnut.cashu.space (testnet)
-
-# 3. Top up your local wallet
-#    Send sats to your mint address, then receive the token:
-!wallet receive cashuA...
-
-# 4. Switch to Routstr provider
-!provider set routstr
-
-# 5. Deposit sats to Routstr (or use auto-flow)
-!provider deposit 5000
-```
 
 ### Wallet Commands
 

@@ -1,17 +1,19 @@
 {
   "name": "nostr-dm-bot",
-  "version": "1.4.6",
+  "version": "1.5.0",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
     "bot": "bun run src/index.ts",
     "watch": "bun run run-with-restart.ts",
     "lint": "eslint . --fix",
+    "task:create": "bun run scripts/create-task.ts",
     "wallet:setup": "bun run scripts/setup-wallet.ts",
     "nostr:setup": "bun run scripts/nostr-setup.ts"
   },
   "dependencies": {
     "@cashu/cashu-ts": "^3.5.0",
+    "croner": "^8.0.0",
     "@noble/hashes": "^2.0.1",
     "@opencode-ai/sdk": "^1.2.16",
     "@scure/bip39": "^2.0.1",
