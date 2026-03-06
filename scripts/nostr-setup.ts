@@ -1,10 +1,20 @@
-import { appendFileSync } from 'fs';
 import { SimplePool } from 'nostr-tools/pool';
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import { nip19 } from 'nostr-tools';
 import readline from 'readline';
 
+import { getOrSetEnvVar } from '../src/env-file';
+
 const ENV_PATH = '.env';
+
+const PROFILE_PUBLISH_RELAYS = [
+  'wss://purplepag.es',
+  'wss://relay.nos.social',
+  'wss://user.kindpag.es',
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://relay.0xchat.com',
+];
 
 type Nip65Relays = {
   readRelays: string[];
@@ -41,43 +51,90 @@ async function main() {
   console.log('║                  NOSTR BOT SETUP                     ║');
   console.log('╚══════════════════════════════════════════════════════════╝\n');
 
-  const secretKey = generateSecretKey();
+  const botKeyHex = await getOrSetEnvVar(ENV_PATH, 'BOT_KEY', () => {
+    const sk = generateSecretKey();
+    
+    return Buffer.from(sk).toString('hex');
+  });
+
+  const secretKey = new Uint8Array(Buffer.from(botKeyHex, 'hex'));
   const botPubkey = getPublicKey(secretKey);
   const botNpub = nip19.npubEncode(botPubkey);
-  const botKeyHex = Buffer.from(secretKey).toString('hex');
-
-  appendFileSync(ENV_PATH, `\n# Bot private key (hex)\nBOT_KEY=${botKeyHex}\n`);
 
   console.log(`  Bot pubkey: ${botPubkey}`);
   console.log(`  Bot npub: ${botNpub}`);
-  console.log('  (Bot key is saved to .env and can be regenerated if lost)\n');
+  console.log('  (Bot key is in .env; re-run is idempotent)\n');
 
-  let masterPubkey = '';
-  while (!masterPubkey) {
-    masterPubkey = await question('Your master (bot is going to reply to) pubkey (hex|npub): ');
-    
-    if (masterPubkey.startsWith('npub1')) {
-      const decoded = nip19.decode(masterPubkey);
+  let name = await question('Bot display name: ');
+  name = name.trim() || 'DM Bot';
 
-      if (decoded.type !== 'npub') {
-        console.error('  Invalid npub format. Please provide a valid npub.');
+  const picture = `https://robohash.org/${botPubkey}.png?set=set5`;
 
-        process.exit(1);
+  const masterPubkey = await getOrSetEnvVar(ENV_PATH, 'BOT_MASTER_PUBKEY', async () => {
+    let value = '';
+    while (!value) {
+      const raw = await question('Your master (bot is going to reply to) pubkey (hex|npub): ');
+      
+      if (raw.startsWith('npub1')) {
+        const decoded = nip19.decode(raw);
+        
+        if (decoded.type !== 'npub') {
+          console.error('  Invalid npub format. Please provide a valid npub.');
+          
+          continue;
+        }
+        
+        value = decoded.data as string;
+      } else {
+        value = raw;
       }
-
-      masterPubkey = decoded.data;
     }
-  }
+    
+    return value;
+  });
 
-  let relays = await question('DM/Inbox Relays (comma-separated).\nCheck https://marcodpt.github.io/nostracker/relays/index.html for NIP17 and NIP42 supported relays.\nEnter your relays (leave empty for default wss://auth.nostr1.com,wss://relay.netstr.io): ');
-  relays = relays.trim() || 'wss://auth.nostr1.com,wss://relay.netstr.io';
+  const relays = await getOrSetEnvVar(ENV_PATH, 'BOT_RELAYS', async () => {
+    const raw = await question(
+      'DM/Inbox Relays (comma-separated).\nCheck https://marcodpt.github.io/nostracker/relays/index.html for NIP17 and NIP42 supported relays.\nEnter your relays (leave empty for default wss://auth.nostr1.com,wss://relay.netstr.io): ',
+    );
+    
+    return raw.trim() || 'wss://auth.nostr1.com,wss://relay.netstr.io';
+  });
 
   const relayList = relays.split(',').map((r) => r.trim()).filter(Boolean);
 
-  appendFileSync(ENV_PATH, `# Your master pubkey\nBOT_MASTER_PUBKEY=${masterPubkey}\n`);
-  appendFileSync(ENV_PATH, `# Relays\nBOT_RELAYS=${relays}\n`);
+  console.log('\n✓ .env up to date');
 
-  console.log('\n✓ Written to .env');
+  const pool = new SimplePool();
+
+  console.log('\nPublishing kind 0 (bot profile)...');
+  
+  const metadataContent = JSON.stringify({
+    name,
+    bot: true,
+    picture,
+  });
+  
+  const kind0Event = {
+    kind: 0,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [],
+    content: metadataContent,
+  };
+  
+  const signedKind0 = finalizeEvent(kind0Event, secretKey);
+  
+  const kind0Results = await Promise.allSettled(pool.publish(PROFILE_PUBLISH_RELAYS, signedKind0));
+  
+  for (const [idx, result] of kind0Results.entries()) {
+    const url = PROFILE_PUBLISH_RELAYS[idx];
+    
+    if (result.status === 'fulfilled') {
+      console.log(`  ✓ Kind 0 → ${url}`);
+    } else {
+      console.error(`  ✗ Kind 0 ${url}: ${result.reason}`);
+    }
+  }
 
   console.log('\nPublishing kind 10050 (DM relay discovery)...');
 
@@ -96,8 +153,6 @@ async function main() {
     'wss://relay.nostr.band',
   ];
 
-  const pool = new SimplePool();
-
   const nip65Event = await pool.get(PROFILE_RELAYS, {
     kinds: [10050],
     authors: [masterPubkey],
@@ -113,10 +168,11 @@ async function main() {
   const results = await Promise.allSettled(pool.publish(masterReadRelays, signed));
 
   for (const [idx, result] of results.entries()) {
+    const url = masterReadRelays[idx];
     if (result.status === 'fulfilled') {
-      console.log(`  ✓ Published to ${relayList[idx]}`);
+      console.log(`  ✓ Kind 10050 → ${url}`);
     } else {
-      console.error(`  ✗ Publish error on ${relayList[idx]}: ${result.reason}`);
+      console.error(`  ✗ Kind 10050 ${url}: ${result.reason}`);
     }
   }
 

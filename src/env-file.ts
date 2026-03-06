@@ -88,3 +88,27 @@ export function setEnvInFile(filePath: string, key: string, value: string | null
 
   writeFileSync(filePath, newLines.join('\n') + (newLines.length > 0 ? '\n' : ''), 'utf-8');
 }
+
+/**
+ * Get a key from the env file, or set it by calling getValue() and then return it.
+ * If the key already exists, logs a warning and returns the existing value without calling getValue.
+ */
+export async function getOrSetEnvVar(
+  filePath: string,
+  key: string,
+  getValue: () => string | Promise<string>,
+): Promise<string> {
+  const existing = getEnvFromFile(filePath, key);
+
+  if (existing !== null) {
+    console.warn(`${key} was already in the .env file, skipping`);
+
+    return existing;
+  }
+
+  const value = await getValue();
+
+  setEnvInFile(filePath, key, value);
+
+  return value;
+}
