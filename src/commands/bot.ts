@@ -140,14 +140,16 @@ export async function handleWorkspace({
   agentEnv,
   selected,
 }: HandleWorkspaceProps): Promise<string> {
+  const usageOpts = WorkspaceTargetSchema.options.join('|');
+
   if (!selected) {
-    return `Workspace: ${getWorkspaceTarget(db)}.`;
+    return `Workspace: ${getWorkspaceTarget(db)}.\nUsage: !workspace [${usageOpts}]`;
   }
 
   const parsed = WorkspaceTargetSchema.safeParse(selected);
 
   if (!parsed.success) {
-    return `Usage: !workspace [${WorkspaceTargetSchema.options.join('|')}]`;
+    return `Usage: !workspace [${usageOpts}]`;
   }
 
   const nextTarget = parsed.data;
@@ -351,7 +353,7 @@ export function getHelpText(): string {
 !help — this message
 !local — reply only in local terminal
 !remote — resume sending replies over Nostr DMs
-!workspace [parent|bot] — show/set workspace target
+!workspace [${WorkspaceTargetSchema.options.join('|')}] — show/set workspace target
 !backend [cursor|opencode] — show/set agent backend (resets model override)
 !models — list available models for current backend
 !model [name|reset] — show/set model override (cleared on !backend)
