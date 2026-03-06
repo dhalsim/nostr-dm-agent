@@ -8,7 +8,7 @@ import { spawn, spawnSync } from 'bun';
 import { z } from 'zod';
 
 import type { AgentMode } from '../db';
-import { debug, debugAsync, log, stripAnsi } from '../logger';
+import { debug, debugAsync, log } from '../logger';
 import type { ProviderName } from '../providers/types';
 
 import type {
@@ -177,7 +177,7 @@ export function parseOpenCodeJsonl(raw: string): AgentRunResult {
         const txt = textEventSchema.safeParse(parsed);
 
         if (txt.success) {
-          textParts.push(stripAnsi(txt.data.part.text));
+          textParts.push(txt.data.part.text);
         } else {
           log.warn(`opencode: text event with unexpected shape: ${txt.error.message}`);
         }
@@ -414,7 +414,7 @@ export function createOpenCodeBackend({
       }
 
       if (result.output === '(no output)' && err.trim()) {
-        result.output = stripAnsi(err.trim());
+        result.output = err.trim();
       }
 
       if (!result.sessionId) {

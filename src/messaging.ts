@@ -8,7 +8,7 @@ import type { SimplePool } from 'nostr-tools/pool';
 import type { AgentRunResult } from './backends/types';
 import type { AgentMode } from './db';
 import { ensureWss } from './env';
-import { C, debug, log } from './logger';
+import { C, debug, log, stripAnsi } from './logger';
 
 export const CHUNK_MAX = 4200;
 export const CHUNK_DELAY_BASE_MS = 1500;
@@ -125,13 +125,14 @@ export async function sendDm({
   signAuthEvent,
   redrawPrompt,
 }: SendDmProps): Promise<void> {
+  const plain = stripAnsi(message);
   const targetRelays = await getMasterDmRelays(pool, botRelayUrl, recipientPubkey);
   const recipientRelayHint = targetRelays[0] ?? botRelayUrl;
 
   const giftWrap = wrapEvent(
     senderSecretKey,
     { publicKey: recipientPubkey, relayUrl: recipientRelayHint },
-    message,
+    plain,
   );
 
   debug('Publishing to relays:', targetRelays, 'event id:', giftWrap.id);
@@ -171,10 +172,10 @@ export async function sendDm({
     throw new Error(`DM publish failed on all relays: ${reasons || 'unknown error'}`);
   }
 
-  const lines = message.split('\n');
+  const lines = plain.split('\n');
   const lastLine = lines[lines.length - 1] ?? '';
   const lastIsTokens = lines.length > 0 && /^\[tokens:/.test(lastLine.trimStart());
-  const body = lastIsTokens ? lines.slice(0, -1).join('\n') : message;
+  const body = lastIsTokens ? lines.slice(0, -1).join('\n') : plain;
   const tokensLine = lastIsTokens ? lastLine : null;
   const bodyStyled = `${C.greenBright}${body}${C.reset}`;
   const tokensStyled = tokensLine ? `\n${C.dim}${tokensLine}${C.reset}` : '';

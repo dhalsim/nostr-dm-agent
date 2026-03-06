@@ -7,7 +7,7 @@ import { join } from 'path';
 import { createOpencode } from '@opencode-ai/sdk';
 
 import type { AgentMode } from '../db';
-import { debug, log, stripAnsi } from '../logger';
+import { debug, log } from '../logger';
 import type { ProviderName } from '../providers/types';
 
 import type {
@@ -248,7 +248,7 @@ export function createOpencodeSDKBackend({
 
         return {
           type: 'error',
-          output: stripAnsi(output),
+          output,
           sessionId,
           statusCode,
         } satisfies AgentErrorResult;
@@ -287,7 +287,7 @@ export function createOpencodeSDKBackend({
         const textParts = parts
           .map((p) => {
             if (p && typeof p === 'object' && typeof (p as { text?: string }).text === 'string') {
-              return stripAnsi((p as { text: string }).text);
+              return (p as { text: string }).text;
             }
 
             if (
@@ -295,11 +295,11 @@ export function createOpencodeSDKBackend({
               typeof p === 'object' &&
               typeof (p as { content?: string }).content === 'string'
             ) {
-              return stripAnsi((p as { content: string }).content);
+              return (p as { content: string }).content;
             }
 
             if (typeof p === 'string') {
-              return stripAnsi(p);
+              return p;
             }
 
             return '';
@@ -310,15 +310,15 @@ export function createOpencodeSDKBackend({
       }
 
       if (!output && typeof data.output === 'string' && data.output.length > 0) {
-        output = stripAnsi(data.output);
+        output = data.output;
       }
 
       if (!output && typeof data.content === 'string' && data.content.length > 0) {
-        output = stripAnsi(data.content);
+        output = data.content;
       }
 
       if (!output && typeof data.text === 'string' && data.text.length > 0) {
-        output = stripAnsi(data.text);
+        output = data.text;
       }
 
       if (!output && data.info?.structured_output != null) {
