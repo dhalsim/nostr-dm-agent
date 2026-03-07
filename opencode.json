@@ -3,7 +3,8 @@
   "instructions": [
     "AGENTS.md",
     "dm-bot/.cursor/rules/dm-bot-context.mdc",
-    "dm-bot/.cursor/rules/post-agent-lint.mdc"
+    "dm-bot/.cursor/rules/post-agent-lint.mdc",
+    "dm-bot/.cursor/rules/contributing.mdc"
   ],
   "provider": {
     "routstr": {
