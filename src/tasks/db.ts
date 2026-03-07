@@ -8,6 +8,7 @@ import { Cron } from 'croner';
 import { AgentBackendNameSchema, AgentModeSchema, DEFAULT_BACKEND, DEFAULT_PROVIDER } from '../db';
 import type { SeenDb } from '../db';
 import type { ProviderName } from '../db';
+import { log } from '../logger';
 
 import type { CreateTaskInput, Task, TaskRun, TaskRunStatus } from './types';
 
@@ -181,6 +182,10 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
       ],
     );
   } else {
+    log.info(`Creating one-time task: ${input.run_at.toISOString()}`);
+    log.info(`Now: ${new Date(now).toISOString()}`);
+    log.info(`Timezone of the machine: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+
     const runAtMs = new Date(input.run_at).getTime();
 
     if (runAtMs <= now) {

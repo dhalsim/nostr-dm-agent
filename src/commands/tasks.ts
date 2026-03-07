@@ -121,13 +121,32 @@ function generateDraftId(): string {
   return randomBytes(2).toString('hex');
 }
 
+function getCurrentTimeContext(): { nowUtc: string; timeZone: string; nowLocal: string } {
+  const now = new Date();
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const nowLocal = now.toLocaleString(undefined, { timeZone });
+
+  return {
+    nowUtc: now.toISOString(),
+    timeZone,
+    nowLocal: `${nowLocal} (${timeZone})`,
+  };
+}
+
 const CREATE_WITH_SYSTEM_PROMPT = (
   userPrompt: string,
   defaults: { backend: string; provider: string; model: string; mode: string },
-) =>
-  `You are creating a scheduled AI agent task from a natural-language request.
+) => {
+  const tc = getCurrentTimeContext();
+
+  return `You are creating a scheduled AI agent task from a natural-language request.
 
 User request: "${userPrompt}"
+
+Current date and time (UTC): ${tc.nowUtc}
+Current date and time (user's timezone): ${tc.nowLocal}
+User's timezone: ${tc.timeZone}
+Use the current date/time above as the reference for relative times ("in 10 minutes", "tomorrow at 9am"). For one-time tasks, output run_at in UTC (ISO 8601). Interpret wall-clock times (e.g. "9am") in the user's timezone.
 
 Current bot defaults (use these if the user does not specify): backend=${defaults.backend}, provider=${defaults.provider}, model=${defaults.model || '(empty = default)'}, mode=${defaults.mode}.
 
@@ -137,21 +156,29 @@ A) Recurring (cron): include execution_type: "cron", schedule (cron expression),
    schedule: valid 5-field cron, e.g. "0 7 * * *" (daily 07:00), "0 8 * * 1" (Mondays 08:00), "*/30 * * * *" (every 30 min).
    maxRuns: limit how many times it runs; infer from context (e.g. "every hour for the rest of the day", "three times a day for a week"). Use null if no limit.
 
-B) One-time: include execution_type: "one-time" and run_at (ISO 8601 date string, must be in the future).
-   run_at: e.g. "2025-03-10T09:00:00.000Z" or infer from "in 2 hours", "tomorrow at 9am".
+B) One-time: include execution_type: "one-time" and run_at (ISO 8601 date string in UTC, must be in the future).
+   run_at: compute from current date/time above; e.g. "in 10 minutes" = now + 10 min in UTC, "tomorrow at 9am" = 9am in user's timezone converted to UTC.
 
 Common keys for both: name (string), prompt (string), backend (cursor|opencode|opencode-sdk), provider (local|routstr), model (string), mode (ask|plan|agent|free), budget_sats (number|null), instructions (string|null).`;
+};
 
-const CREATE_WITH_REVISE_PROMPT = (entry: CreateWithEntry, corrections: string) =>
-  `You are revising a scheduled task configuration.
+const CREATE_WITH_REVISE_PROMPT = (entry: CreateWithEntry, corrections: string) => {
+  const tc = getCurrentTimeContext();
+
+  return `You are revising a scheduled task configuration.
 
 Original user request: "${entry.originalPrompt}"
 ${entry.history.length > 0 ? `Previous corrections:\n${entry.history.map((h) => `- ${h}`).join('\n')}` : ''}
 New correction: ${corrections}
 
+Current date and time (UTC): ${tc.nowUtc}
+User's timezone: ${tc.timeZone}
+Use this when the correction involves time (e.g. "30 minutes later", "tomorrow at 5pm").
+
 Current parameters (JSON): ${JSON.stringify(entry.input)}
 
 Output ONLY a single JSON object with the same structure (execution_type, and either schedule+maxRuns for cron or run_at for one-time, plus name, prompt, backend, provider, model, mode, budget_sats, instructions). Apply the user's correction. No markdown, no code fence.`;
+};
 
 function formatCreateWithPreview(id: string, input: CreateTaskInput): string {
   const common = [
@@ -432,14 +459,8 @@ export async function handleTask({
     const tasks = listTasks(db);
 
     if (tasks.length === 0) {
-      return 'No tasks. Use !task create-with <prompt> to add one.';
+      return 'No tasks. Use `!task create-with <prompt>` to add one.';
     }
-
-    const header =
-      'ID       | En | Name              | Schedule           | Next Run            | Context';
-
-    const sep =
-      '-------- | -- | ----------------- | ------------------ | ------------------- | -------------------------';
 
     const scheduleCol = (t: Task): string => {
       if (t.execution_type === 'one-time') {
@@ -451,12 +472,15 @@ export async function handleTask({
       return t.max_runs != null ? `${s} (max ${t.max_runs})` : s;
     };
 
+    const escapeCell = (s: string): string => s.replace(/\|/g, '\\|');
+    const header = '| ID | En | Name | Schedule | Next Run | Context |';
+    const sep = '| --- | --- | --- | --- | --- | --- |';
     const rows = tasks.map(
       (t) =>
-        `${t.id} | ${t.enabled ? '✓' : '—'}  | ${t.name.slice(0, 18).padEnd(18)} | ${scheduleCol(t).slice(0, 17).padEnd(17)} | ${formatNextRun(t.next_run_at).padEnd(20)} | ${formatContextLine(t)}`,
+        `| ${escapeCell(t.id)} | ${t.enabled ? '✓' : '—'} | ${escapeCell(t.name)} | ${escapeCell(scheduleCol(t))} | ${escapeCell(formatNextRun(t.next_run_at))} | ${escapeCell(formatContextLine(t))} |`,
     );
 
-    return [header, sep, ...rows].join('\n');
+    return `## Tasks\n\n${[header, sep, ...rows].join('\n')}`;
   }
 
   const id = rest[0]?.trim();

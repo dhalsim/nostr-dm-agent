@@ -176,6 +176,9 @@ async function main() {
     }
   }
 
+  // TODO: publish a kind 10050 event for the bot's own relays
+  
+
   console.log('\n✓ Setup complete!');
   console.log('  Next: npm run wallet:setup (optional, for paid AI)');
   console.log('  Then: npm run start');
