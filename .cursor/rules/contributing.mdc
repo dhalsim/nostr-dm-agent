@@ -2,4 +2,14 @@
 alwaysApply: true
 ---
 
-Check the [CONTRIBUTING.md](../CONTRIBUTING.md) file for more information before doing a commit.
+## Commits
+
+Before making a commit, include a version bump flag in the commit message:
+
+- `--patch` — bug fixes, small improvements (e.g. `fix: description --patch`)
+- `--minor` — new features, backward-compatible (e.g. `feat: description --minor`)
+- `--major` — breaking changes (e.g. `chore: breaking change --major`)
+
+Example: `git commit -m "chore: remove unused file --patch"`
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup (hooks, semver) and more.

@@ -6,8 +6,10 @@ After cloning, run this once to enable the version bump hook:
 
 ```bash
 chmod +x scripts/commit-msg scripts/post-commit
-git config --include.path=.gitconfig
+git config include.path .gitconfig
 ```
+
+This makes Git load the repo’s `.gitconfig` (which sets `core.hooksPath = scripts`), so the `commit-msg` and `post-commit` hooks run. Run the command from the repo root.
 
 ## Versioning
 
