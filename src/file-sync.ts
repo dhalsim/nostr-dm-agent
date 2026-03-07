@@ -13,7 +13,7 @@ import { finalizeEvent, getPublicKey, nip19, nip44, SimplePool } from 'nostr-too
 
 import type { BotConfig } from './env';
 
-const BLOSSOM_URL = 'https://24242.io';
+const BLOSSOM_URL = 'https://blossom-01.uid.ovh/';
 const FILE_KIND = 34343;
 
 // ---------------------------------------------------------------------------
@@ -94,11 +94,17 @@ async function blossomDownload(privkey: Uint8Array, url: string): Promise<Uint8A
 // Upload
 // ---------------------------------------------------------------------------
 
-export async function fileUpload(
-  filePath: string,
-  recipientNpub: string,
-  config: BotConfig,
-): Promise<void> {
+type FileUploadProps = {
+  filePath: string;
+  recipientNpub: string;
+  config: BotConfig;
+};
+
+export async function fileUpload({
+  filePath,
+  recipientNpub,
+  config,
+}: FileUploadProps): Promise<void> {
   // 1. Decode recipient npub
   const decoded = nip19.decode(recipientNpub);
 
@@ -218,7 +224,15 @@ export async function fileUpload(
 // Download
 // ---------------------------------------------------------------------------
 
-export async function fileDownload(naddr: string, config: BotConfig): Promise<void> {
+type FileDownloadProps = {
+  naddr: string;
+  config: BotConfig;
+  filePath: string;
+};
+
+export async function fileDownload(opts: FileDownloadProps): Promise<void> {
+  const { naddr, config, filePath } = opts;
+
   // 1. Decode naddr
   const decoded = nip19.decode(naddr);
 
@@ -270,9 +284,7 @@ export async function fileDownload(naddr: string, config: BotConfig): Promise<vo
   }
 
   // 4. Conflict check against local file
-  // Output goes to workspace root (two levels up from src/)
-  const workspaceRoot = resolve(import.meta.dir, '..', '..');
-  const outputPath = resolve(workspaceRoot, filename);
+  const outputPath = resolve(filePath, filename);
   const incomingPath = `${outputPath}.incoming`;
 
   let skipWrite = false;

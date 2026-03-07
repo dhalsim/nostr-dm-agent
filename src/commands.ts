@@ -49,6 +49,7 @@ import {
   getProviderName,
   getRoutstrBudget,
   getWalletDefaultMintUrl,
+  getWorkspaceTarget,
   ProviderNameSchema,
 } from './db';
 import type { BotConfig } from './env';
@@ -590,10 +591,15 @@ export async function handleBangCommand({
           return 'Usage: !file upload <file_path> <npub_bot_b>';
         }
 
-        const filePath = resolve(workspaceRoot, filePathArg);
+        const workspace = getWorkspaceTarget(seenDb);
+
+        const filePath = () =>
+          workspace === 'bot'
+            ? resolve(dmBotRoot, filePathArg)
+            : resolve(workspaceRoot, filePathArg);
 
         return handleError(async () => {
-          await fileUpload(filePath, recipientNpub, config);
+          await fileUpload({ filePath: filePath(), recipientNpub, config });
 
           return '';
         }, 'File upload failed');
@@ -607,7 +613,10 @@ export async function handleBangCommand({
         }
 
         return handleError(async () => {
-          await fileDownload(naddr, config);
+          const workspace = getWorkspaceTarget(seenDb);
+          const filePath = workspace === 'bot' ? dmBotRoot : workspaceRoot;
+
+          await fileDownload({ naddr, config, filePath });
 
           return '';
         }, 'File download failed');
