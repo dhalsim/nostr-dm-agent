@@ -12,4 +12,4 @@ Before making a commit, include a version bump flag in the commit message:
 
 Example: `git commit -m "chore: remove unused file --patch"`
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup (hooks, semver) and more.
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for setup (hooks, semver) and more.
