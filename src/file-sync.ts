@@ -61,7 +61,7 @@ async function blossomUpload(
       'Content-Type': 'application/octet-stream',
       'X-SHA-256': hash,
     },
-    body: blob.buffer as ArrayBuffer,
+    body: blob as unknown as BodyInit,
   });
 
   if (!res.ok) {
