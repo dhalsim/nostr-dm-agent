@@ -31,7 +31,4 @@ execSync('git commit --amend --no-edit --no-verify', { stdio: 'inherit' });
 
 console.log(`✅ Version bumped to ${newVersion} and included in this commit.`);
 
-// delete the tmp file
-fs.unlinkSync(tmpFile);
-
 process.exit(0);
