@@ -2,6 +2,7 @@
 // commands.ts — ! command handler
 // ---------------------------------------------------------------------------
 
+import { writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 
 import { nip19 } from 'nostr-tools';
@@ -58,6 +59,7 @@ import type { BotConfig } from './env';
 import { getEnvFromFile, setEnvInFile } from './env-file';
 import { fileUpload, fileDownload } from './file-sync';
 import { getInfoLogsEnabled, log, setInfoLogsEnabled } from './logger';
+import { RESTART_REQUESTED_PATH } from './paths';
 import type { ProviderDb } from './providers/db';
 import type { TaskEngineContext } from './tasks/engine';
 import { formatMsats, msats } from './types';
@@ -175,7 +177,15 @@ export async function handleBangCommand({
         return handleError(async () => nip19.npubEncode(botPubkey), 'Failed to encode bot pubkey');
       }
 
-      return 'Usage: !bot npub';
+      if (sub === 'restart') {
+        return handleError(async () => {
+          writeFileSync(RESTART_REQUESTED_PATH, '', 'utf-8');
+
+          return 'Restart requested. If running under watch, the bot will restart shortly.';
+        }, 'Failed to request restart');
+      }
+
+      return 'Usage: !bot npub|restart';
     }
 
     case 'help':
@@ -251,8 +261,14 @@ export async function handleBangCommand({
 
     case 'lint': {
       return handleError(
-        async () => handleLint({ db: seenDb, selected: args[0] }),
-        'Failed to set linting',
+        async () =>
+          handleLint({
+            db: seenDb,
+            args,
+            workspaceRoot,
+            dmBotRoot,
+          }),
+        'Lint command failed',
       );
     }
 

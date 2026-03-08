@@ -30,6 +30,7 @@ import {
   getState,
   STATE_CURRENT_SESSION,
 } from '../db';
+import { formatLintSummary, runPostAgentLint } from '../lint';
 import { C, assertUnreachable, debug } from '../logger';
 import { createNewSession } from '../session';
 import { formatMsats } from '../types';
@@ -325,20 +326,50 @@ export function handleVersion({ version }: { version: string }): string {
   return `Version: ${version}`;
 }
 
-export function handleLint({ db, selected }: { db: SeenDb; selected?: string }): string {
-  if (!selected) {
-    return `Linting: ${getLinting(db)}.`;
+export type HandleLintProps = {
+  db: SeenDb;
+  args: string[];
+  workspaceRoot: string;
+  dmBotRoot: string;
+};
+
+export function handleLint({ db, args, workspaceRoot, dmBotRoot }: HandleLintProps): string {
+  const first = args[0]?.toLowerCase();
+  const second = args[1]?.toLowerCase();
+
+  // !lint — run lint manually for current workspace
+  if (args.length === 0) {
+    const workspace = getWorkspaceTarget(db);
+    const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
+    const label = workspace === 'bot' ? 'dm-bot' : 'workspace';
+    const result = runPostAgentLint({ cwd, label });
+
+    if (!result.available) {
+      return `Lint not available in this runtime for ${label} (npm run lint missing).`;
+    }
+
+    return formatLintSummary(result);
   }
 
-  const parsed = LintingSchema.safeParse(selected.toLowerCase());
-
-  if (!parsed.success) {
-    return `Usage: !lint [${LintingSchema.options.join('|')}]`;
+  // !lint auto — show auto-lint status
+  if (first === 'auto' && second === undefined) {
+    return `Auto lint: ${getLinting(db)}.`;
   }
 
-  setLinting(db, parsed.data);
+  // !lint auto on | !lint auto off — set auto-lint
+  if (first === 'auto' && second !== undefined) {
+    const parsed = LintingSchema.safeParse(second);
 
-  return `Linting set to: ${parsed.data}.`;
+    if (!parsed.success) {
+      return `Usage: !lint auto [${LintingSchema.options.join('|')}]`;
+    }
+
+    setLinting(db, parsed.data);
+
+    return `Auto lint set to: ${parsed.data}.`;
+  }
+
+  return `Usage: !lint — run lint now; !lint auto — status; !lint auto [${LintingSchema.options.join('|')}] — set auto lint after agent.`;
 }
 
 export function getHelpText(): string {
@@ -351,6 +382,7 @@ export function getHelpText(): string {
 !status — bot status and current session/mode/backend
 !version — show git hash (dm-bot project)
 !bot npub — print the bot's public key (npub) for sharing
+!bot restart — request bot restart (when running under watch)
 !help — this message
 !local — reply only in local terminal
 !remote — resume sending replies over Nostr DMs
@@ -359,13 +391,20 @@ export function getHelpText(): string {
 !models — list available models for current backend
 !model [name|reset] — show/set model override (cleared on !backend)
 !mode ask | !mode plan | !mode agent | !ask | !plan | !agent — set mode
-!lint [on|off] — show/set post-agent lint follow-up (agent mode only)
+!lint — run lint now; !lint auto — status; !lint auto [${LintingSchema.options.join('|')}] — set auto lint (agent mode)
 !log info [on|off] — show/set info-level console logs
 !ready [on|off] — show/set startup "Agent is ready" DM (default on)
+!wallet mint [url] — show/set default Cashu mint
+!wallet mints — list mints in wallet
 !wallet balance — show Cashu wallet balance
+!wallet decode <token> — decode a Cashu token (no spend)
 !wallet receive <token> — receive a Cashu token
-!wallet history — show recent spend history
+!wallet send <sats> — create and send a Cashu token
+!wallet history [--token] — show recent spend history
 !provider set [${ProviderNameSchema.options.join('|')}] — set payment provider
+!provider deposit <sats> [--new] — deposit to provider (Routstr)
+!provider refund — refund from provider to wallet
+!provider balance — show provider balance
 !provider budget <sats> — set per-run budget
 !provider status — show provider status
 !provider models [filter] — list Routstr models, optional filter by name
