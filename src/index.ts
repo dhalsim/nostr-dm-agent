@@ -572,9 +572,11 @@ function main() {
       providerName: getProviderName(seenDb),
     });
 
-    if (content.trim().startsWith('!')) {
+    const input = content.trim();
+
+    if (input.startsWith('!')) {
       const reply = await handleBangCommand({
-        input: content,
+        input,
         relayUrls,
         seenDb,
         version: VERSION,
@@ -583,6 +585,7 @@ function main() {
         agentEnv: getAgentEnv(),
         attachUrl: opencodeServeUrl,
         backend,
+        botPubkey,
         walletDb,
         providerDb,
         config,
@@ -590,6 +593,8 @@ function main() {
       });
 
       if (reply === EXIT_COMMAND_SENTINEL) {
+        log.info('Exit command received. Shutting down dm-bot.');
+
         const ack = 'Shutting down dm-bot.';
 
         await sendReplyForSource(source, ack);
@@ -598,8 +603,13 @@ function main() {
         process.exit(0);
       } else if (reply) {
         await sendReplyForSource(source, reply);
-      } else if (source === 'local') {
-        log.info(`${C.green}[bot]${C.reset}\n${C.dim}Command applied.${C.reset}`);
+      } else {
+        log.warn('No command reply. Sending default reply.');
+
+        await sendReplyForSource(
+          source,
+          'No response (command may need to start with !). Use !help for commands.',
+        );
       }
 
       return;

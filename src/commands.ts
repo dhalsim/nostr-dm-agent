@@ -4,6 +4,8 @@
 
 import { join, resolve } from 'path';
 
+import { nip19 } from 'nostr-tools';
+
 import type { AgentBackend } from './backends/types';
 import {
   getStatusLines,
@@ -55,7 +57,7 @@ import {
 import type { BotConfig } from './env';
 import { getEnvFromFile, setEnvInFile } from './env-file';
 import { fileUpload, fileDownload } from './file-sync';
-import { getInfoLogsEnabled, setInfoLogsEnabled } from './logger';
+import { getInfoLogsEnabled, log, setInfoLogsEnabled } from './logger';
 import type { ProviderDb } from './providers/db';
 import type { TaskEngineContext } from './tasks/engine';
 import { formatMsats, msats } from './types';
@@ -81,6 +83,7 @@ export type HandleBangCommandProps = {
   agentEnv: Record<string, string | undefined>;
   attachUrl: string | null;
   backend: AgentBackend;
+  botPubkey: string | null;
   seenDb: SeenDb;
   walletDb: WalletDb | null;
   providerDb: ProviderDb | null;
@@ -99,17 +102,18 @@ export async function handleBangCommand({
   agentEnv,
   attachUrl,
   backend,
+  botPubkey,
   walletDb,
   config,
   taskEngine,
 }: HandleBangCommandProps): Promise<string | null> {
-  const raw = input.trim();
+  if (!input.startsWith('!')) {
+    log.warn(`Input does not start with !: ${input}`);
 
-  if (!raw.startsWith('!')) {
     return null;
   }
 
-  const rest = raw.slice(1).trim();
+  const rest = input.slice(1).trim();
   const parts = rest.split(/\s+/);
   const cmd = (parts[0] ?? '').toLowerCase();
   const args = parts.slice(1);
@@ -159,6 +163,20 @@ export async function handleBangCommand({
 
     case 'version':
       return `Version: ${version}`;
+
+    case 'bot': {
+      const sub = args[0]?.toLowerCase();
+
+      if (sub === 'npub') {
+        if (!botPubkey) {
+          return 'Bot pubkey not available.';
+        }
+
+        return handleError(async () => nip19.npubEncode(botPubkey), 'Failed to encode bot pubkey');
+      }
+
+      return 'Usage: !bot npub';
+    }
 
     case 'help':
       return getHelpText();
