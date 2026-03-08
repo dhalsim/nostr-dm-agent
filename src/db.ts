@@ -64,6 +64,7 @@ export type SeenDb = Brand<Database, 'SeenDb'>;
 
 export function openSeenDb(): SeenDb {
   const db = new Database(SEEN_DB_PATH);
+  db.run('PRAGMA foreign_keys = ON');
   db.run('CREATE TABLE IF NOT EXISTS seen_events (id TEXT PRIMARY KEY)');
 
   db.run(`
@@ -112,7 +113,7 @@ export function openSeenDb(): SeenDb {
 
   db.run(`
     CREATE TABLE IF NOT EXISTS tasks (
-      id             TEXT    PRIMARY KEY,
+      id             INTEGER PRIMARY KEY,
       name           TEXT    NOT NULL UNIQUE,
       schedule       TEXT    NOT NULL,
       prompt         TEXT    NOT NULL,
@@ -137,7 +138,7 @@ export function openSeenDb(): SeenDb {
   db.run(`
     CREATE TABLE IF NOT EXISTS task_runs (
       id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_id            TEXT    NOT NULL,
+      task_id            INTEGER NOT NULL,
       started_at         INTEGER NOT NULL,
       finished_at        INTEGER,
       status             TEXT    NOT NULL,
@@ -147,6 +148,26 @@ export function openSeenDb(): SeenDb {
       FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
     )
   `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS todos (
+      id           INTEGER PRIMARY KEY,
+      parent_id    INTEGER REFERENCES todos(id) ON DELETE CASCADE,
+      todo         TEXT    NOT NULL,
+      status       TEXT    NOT NULL DEFAULT 'pending',
+      priority     TEXT,
+      sort_order   INTEGER,
+      description  TEXT,
+      tags         TEXT,
+      source       TEXT,
+      created_at   INTEGER NOT NULL,
+      updated_at   INTEGER,
+      completed_at INTEGER
+    )
+  `);
+
+  db.run('CREATE INDEX IF NOT EXISTS idx_todos_parent_id ON todos(parent_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_todos_parent_sort ON todos(parent_id, sort_order)');
 
   return db as SeenDb;
 }

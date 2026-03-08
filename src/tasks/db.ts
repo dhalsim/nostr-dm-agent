@@ -1,8 +1,6 @@
 // ---------------------------------------------------------------------------
 // tasks/db.ts — Task CRUD and run history
 // ---------------------------------------------------------------------------
-import { randomBytes } from 'crypto';
-
 import { Cron } from 'croner';
 
 import { AgentBackendNameSchema, AgentModeSchema, DEFAULT_BACKEND, DEFAULT_PROVIDER } from '../db';
@@ -77,10 +75,6 @@ export function validateSchedule(
   }
 }
 
-function generateTaskId(): string {
-  return randomBytes(4).toString('hex');
-}
-
 function rowToTask(row: Record<string, unknown>): Task {
   const backendRaw = row.backend != null && row.backend !== '';
   const providerRaw = row.provider != null && row.provider !== '';
@@ -90,7 +84,7 @@ function rowToTask(row: Record<string, unknown>): Task {
   const executionType = row.execution_type === 'one-time' ? 'one-time' : ('cron' as const);
 
   return {
-    id: String(row.id),
+    id: Number(row.id),
     name: String(row.name),
     schedule: String(row.schedule),
     prompt: String(row.prompt),
@@ -113,7 +107,7 @@ function rowToTask(row: Record<string, unknown>): Task {
 function rowToTaskRun(row: Record<string, unknown>): TaskRun {
   return {
     id: Number(row.id),
-    task_id: String(row.task_id),
+    task_id: Number(row.task_id),
     started_at: Number(row.started_at),
     finished_at: row.finished_at != null ? Number(row.finished_at) : null,
     status: row.status as TaskRunStatus,
@@ -123,7 +117,7 @@ function rowToTaskRun(row: Record<string, unknown>): TaskRun {
   };
 }
 
-export function getTaskRunCount(db: SeenDb, taskId: string): number {
+export function getTaskRunCount(db: SeenDb, taskId: number): number {
   const row = db.prepare('SELECT COUNT(*) as c FROM task_runs WHERE task_id = ?').get(taskId) as {
     c: number;
   };
@@ -132,12 +126,6 @@ export function getTaskRunCount(db: SeenDb, taskId: string): number {
 }
 
 export function createTask(db: SeenDb, input: CreateTaskInput): Task {
-  let id = generateTaskId();
-
-  while (db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(id)) {
-    id = generateTaskId();
-  }
-
   const now = Date.now();
 
   if (input.execution_type === 'cron') {
@@ -162,11 +150,10 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
       throw new Error('Could not compute next run time');
     }
 
-    db.run(
-      `INSERT INTO tasks (id, name, schedule, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
-       VALUES (?, ?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'cron', NULL, ?)`,
+    const info = db.run(
+      `INSERT INTO tasks (name, schedule, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
+       VALUES (?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'cron', NULL, ?)`,
       [
-        id,
         input.name,
         validated.cron,
         input.prompt,
@@ -181,6 +168,8 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
         input.maxRuns,
       ],
     );
+
+    return getTask(db, Number(info.lastInsertRowid))!;
   } else {
     log.info(`Creating one-time task: ${input.run_at.toISOString()}`);
     log.info(`Now: ${new Date(now).toISOString()}`);
@@ -192,11 +181,10 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
       throw new Error('run_at must be in the future');
     }
 
-    db.run(
-      `INSERT INTO tasks (id, name, schedule, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
-       VALUES (?, ?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'one-time', ?, NULL)`,
+    const info = db.run(
+      `INSERT INTO tasks (name, schedule, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
+       VALUES (?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'one-time', ?, NULL)`,
       [
-        id,
         input.name,
         'once',
         input.prompt,
@@ -211,9 +199,9 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
         runAtMs,
       ],
     );
-  }
 
-  return getTask(db, id)!;
+    return getTask(db, Number(info.lastInsertRowid))!;
+  }
 }
 
 export function listTasks(db: SeenDb): Task[] {
@@ -224,7 +212,7 @@ export function listTasks(db: SeenDb): Task[] {
   return rows.map(rowToTask);
 }
 
-export function getTask(db: SeenDb, id: string): Task | null {
+export function getTask(db: SeenDb, id: number): Task | null {
   const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as
     | Record<string, unknown>
     | undefined;
@@ -232,13 +220,13 @@ export function getTask(db: SeenDb, id: string): Task | null {
   return row ? rowToTask(row) : null;
 }
 
-export function deleteTask(db: SeenDb, id: string): boolean {
+export function deleteTask(db: SeenDb, id: number): boolean {
   const info = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
 
   return info.changes > 0;
 }
 
-export function enableTask(db: SeenDb, id: string): boolean {
+export function enableTask(db: SeenDb, id: number): boolean {
   const task = getTask(db, id);
 
   if (!task || task.enabled) {
@@ -257,7 +245,7 @@ export function enableTask(db: SeenDb, id: string): boolean {
   return true;
 }
 
-export function disableTask(db: SeenDb, id: string): boolean {
+export function disableTask(db: SeenDb, id: number): boolean {
   const info = db.prepare('UPDATE tasks SET enabled = 0, next_run_at = NULL WHERE id = ?').run(id);
 
   return info.changes > 0;
@@ -280,7 +268,7 @@ export function listDueTasks(db: SeenDb): Task[] {
 
 export function updateTaskRunTimes(
   db: SeenDb,
-  taskId: string,
+  taskId: number,
   lastRunAt: number,
   nextRunAt: number | null,
 ): void {
@@ -291,7 +279,7 @@ export function updateTaskRunTimes(
   );
 }
 
-export function insertTaskRun(db: SeenDb, taskId: string): number {
+export function insertTaskRun(db: SeenDb, taskId: number): number {
   const now = Date.now();
 
   const info = db
@@ -318,7 +306,7 @@ export function updateTaskRun(
   ).run(now, status, output ?? null, error ?? null, budgetUsedMsats, runId);
 }
 
-export function listTaskRuns(db: SeenDb, taskId: string, limit: number): TaskRun[] {
+export function listTaskRuns(db: SeenDb, taskId: number, limit: number): TaskRun[] {
   const rows = db
     .prepare('SELECT * FROM task_runs WHERE task_id = ? ORDER BY id DESC LIMIT ?')
     .all(taskId, limit) as Record<string, unknown>[];

@@ -1,6 +1,6 @@
 {
   "name": "nostr-dm-bot",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
@@ -15,6 +15,7 @@
     "@cashu/cashu-ts": "^3.5.0",
     "@noble/ciphers": "^2.1.1",
     "@noble/hashes": "^2.0.1",
+    "@opencode-ai/plugin": "^1.2.21",
     "@opencode-ai/sdk": "^1.2.16",
     "@scure/bip39": "^2.0.1",
     "croner": "^8.0.0",

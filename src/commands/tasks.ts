@@ -478,20 +478,26 @@ export async function handleTask({
 
     const rows = tasks.map(
       (t) =>
-        `| ${escapeCell(t.id)} | ${t.enabled ? '✓' : '—'} | ${escapeCell(t.name)} | ${escapeCell(scheduleCol(t))} | ${escapeCell(formatNextRun(t.next_run_at))} | ${escapeCell(formatContextLine(t))} |`,
+        `| ${escapeCell(String(t.id))} | ${t.enabled ? '✓' : '—'} | ${escapeCell(t.name)} | ${escapeCell(scheduleCol(t))} | ${escapeCell(formatNextRun(t.next_run_at))} | ${escapeCell(formatContextLine(t))} |`,
     );
 
     return `## Tasks\n\n${[header, sep, ...rows].join('\n')}`;
   }
 
-  const id = rest[0]?.trim();
+  const idRaw = rest[0]?.trim();
+  const id = idRaw ? parseInt(idRaw, 10) : NaN;
+  const idValid = !Number.isNaN(id);
 
   // -------------------------------------------------------------------------
   // show
   // -------------------------------------------------------------------------
   if (sub === 'show') {
-    if (!id) {
+    if (!idRaw) {
       return 'Usage: !task show <id>';
+    }
+
+    if (!idValid) {
+      return 'Usage: !task show <id> (id must be a number)';
     }
 
     const task = getTask(db, id);
@@ -528,7 +534,7 @@ export async function handleTask({
   // enable / disable / delete / history / run
   // -------------------------------------------------------------------------
   if (sub === 'enable') {
-    if (!id) {
+    if (!idValid) {
       return 'Usage: !task enable <id>';
     }
 
@@ -546,7 +552,7 @@ export async function handleTask({
   }
 
   if (sub === 'disable') {
-    if (!id) {
+    if (!idValid) {
       return 'Usage: !task disable <id>';
     }
 
@@ -558,7 +564,7 @@ export async function handleTask({
   }
 
   if (sub === 'delete') {
-    if (!id) {
+    if (!idValid) {
       return 'Usage: !task delete <id>';
     }
 
@@ -570,7 +576,7 @@ export async function handleTask({
   }
 
   if (sub === 'history') {
-    if (!id) {
+    if (!idValid) {
       return 'Usage: !task history <id> [N]';
     }
 
@@ -608,7 +614,7 @@ export async function handleTask({
   }
 
   if (sub === 'run') {
-    if (!id) {
+    if (!idValid) {
       return 'Usage: !task run <id>';
     }
 

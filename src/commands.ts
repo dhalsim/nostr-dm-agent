@@ -39,6 +39,7 @@ import {
   handleShowLastMessages,
 } from './commands/session';
 import { handleTask } from './commands/tasks';
+import { handleTodo } from './commands/todos';
 import {
   handleWalletBalance,
   handleWalletHistory,
@@ -204,6 +205,10 @@ export async function handleBangCommand({
           }),
         'Task command failed',
       );
+    }
+
+    case 'todo': {
+      return handleError(async () => handleTodo({ args, db: seenDb }), 'Todo command failed');
     }
 
     case 'local': {

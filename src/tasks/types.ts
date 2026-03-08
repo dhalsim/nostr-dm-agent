@@ -9,7 +9,7 @@ import type { AgentBackendName, AgentMode, ProviderName } from '../db';
 export type TaskRunStatus = 'running' | 'success' | 'error';
 
 export type Task = {
-  id: string;
+  id: number;
   name: string;
   schedule: string;
   prompt: string;
@@ -30,7 +30,7 @@ export type Task = {
 
 export type TaskRun = {
   id: number;
-  task_id: string;
+  task_id: number;
   started_at: number;
   finished_at: number | null;
   status: TaskRunStatus;
