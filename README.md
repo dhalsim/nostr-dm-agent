@@ -395,6 +395,7 @@ Use a NIP-17–compatible client (e.g. Damus, Coracle, 0xChat, or any app that s
 
 When changing dm-bot code:
 
+- **Contributing:** Run `npm run contrib:setup` once to enable the version-bump commit hooks (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 - **File map**: Main entry is `src/index.ts`. Key modules:
   - `src/logger.ts` — debug(), log(), logError(), ANSI colors
   - `src/env.ts` — loadBotConfig(), env parsing

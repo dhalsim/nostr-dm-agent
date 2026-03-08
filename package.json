@@ -1,15 +1,15 @@
 {
   "name": "nostr-dm-bot",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
-    "bot": "bun run src/index.ts",
     "watch": "bun run run-with-restart.ts",
     "lint": "eslint . --fix",
     "task:create": "bun run scripts/create-task.ts",
     "wallet:setup": "bun run scripts/setup-wallet.ts",
-    "nostr:setup": "bun run scripts/nostr-setup.ts"
+    "nostr:setup": "bun run scripts/nostr-setup.ts",
+    "contrib:setup": "chmod +x scripts/commit-msg scripts/post-commit scripts/ngit-helper.sh && git config include.path ../.gitconfig"
   },
   "dependencies": {
     "@cashu/cashu-ts": "^3.5.0",

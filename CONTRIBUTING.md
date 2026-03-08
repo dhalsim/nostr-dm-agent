@@ -5,11 +5,10 @@
 After cloning, run this once to enable the version bump hook:
 
 ```bash
-chmod +x scripts/commit-msg scripts/post-commit
-git config include.path ../.gitconfig
+npm run contrib:setup
 ```
 
-This makes Git load the repo’s `.gitconfig` (which sets `core.hooksPath = scripts`), so the `commit-msg` and `post-commit` hooks run. Run the command from the repo root.
+This makes Git load the repo’s `.gitconfig` (which sets `core.hooksPath = scripts`), so the `commit-msg` and `post-commit` hooks run.
 
 ## Versioning
 
@@ -40,3 +39,13 @@ When updating the bot, check the version bump to understand the impact:
 - **MAJOR bump** (e.g., 1.0.0 → 2.0.0): Breaking changes. Review release notes before updating.
 
 Check the current version in `package.json`.
+
+## For Developers: Using ngit-helper.sh
+
+This project uses [ngit](https://gitworkshop.dev/danconwaydev.com/ngit) for Git workflow. The `ngit-helper.sh` script provides a workflow helper for ngit.
+
+```bash
+./ngit-helper.sh
+```
+
+This script provides a workflow helper for ngit.
