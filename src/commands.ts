@@ -2,7 +2,7 @@
 // commands.ts — ! command handler
 // ---------------------------------------------------------------------------
 
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 import type { AgentBackend } from './backends/types';
 import {
@@ -53,6 +53,7 @@ import {
 } from './db';
 import type { BotConfig } from './env';
 import { getEnvFromFile, setEnvInFile } from './env-file';
+import { fileUpload, fileDownload } from './file-sync';
 import { getInfoLogsEnabled, setInfoLogsEnabled } from './logger';
 import type { ProviderDb } from './providers/db';
 import type { TaskEngineContext } from './tasks/engine';
@@ -578,6 +579,42 @@ export async function handleBangCommand({
 
     case 'exit':
       return EXIT_COMMAND_SENTINEL;
+
+    case 'file': {
+      const [subcommand, ...fileArgs] = args;
+
+      if (subcommand === 'upload') {
+        const [filePathArg, recipientNpub] = fileArgs;
+
+        if (!filePathArg || !recipientNpub) {
+          return 'Usage: !file upload <file_path> <npub_bot_b>';
+        }
+
+        const filePath = resolve(workspaceRoot, filePathArg);
+
+        return handleError(async () => {
+          await fileUpload(filePath, recipientNpub, config);
+
+          return '';
+        }, 'File upload failed');
+      }
+
+      if (subcommand === 'download') {
+        const [naddr] = fileArgs;
+
+        if (!naddr) {
+          return 'Usage: !file download <naddr>';
+        }
+
+        return handleError(async () => {
+          await fileDownload(naddr, config);
+
+          return '';
+        }, 'File download failed');
+      }
+
+      return 'Usage: !file <upload|download>';
+    }
 
     default:
       return `Unknown command: !${cmd}. Use !help for commands.`;

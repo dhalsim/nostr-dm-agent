@@ -13,10 +13,11 @@
   },
   "dependencies": {
     "@cashu/cashu-ts": "^3.5.0",
-    "croner": "^8.0.0",
+    "@noble/ciphers": "^2.1.1",
     "@noble/hashes": "^2.0.1",
     "@opencode-ai/sdk": "^1.2.16",
     "@scure/bip39": "^2.0.1",
+    "croner": "^8.0.0",
     "nostr-tools": "^2.23.3",
     "zod": "^4.3.6"
   },
