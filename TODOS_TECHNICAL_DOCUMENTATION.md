@@ -16,17 +16,28 @@ calls.
 
 ```sql
 CREATE TABLE IF NOT EXISTS todos (
-  id          TEXT    PRIMARY KEY,
-  parent_id   TEXT    REFERENCES todos(id) ON DELETE CASCADE,
-  todo        TEXT    NOT NULL,
-  status      TEXT    NOT NULL DEFAULT 'pending',  -- pending | in_progress | done | cancelled
-  priority    TEXT,                                -- low | medium | high | NULL
-  sort_order  INTEGER,
+  id        INTEGER PRIMARY KEY,  -- autoincrement, starts at 1
+  parent_id INTEGER REFERENCES todos(id) ON DELETE CASCADE,
+  todo      TEXT    NOT NULL,
+  status    TEXT    NOT NULL DEFAULT 'pending',  -- pending | in_progress | done | cancelled
+  priority  TEXT,                                -- low | medium | high | NULL
+  sort_order INTEGER,
   description TEXT,
-  tags        TEXT,                                -- JSON array e.g. '["work","personal"]'
-  source      TEXT,                                -- dm | local | task
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER,
+  tags      TEXT,                                -- JSON array e.g. '["work","personal"]'
+  source    TEXT,                                -- dm | local | task
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER,
+  id        INTEGER PRIMARY KEY,  -- autoincrement, starts at 1
+  parent_id INTEGER REFERENCES todos(id) ON DELETE CASCADE,
+  todo      TEXT    NOT NULL,
+  status    TEXT    NOT NULL DEFAULT 'pending',  -- pending | in_progress | done | cancelled
+  priority  TEXT,                                -- low | medium | high | NULL
+  sort_order INTEGER,
+  description TEXT,
+  tags      TEXT,                                -- JSON array e.g. '["work","personal"]'
+  source    TEXT,                                -- dm | local | task
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER,
   completed_at INTEGER
 );
 
@@ -36,7 +47,9 @@ CREATE INDEX IF NOT EXISTS idx_todos_parent_sort ON todos(parent_id, sort_order)
 
 Add these two `CREATE INDEX` calls after the table. SQLite enforces the
 `REFERENCES todos(id) ON DELETE CASCADE` only when `PRAGMA foreign_keys = ON`
-is set per connection — add that to `openSeenDb()`:
+is set per connection — add that to `openSeenDb()`.
+
+**Sequential IDs:** `INTEGER PRIMARY KEY` in SQLite auto-increments from 1; you do not pass `id` in `INSERT` and SQLite fills it. IDs are sequential per table (e.g. 1, 2, 3), so users can type `!todo done 3` instead of a hex id. One caveat: if you delete a row, that integer is not reused (SQLite default), so you may see gaps (e.g. 1, 2, 4). For a todo list this is fine; strict no-gaps sequencing would require application-level logic.
 
 ```typescript
 db.run('PRAGMA foreign_keys = ON');
@@ -57,8 +70,8 @@ export type TodoStatus = 'pending' | 'in_progress' | 'done' | 'cancelled';
 export type TodoPriority = 'low' | 'medium' | 'high';
 
 export type Todo = {
-  id: string;
-  parent_id: string | null;
+  id: number;
+  parent_id: number | null;
   todo: string;
   status: TodoStatus;
   priority: TodoPriority | null;
@@ -79,7 +92,7 @@ export const TodoPrioritySchema = z.enum(['low', 'medium', 'high']);
 
 export const CreateTodoInputSchema = z.object({
   todo: z.string().min(1).describe('Short title or one-line description of the todo'),
-  parent_id: z.string().nullable().describe(
+  parent_id: z.number().nullable().describe(
     'ID of the parent todo. NULL for top-level. Call list_todos first to resolve a name to an ID.'
   ),
   priority: TodoPrioritySchema.nullable().describe('Optional priority: low, medium, or high'),
@@ -90,7 +103,7 @@ export const CreateTodoInputSchema = z.object({
 export type CreateTodoInput = z.infer<typeof CreateTodoInputSchema>;
 
 export const UpdateTodoInputSchema = z.object({
-  id: z.string().describe('ID of the todo to update'),
+  id: z.number().describe('ID of the todo to update'),
   todo: z.string().min(1).optional().describe('New title'),
   status: TodoStatusSchema.optional().describe('New status'),
   priority: TodoPrioritySchema.nullable().optional().describe('New priority'),
@@ -110,7 +123,6 @@ recursive tree-listing query.
 
 ```typescript
 // src/todos/db.ts
-import { randomBytes } from 'crypto';
 import type { SeenDb } from '../db';
 import type { Todo, CreateTodoInput, UpdateTodoInput, TodoStatus } from './types';
 
@@ -118,14 +130,10 @@ import type { Todo, CreateTodoInput, UpdateTodoInput, TodoStatus } from './types
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function generateTodoId(): string {
-  return randomBytes(3).toString('hex'); // 6-char hex, short and readable
-}
-
 function rowToTodo(row: Record<string, unknown>): Todo {
   return {
-    id: String(row.id),
-    parent_id: row.parent_id != null ? String(row.parent_id) : null,
+    id: Number(row.id),
+    parent_id: row.parent_id != null ? Number(row.parent_id) : null,
     todo: String(row.todo),
     status: String(row.status) as TodoStatus,
     priority: row.priority != null ? String(row.priority) as Todo['priority'] : null,
@@ -144,18 +152,12 @@ function rowToTodo(row: Record<string, unknown>): Todo {
 // ---------------------------------------------------------------------------
 
 export function createTodo(db: SeenDb, input: CreateTodoInput, source?: string): Todo {
-  let id = generateTodoId();
-  while (db.prepare('SELECT 1 FROM todos WHERE id = ?').get(id)) {
-    id = generateTodoId();
-  }
-
   const now = Date.now();
 
-  db.run(
-    `INSERT INTO todos (id, parent_id, todo, status, priority, description, tags, source, created_at)
-     VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+  const info = db.run(
+    `INSERT INTO todos (parent_id, todo, status, priority, description, tags, source, created_at)
+     VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)`,
     [
-      id,
       input.parent_id ?? null,
       input.todo,
       input.priority ?? null,
@@ -166,10 +168,11 @@ export function createTodo(db: SeenDb, input: CreateTodoInput, source?: string):
     ],
   );
 
+  const id = Number(info.lastInsertRowid); // bigint in bun:sqlite
   return getTodo(db, id)!;
 }
 
-export function getTodo(db: SeenDb, id: string): Todo | null {
+export function getTodo(db: SeenDb, id: number): Todo | null {
   const row = db.prepare('SELECT * FROM todos WHERE id = ?').get(id) as
     | Record<string, unknown>
     | undefined;
@@ -204,7 +207,7 @@ export function listTopLevelTodos(db: SeenDb): Todo[] {
   return rows.map(rowToTodo);
 }
 
-export function listChildTodos(db: SeenDb, parentId: string): Todo[] {
+export function listChildTodos(db: SeenDb, parentId: number): Todo[] {
   const rows = db
     .prepare(
       `SELECT * FROM todos WHERE parent_id = ? ORDER BY sort_order, created_at`,
@@ -248,7 +251,7 @@ export function updateTodo(db: SeenDb, input: UpdateTodoInput): Todo | null {
   return getTodo(db, input.id);
 }
 
-export function doneTodo(db: SeenDb, id: string, cascade = true): boolean {
+export function doneTodo(db: SeenDb, id: number, cascade = true): boolean {
   const todo = getTodo(db, id);
   if (!todo) return false;
 
@@ -276,7 +279,7 @@ export function doneTodo(db: SeenDb, id: string, cascade = true): boolean {
   return true;
 }
 
-export function deleteTodo(db: SeenDb, id: string): boolean {
+export function deleteTodo(db: SeenDb, id: number): boolean {
   // CASCADE on the FK handles descendants automatically (requires PRAGMA foreign_keys = ON)
   const info = db.prepare('DELETE FROM todos WHERE id = ?').run(id);
   return info.changes > 0;
@@ -298,8 +301,8 @@ const STATUS_ICON: Record<string, string> = {
   cancelled:   '[-]',
 };
 
-function buildChildMap(todos: Todo[]): Map<string | null, Todo[]> {
-  const map = new Map<string | null, Todo[]>();
+function buildChildMap(todos: Todo[]): Map<number | null, Todo[]> {
+  const map = new Map<number | null, Todo[]>();
   for (const t of todos) {
     const key = t.parent_id ?? null;
     if (!map.has(key)) map.set(key, []);
@@ -314,7 +317,7 @@ export function formatTodoTree(todos: Todo[]): string {
   const childMap = buildChildMap(todos);
   const lines: string[] = [];
 
-  function render(parentId: string | null, prefix: string, indexPath: string) {
+  function render(parentId: number | null, prefix: string, indexPath: string) {
     const children = childMap.get(parentId) ?? [];
     children.forEach((t, i) => {
       const label = indexPath ? `${indexPath}.${i + 1}` : `${i + 1}`;
@@ -434,18 +437,20 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
   if (sub === 'add') {
     const underIdx = rest.findIndex((a) => a.toLowerCase() === 'under');
     let text: string;
-    let parentId: string | null = null;
+    let parentId: number | null = null;
 
     if (underIdx !== -1) {
       text = rest.slice(0, underIdx).join(' ').trim();
-      parentId = rest[underIdx + 1]?.trim() ?? null;
+      const raw = rest[underIdx + 1]?.trim();
+      parentId = raw ? parseInt(raw, 10) : null;
+      if (raw && Number.isNaN(parentId!)) return 'Invalid parent_id. Use a number (e.g. under 2).';
     } else {
       text = rest.join(' ').trim();
     }
 
     if (!text) return 'Usage: !todo add <text> [under <parent_id>]';
 
-    if (parentId && !getTodo(db, parentId)) {
+    if (parentId != null && !getTodo(db, parentId)) {
       return `Parent todo not found: ${parentId}`;
     }
 
@@ -486,8 +491,10 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
 
   // --- show ---
   if (sub === 'show') {
-    const id = rest[0]?.trim();
-    if (!id) return 'Usage: !todo show <id>';
+    const idRaw = rest[0]?.trim();
+    if (!idRaw) return 'Usage: !todo show <id>';
+    const id = parseInt(idRaw, 10);
+    if (Number.isNaN(id)) return 'Usage: !todo show <id> (id must be a number)';
     const todo = getTodo(db, id);
     if (!todo) return `Todo not found: ${id}`;
     return formatTodoDetail(todo);
@@ -495,17 +502,21 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
 
   // --- done ---
   if (sub === 'done') {
-    const id = rest[0]?.trim();
-    if (!id) return 'Usage: !todo done <id>';
+    const idRaw = rest[0]?.trim();
+    if (!idRaw) return 'Usage: !todo done <id>';
+    const id = parseInt(idRaw, 10);
+    if (Number.isNaN(id)) return 'Usage: !todo done <id> (id must be a number)';
     if (!doneTodo(db, id)) return `Todo not found: ${id}`;
     return `Todo ${id} marked done (and all descendants).`;
   }
 
   // --- priority ---
   if (sub === 'priority') {
-    const id = rest[0]?.trim();
+    const idRaw = rest[0]?.trim();
     const pri = rest[1]?.trim();
-    if (!id || !pri) return 'Usage: !todo priority <id> <low|medium|high>';
+    if (!idRaw || !pri) return 'Usage: !todo priority <id> <low|medium|high>';
+    const id = parseInt(idRaw, 10);
+    if (Number.isNaN(id)) return 'Usage: !todo priority <id> <low|medium|high> (id must be a number)';
     const parsed = CreateTodoInputSchema.shape.priority.safeParse(pri);
     if (!parsed.success) return 'Priority must be: low, medium, or high';
     const updated = updateTodo(db, { id, priority: parsed.data });
@@ -515,8 +526,10 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
 
   // --- delete ---
   if (sub === 'delete') {
-    const id = rest[0]?.trim();
-    if (!id) return 'Usage: !todo delete <id>';
+    const idRaw = rest[0]?.trim();
+    if (!idRaw) return 'Usage: !todo delete <id>';
+    const id = parseInt(idRaw, 10);
+    if (Number.isNaN(id)) return 'Usage: !todo delete <id> (id must be a number)';
     if (!deleteTodo(db, id)) return `Todo not found: ${id}`;
     return `Todo ${id} deleted (and all descendants).`;
   }
@@ -766,7 +779,7 @@ Bot sends to user:
   I'm going to create the following todo:
 
     todo      : write unit tests
-    parent    : a1b2c3
+    parent    : 2
     priority  : —
 
   Draft ID: d4e5
