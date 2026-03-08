@@ -445,3 +445,4 @@ Before running a package script, the agent should:
 With this setup, commands such as `npm run build` and `npm run lint` are available to the agent without extra per-command approvals, while still keeping execution bounded to your script definitions.
 
 Full codebase context and extension points are in **.cursor/rules/dm-bot-context.mdc** in this directory.
+test
