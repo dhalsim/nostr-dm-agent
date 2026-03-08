@@ -475,6 +475,7 @@ export async function handleTask({
     const escapeCell = (s: string): string => s.replace(/\|/g, '\\|');
     const header = '| ID | En | Name | Schedule | Next Run | Context |';
     const sep = '| --- | --- | --- | --- | --- | --- |';
+
     const rows = tasks.map(
       (t) =>
         `| ${escapeCell(t.id)} | ${t.enabled ? '✓' : '—'} | ${escapeCell(t.name)} | ${escapeCell(scheduleCol(t))} | ${escapeCell(formatNextRun(t.next_run_at))} | ${escapeCell(formatContextLine(t))} |`,
