@@ -241,33 +241,37 @@ export async function handleBangCommand({
     }
 
     case 'workspace': {
-      return handleError(
-        async () =>
-          await handleWorkspace({
-            db: seenDb,
-            backend,
-            workspaceRoot,
-            dmBotRoot,
-            agentEnv,
-            selected: args[0],
-          }),
-        'Failed to switch workspace',
-      );
+      return handleError(async () => {
+        const out = await handleWorkspace({
+          db: seenDb,
+          backend,
+          workspaceRoot,
+          dmBotRoot,
+          agentEnv,
+          selected: args[0],
+        });
+
+        const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+
+        return `${out}\n\n${status}`;
+      }, 'Failed to switch workspace');
     }
 
     case 'backend': {
-      return handleError(
-        async () =>
-          await handleBackend({
-            db: seenDb,
-            workspaceRoot,
-            dmBotRoot,
-            agentEnv,
-            attachUrl,
-            selected: args[0],
-          }),
-        'Failed to switch backend',
-      );
+      return handleError(async () => {
+        const out = await handleBackend({
+          db: seenDb,
+          workspaceRoot,
+          dmBotRoot,
+          agentEnv,
+          attachUrl,
+          selected: args[0],
+        });
+
+        const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+
+        return `${out}\n\n${status}`;
+      }, 'Failed to switch backend');
     }
 
     case 'mode':
@@ -276,7 +280,13 @@ export async function handleBangCommand({
     case 'agent': {
       const modeArg = cmd === 'mode' ? (args[0] ?? '').toLowerCase() : cmd;
 
-      return handleError(async () => handleMode({ db: seenDb, modeArg }), 'Failed to set mode');
+      return handleError(async () => {
+        const out = handleMode({ db: seenDb, modeArg });
+
+        const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+
+        return `${out}\n\n${status}`;
+      }, 'Failed to set mode');
     }
 
     case 'lint': {
@@ -293,10 +303,13 @@ export async function handleBangCommand({
     }
 
     case 'model': {
-      return handleError(
-        async () => handleModel({ db: seenDb, selected: args[0] }),
-        'Failed to set model',
-      );
+      return handleError(async () => {
+        const out = handleModel({ db: seenDb, selected: args[0] });
+
+        const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+
+        return `${out}\n\n${status}`;
+      }, 'Failed to set model');
     }
 
     case 'models': {
@@ -449,8 +462,11 @@ export async function handleBangCommand({
       switch (subcmd) {
         case 'set': {
           const name = args[1]?.toLowerCase();
+          const out = handleProviderSet({ seenDb, name });
 
-          return handleProviderSet({ seenDb, name });
+          const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+
+          return `${out}\n\n${status}`;
         }
 
         case 'deposit': {
@@ -653,9 +669,17 @@ export async function handleBangCommand({
             : resolve(workspaceRoot, filePathArg);
 
         return handleError(async () => {
-          await fileUpload({ filePath: filePath(), recipientNpub, config });
+          const result = await fileUpload({
+            filePath: filePath(),
+            recipientNpub,
+            config,
+          });
 
-          return '';
+          if (result.skipped) {
+            return `File unchanged (hash matches remote): ${result.filename}. Nothing to upload.\nnaddr: ${result.naddr}`;
+          }
+
+          return `Upload complete: ${result.filename}\nnaddr: ${result.naddr}`;
         }, 'File upload failed');
       }
 
@@ -670,9 +694,13 @@ export async function handleBangCommand({
           const workspace = getWorkspaceTarget(seenDb);
           const filePath = workspace === 'bot' ? dmBotRoot : workspaceRoot;
 
-          await fileDownload({ naddr, config, filePath });
+          const result = await fileDownload({ naddr, config, filePath });
 
-          return '';
+          if (result.skipped) {
+            return `File already up to date: ${result.filename}. Nothing to download.`;
+          }
+
+          return `Download complete: ${result.filename} → ${result.path}`;
         }, 'File download failed');
       }
 

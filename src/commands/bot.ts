@@ -143,8 +143,13 @@ export async function handleWorkspace({
 }: HandleWorkspaceProps): Promise<string> {
   const usageOpts = WorkspaceTargetSchema.options.join('|');
 
+  const currentTarget = getWorkspaceTarget(db);
+  const pwdFor = (target: WorkspaceTarget) => (target === 'bot' ? dmBotRoot : workspaceRoot);
+
   if (!selected) {
-    return `Workspace: ${getWorkspaceTarget(db)}.\nUsage: !workspace [${usageOpts}]`;
+    const cwd = pwdFor(currentTarget);
+
+    return `Workspace: ${currentTarget}. PWD: ${cwd}\nUsage: !workspace [${usageOpts}]`;
   }
 
   const parsed = WorkspaceTargetSchema.safeParse(selected);
@@ -154,10 +159,12 @@ export async function handleWorkspace({
   }
 
   const nextTarget = parsed.data;
-  const prevTarget = getWorkspaceTarget(db);
+  const prevTarget = currentTarget;
 
   if (nextTarget === prevTarget) {
-    return `Workspace unchanged: ${nextTarget}.`;
+    const cwd = pwdFor(nextTarget);
+
+    return `Workspace unchanged: ${nextTarget}. PWD: ${cwd}`;
   }
 
   setWorkspaceTarget(db, nextTarget);

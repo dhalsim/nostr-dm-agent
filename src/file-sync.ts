@@ -100,11 +100,22 @@ type FileUploadProps = {
   config: BotConfig;
 };
 
+export type FileUploadResult = { filename: string; naddr: string; skipped: boolean };
+
+function buildFileNaddr(pubkey: string, filename: string, relays: string[]): string {
+  return nip19.naddrEncode({
+    kind: FILE_KIND,
+    pubkey,
+    identifier: filename,
+    relays: relays.slice(0, 3),
+  });
+}
+
 export async function fileUpload({
   filePath,
   recipientNpub,
   config,
-}: FileUploadProps): Promise<void> {
+}: FileUploadProps): Promise<FileUploadResult> {
   // 1. Decode recipient npub
   const decoded = nip19.decode(recipientNpub);
 
@@ -144,7 +155,9 @@ export async function fileUpload({
         console.log(`[file-sync] File unchanged (hash matches remote). Nothing to upload.`);
         pool.close(relays);
 
-        return;
+        const naddr = buildFileNaddr(botPubkey, filename, relays);
+
+        return { filename, naddr, skipped: true };
       }
 
       if (remoteHash) {
@@ -208,16 +221,11 @@ export async function fileUpload({
   await Promise.allSettled(pool.publish(relays, event));
   pool.close(relays);
 
-  // 13-14. Encode naddr and print
-  const naddr = nip19.naddrEncode({
-    kind: FILE_KIND,
-    pubkey: botPubkey,
-    identifier: filename,
-    relays: relays.slice(0, 3),
-  });
-
+  const naddr = buildFileNaddr(botPubkey, filename, relays);
   console.log(`[file-sync] Upload complete: ${filename}`);
   console.log(`naddr: ${naddr}`);
+
+  return { filename, naddr, skipped: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -230,7 +238,9 @@ type FileDownloadProps = {
   filePath: string;
 };
 
-export async function fileDownload(opts: FileDownloadProps): Promise<void> {
+export type FileDownloadResult = { filename: string; path: string; skipped: boolean };
+
+export async function fileDownload(opts: FileDownloadProps): Promise<FileDownloadResult> {
   const { naddr, config, filePath } = opts;
 
   // 1. Decode naddr
@@ -320,7 +330,7 @@ export async function fileDownload(opts: FileDownloadProps): Promise<void> {
   }
 
   if (skipWrite) {
-    return;
+    return { filename, path: outputPath, skipped: true };
   }
 
   // 5. Download blob
@@ -352,4 +362,6 @@ export async function fileDownload(opts: FileDownloadProps): Promise<void> {
   await writeFile(targetPath, fileBytes);
 
   console.log(`[file-sync] Download complete: ${targetPath}`);
+
+  return { filename, path: targetPath, skipped: false };
 }

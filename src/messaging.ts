@@ -21,6 +21,8 @@ export const PROFILE_RELAYS = new Set([
   'wss://relay.nostr.band',
 ]);
 
+// wss://purplepag.es wss://relay.nos.social wss://user.kindpag.es wss://relay.nostr.band
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -82,14 +84,16 @@ export async function getMasterDmRelays(
   masterPubkey: string,
 ): Promise<string[]> {
   try {
-    const event = await pool.get(Array.from(PROFILE_RELAYS).concat(botRelayUrl), {
+    const relays = Array.from(PROFILE_RELAYS).concat(botRelayUrl);
+
+    const event = await pool.get(relays, {
       kinds: [10050],
       authors: [masterPubkey],
       limit: 1,
     });
 
     if (event) {
-      const urls = event.tags.filter((t) => t[0] === 'r' && t[1]).map((t) => ensureWss(t[1]));
+      const urls = event.tags.filter((t) => t[0] === 'relay' && t[1]).map((t) => ensureWss(t[1]));
 
       if (urls.length > 0) {
         debug('Master kind:10050 relays:', urls);
