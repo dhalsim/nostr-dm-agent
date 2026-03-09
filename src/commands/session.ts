@@ -1,6 +1,6 @@
 import type { AgentBackend } from '../backends/types';
 import type { SeenDb } from '../db';
-import { getDefaultMode, getState, getWorkspaceTarget, STATE_CURRENT_SESSION } from '../db';
+import { getState, getWorkspaceTarget, STATE_CURRENT_SESSION } from '../db';
 import { createNewSession, getLatestSession, setCurrentSession } from '../session';
 
 export async function handleNewSession({
@@ -18,7 +18,6 @@ export async function handleNewSession({
 }): Promise<string> {
   const workspace = getWorkspaceTarget(db);
   const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
-  const mode = getDefaultMode(db);
 
   const id = await createNewSession({
     db,
@@ -27,7 +26,7 @@ export async function handleNewSession({
     env: agentEnv,
   });
 
-  return `New session: ${id}\nBackend: ${backend.name}\nMode: ${mode}\nWorkspace: ${workspace}.`;
+  return `New session: ${id}`;
 }
 
 export function handleResumeLastSession({

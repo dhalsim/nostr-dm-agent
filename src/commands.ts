@@ -124,11 +124,19 @@ export async function handleBangCommand({
 
   switch (cmd) {
     case 'new-session': {
-      return handleError(
-        async () =>
-          await handleNewSession({ db: seenDb, backend, workspaceRoot, dmBotRoot, agentEnv }),
-        'Failed to create new session',
-      );
+      return handleError(async () => {
+        const out = await handleNewSession({
+          db: seenDb,
+          backend,
+          workspaceRoot,
+          dmBotRoot,
+          agentEnv,
+        });
+
+        const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+
+        return `${out}\n\n${status}`;
+      }, 'Failed to create new session');
     }
 
     case 'resume-last-session': {
