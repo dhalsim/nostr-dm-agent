@@ -173,7 +173,7 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
 
     return getTask(db, Number(info.lastInsertRowid))!;
   } else {
-    log.info(`Creating one-time task: ${input.run_at.toISOString()}`);
+    log.info(`Creating one-time task: ${input.run_at}`);
     log.info(`Now: ${new Date(now).toISOString()}`);
     log.info(`Timezone of the machine: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
 
