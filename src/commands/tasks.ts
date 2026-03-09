@@ -3,6 +3,8 @@
 // ---------------------------------------------------------------------------
 import { randomBytes } from 'crypto';
 
+import { toJSONSchema } from 'zod';
+
 import type { AgentBackend } from '../backends/types';
 import { getAgentBackend, getModelOverride, getProviderName, getRoutstrModel } from '../db';
 import type { SeenDb } from '../db';
@@ -133,6 +135,9 @@ function getCurrentTimeContext(): { nowUtc: string; timeZone: string; nowLocal: 
   };
 }
 
+/** JSON Schema for CreateTaskInput (discriminated union cron | one-time). Used in create/revise prompts. */
+const CREATE_TASK_JSON_SCHEMA = JSON.stringify(toJSONSchema(CreateTaskInputSchema), null, 2);
+
 const CREATE_WITH_SYSTEM_PROMPT = (
   userPrompt: string,
   defaults: { backend: string; provider: string; model: string; mode: string },
@@ -161,7 +166,10 @@ B) One-time: include execution_type: "one-time", run_at (ISO 8601 date-time stri
    run_at: the instant in UTC as an ISO 8601 string (must be in the future). Compute from current date/time above; e.g. "in 10 minutes" = now + 10 min in UTC, "tomorrow at 9am" = 9am in user's timezone converted to UTC.
    schedule_description: human-readable description of when it runs / of run_at (e.g. "tomorrow at 9am", "in 10 minutes"). Always include this.
 
-Common keys for both: name (string), prompt (string), schedule_description (string, required), backend (cursor|opencode|opencode-sdk), provider (local|routstr), model (string), mode (ask|plan|agent|free), budget_sats (number|null), instructions (string|null).`;
+Expected JSON structure (must match this schema):
+\`\`\`json
+${CREATE_TASK_JSON_SCHEMA}
+\`\`\``;
 };
 
 const CREATE_WITH_REVISE_PROMPT = (entry: CreateWithEntry, corrections: string) => {
@@ -179,7 +187,12 @@ Use this when the correction involves time (e.g. "30 minutes later", "tomorrow a
 
 Current parameters (JSON): ${JSON.stringify(entry.input)}
 
-Output ONLY a single JSON object with the same structure (execution_type, schedule_description, and either schedule+maxRuns for cron or run_at for one-time, plus name, prompt, backend, provider, model, mode, budget_sats, instructions). Always include schedule_description: a short human-readable description of when the task runs. Apply the user's correction. No markdown, no code fence.`;
+Output ONLY a single JSON object matching this schema. Apply the user's correction. No markdown, no code fence.
+
+Schema:
+\`\`\`json
+${CREATE_TASK_JSON_SCHEMA}
+\`\`\``;
 };
 
 function formatCreateWithPreview(id: string, input: CreateTaskInput): string {
@@ -204,7 +217,7 @@ function formatCreateWithPreview(id: string, input: CreateTaskInput): string {
           `schedule    : ${input.schedule}`,
           `maxRuns     : ${input.maxRuns ?? '—'}`,
         ]
-      : [`execution_type: one-time`, `run_at      : ${input.run_at.toISOString()}`];
+      : [`execution_type: one-time`, `run_at      : ${input.run_at}`];
 
   const lines = [...execution, ...common];
 
@@ -357,9 +370,9 @@ export async function handleTask({
   // -------------------------------------------------------------------------
   if (sub === 'drafts') {
     const lines = [...createWithStore.entries()].map(([id, e]) => {
-      const s = e.input.schedule_description;
+      const s = e.input.execution_type === 'cron' ? e.input.schedule : e.input.run_at;
 
-      return `${id} | ${e.input.name} | ${s}`;
+      return `${id} | ${e.input.name} | ${s} | ${e.input.schedule_description}`;
     });
 
     if (lines.length === 0) {

@@ -12,7 +12,7 @@ import type { CreateTodoInput } from '../todos/types';
 // Preview formatting
 // ---------------------------------------------------------------------------
 
-function formatDraftPreview(id: string, input: CreateTodoInput): string {
+function formatDraftPreview(id: number, input: CreateTodoInput): string {
   const lines = [
     `todo       : ${input.todo}`,
     `parent_id  : ${input.parent_id ?? '(top-level)'}`,
@@ -51,8 +51,8 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
       '!todo priority <id> <low|medium|high>',
       '!todo update <id> <field> <value>  — update a field (todo, status, priority, description)',
       '!todo delete <id>                  — delete todo and all descendants',
-      '!todo accept <draft_id>            — confirm a draft and create it',
-      '!todo revise <draft_id> <text>     — revise a pending draft',
+      '!todo accept <draft_id>            — confirm a draft and execute it',
+      '!todo revise <draft_id> <text>     — revise a pending create draft',
       '!todo decline <draft_id>           — discard a draft',
       '!todo drafts                       — list pending drafts',
       '!todo help                         — this message',
@@ -300,37 +300,78 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
       return 'No pending drafts.';
     }
 
-    const lines = [...draftStore.entries()].map(
-      ([id, e]) => `${id} | ${e.input.todo} | parent: ${e.input.parent_id ?? 'top-level'}`,
-    );
+    const lines = [...draftStore.entries()].map(([id, e]) => {
+      switch (e.kind) {
+        case 'create':
+          return `${id} | create | ${e.input.todo} | parent: ${e.input.parent_id ?? 'top-level'}`;
+        case 'update':
+          return `${id} | update | todo #${e.input.id}${e.input.todo ? ` → "${e.input.todo}"` : ''}`;
+        case 'delete':
+          return `${id} | delete | todo #${e.input.id}`;
+      }
+    });
 
     return `Pending drafts:\n${lines.join('\n')}`;
   }
 
-  const draftId = rest[0]?.trim();
+  const draftIdRaw = rest[0]?.trim();
+
+  const draftId =
+    draftIdRaw !== undefined && draftIdRaw !== '' ? parseInt(draftIdRaw, 10) : undefined;
+
+  const draftIdInvalid =
+    draftIdRaw !== undefined &&
+    draftIdRaw !== '' &&
+    (draftId === undefined || Number.isNaN(draftId));
 
   // --- accept ---
   if (sub === 'accept') {
-    if (!draftId) {
-      return 'Usage: !todo accept <draft_id>';
+    if (!draftIdRaw || draftIdInvalid) {
+      return 'Usage: !todo accept <draft_id> (draft_id must be a number)';
     }
 
-    const entry = draftStore.get(draftId);
+    const entry = draftStore.get(draftId!);
 
     if (!entry) {
       return `Draft not found: ${draftId}`;
     }
 
-    const todo = createTodo(db, entry.input, 'dm');
-    draftStore.delete(draftId);
+    draftStore.delete(draftId!);
 
-    return `Todo created: ${todo.id}\n${formatTodoDetail(todo)}`;
+    switch (entry.kind) {
+      case 'create': {
+        const todo = createTodo(db, entry.input, 'dm');
+
+        return `Todo created: ${todo.id}\n${formatTodoDetail(todo)}`;
+      }
+
+      case 'update': {
+        const updated = updateTodo(db, entry.input);
+
+        if (!updated) {
+          return `Todo not found: ${entry.input.id}`;
+        }
+
+        return `Todo updated.\n${formatTodoDetail(updated)}`;
+      }
+
+      case 'delete': {
+        const todo = getTodo(db, entry.input.id);
+        const label = todo ? `"${todo.todo}"` : `#${entry.input.id}`;
+
+        if (!deleteTodo(db, entry.input.id)) {
+          return `Todo not found: ${entry.input.id}`;
+        }
+
+        return `Todo ${label} (id: ${entry.input.id}) deleted (and all descendants).`;
+      }
+    }
   }
 
   // --- revise ---
   if (sub === 'revise') {
-    if (!draftId) {
-      return 'Usage: !todo revise <draft_id> <corrections>';
+    if (!draftIdRaw || draftIdInvalid) {
+      return 'Usage: !todo revise <draft_id> <corrections> (draft_id must be a number)';
     }
 
     const corrections = rest.slice(1).join(' ').trim();
@@ -339,10 +380,14 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
       return 'Usage: !todo revise <draft_id> <corrections>';
     }
 
-    const entry = draftStore.get(draftId);
+    const entry = draftStore.get(draftId!);
 
     if (!entry) {
       return `Draft not found: ${draftId}`;
+    }
+
+    if (entry.kind !== 'create') {
+      return `Draft ${draftId} is a ${entry.kind} draft. Use !todo decline ${draftId} and re-run your request with the correction applied.`;
     }
 
     return [
@@ -355,15 +400,15 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
 
   // --- decline ---
   if (sub === 'decline') {
-    if (!draftId) {
-      return 'Usage: !todo decline <draft_id>';
+    if (!draftIdRaw || draftIdInvalid) {
+      return 'Usage: !todo decline <draft_id> (draft_id must be a number)';
     }
 
-    if (!draftStore.has(draftId)) {
+    if (!draftStore.has(draftId!)) {
       return `Draft not found: ${draftId}`;
     }
 
-    draftStore.delete(draftId);
+    draftStore.delete(draftId!);
 
     return `Draft ${draftId} discarded.`;
   }

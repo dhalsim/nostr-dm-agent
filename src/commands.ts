@@ -39,6 +39,7 @@ import {
   handleShowLastMessages,
 } from './commands/session';
 import { handleTask } from './commands/tasks';
+import { handleTodoAi } from './commands/todo-ai';
 import { handleTodo } from './commands/todos';
 import {
   handleWalletBalance,
@@ -209,6 +210,20 @@ export async function handleBangCommand({
 
     case 'todo': {
       return handleError(async () => handleTodo({ args, db: seenDb }), 'Todo command failed');
+    }
+
+    case 'todo-ai': {
+      return handleError(
+        async () =>
+          handleTodoAi({
+            args,
+            db: seenDb,
+            backend,
+            workspaceRoot,
+            agentEnv,
+          }),
+        'Todo AI failed',
+      );
     }
 
     case 'local': {

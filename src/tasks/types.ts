@@ -60,7 +60,7 @@ export type Schedule = TaskInput & {
 
 export type OneTime = TaskInput & {
   execution_type: 'one-time';
-  run_at: Date;
+  run_at: string;
 };
 
 export type CreateTaskInput = Schedule | OneTime;
@@ -85,7 +85,7 @@ export const ScheduleSchema = TaskInputSchema.extend({
 
 export const OneTimeSchema = TaskInputSchema.extend({
   execution_type: z.literal('one-time'),
-  run_at: z.coerce.date(),
+  run_at: z.iso.datetime().describe('ISO 8601 datetime string in UTC e.g. 2025-12-01T09:00:00Z'),
 });
 
 export const CreateTaskInputSchema = z.discriminatedUnion('execution_type', [

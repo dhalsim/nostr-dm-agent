@@ -24,6 +24,7 @@ export type Todo = {
 export const TodoStatusSchema = z.enum(['pending', 'in_progress', 'done', 'cancelled']);
 export const TodoPrioritySchema = z.enum(['low', 'medium', 'high']);
 
+/** Any change in this schema MUST be reflected in the tools in .opencode/tools/todos.ts */
 export const CreateTodoInputSchema = z.object({
   todo: z.string().min(1).describe('Short title or one-line description of the todo'),
   parent_id: z
@@ -39,6 +40,7 @@ export const CreateTodoInputSchema = z.object({
 
 export type CreateTodoInput = z.infer<typeof CreateTodoInputSchema>;
 
+/** Any change in this schema MUST be reflected in the tools in .opencode/tools/todos.ts */
 export const UpdateTodoInputSchema = z.object({
   id: z.number().describe('ID of the todo to update'),
   todo: z.string().min(1).optional().describe('New title'),
@@ -49,3 +51,27 @@ export const UpdateTodoInputSchema = z.object({
 });
 
 export type UpdateTodoInput = z.infer<typeof UpdateTodoInputSchema>;
+
+type TodoListCall = {
+  type: 'list';
+};
+
+type TodoCreateCall = {
+  type: 'create';
+  input: CreateTodoInput;
+};
+
+type TodoUpdateCall = {
+  type: 'update';
+  input: UpdateTodoInput;
+};
+
+type TodoDeleteCall = {
+  type: 'delete';
+  input: {
+    id: number;
+    cascade?: boolean;
+  };
+};
+
+export type TodoToolCall = TodoListCall | TodoCreateCall | TodoUpdateCall | TodoDeleteCall;

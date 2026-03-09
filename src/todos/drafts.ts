@@ -1,18 +1,40 @@
 // ---------------------------------------------------------------------------
 // todos/drafts.ts — Shared in-memory draft store for the todo NL flow
 // ---------------------------------------------------------------------------
-import { randomBytes } from 'crypto';
+import type { CreateTodoInput, UpdateTodoInput } from './types';
 
-import type { CreateTodoInput } from './types';
+// ---------------------------------------------------------------------------
+// Draft kind union — one discriminated variant per mutating operation
+// ---------------------------------------------------------------------------
 
-export type TodoDraftEntry = {
+export type CreateDraftEntry = {
+  kind: 'create';
   input: CreateTodoInput;
   originalPrompt: string;
   history: string[];
 };
 
-export const draftStore = new Map<string, TodoDraftEntry>();
+export type UpdateDraftEntry = {
+  kind: 'update';
+  input: UpdateTodoInput;
+  originalPrompt: string;
+  history: string[];
+};
 
-export function generateDraftId(): string {
-  return randomBytes(2).toString('hex');
+export type DeleteDraftEntry = {
+  kind: 'delete';
+  input: { id: number };
+  originalPrompt: string;
+  history: string[];
+};
+
+export type TodoDraftEntry = CreateDraftEntry | UpdateDraftEntry | DeleteDraftEntry;
+
+export const draftStore = new Map<number, TodoDraftEntry>();
+
+let nextDraftId = 1;
+
+/** Sequential draft ID (auto-increment, like todo ids). */
+export function getNextDraftId(): number {
+  return nextDraftId++;
 }
