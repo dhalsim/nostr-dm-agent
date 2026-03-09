@@ -87,6 +87,7 @@ function rowToTask(row: Record<string, unknown>): Task {
     id: Number(row.id),
     name: String(row.name),
     schedule: String(row.schedule),
+    schedule_description: String(row.schedule_description ?? ''),
     prompt: String(row.prompt),
     enabled: Number(row.enabled),
     created_at: Number(row.created_at),
@@ -151,11 +152,12 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
     }
 
     const info = db.run(
-      `INSERT INTO tasks (name, schedule, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
-       VALUES (?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'cron', NULL, ?)`,
+      `INSERT INTO tasks (id, name, schedule, schedule_description, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
+       VALUES (?, ?, ?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'cron', NULL, ?)`,
       [
         input.name,
         validated.cron,
+        input.schedule_description,
         input.prompt,
         now,
         next_run_at,
@@ -182,11 +184,12 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
     }
 
     const info = db.run(
-      `INSERT INTO tasks (name, schedule, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
-       VALUES (?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'one-time', ?, NULL)`,
+      `INSERT INTO tasks (id, name, schedule, schedule_description, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
+       VALUES (?, ?, ?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'one-time', ?, NULL)`,
       [
         input.name,
         'once',
+        input.schedule_description,
         input.prompt,
         now,
         runAtMs,

@@ -146,20 +146,22 @@ User request: "${userPrompt}"
 Current date and time (UTC): ${tc.nowUtc}
 Current date and time (user's timezone): ${tc.nowLocal}
 User's timezone: ${tc.timeZone}
-Use the current date/time above as the reference for relative times ("in 10 minutes", "tomorrow at 9am"). For one-time tasks, output run_at in UTC (ISO 8601). Interpret wall-clock times (e.g. "9am") in the user's timezone.
+Use the current date/time above as the reference for relative times ("in 10 minutes", "tomorrow at 9am"). For one-time tasks, output run_at as an ISO 8601 date-time string in UTC (the instant in UTC, as a string; must be in the future). Interpret wall-clock times (e.g. "9am") in the user's timezone.
 
 Current bot defaults (use these if the user does not specify): backend=${defaults.backend}, provider=${defaults.provider}, model=${defaults.model || '(empty = default)'}, mode=${defaults.mode}.
 
 Output ONLY a single JSON object (no markdown, no code fence). You must choose exactly one of:
 
-A) Recurring (cron): include execution_type: "cron", schedule (cron expression), and optionally maxRuns (number | null).
+A) Recurring (cron): include execution_type: "cron", schedule (cron expression), schedule_description, and optionally maxRuns (number | null).
    schedule: valid 5-field cron, e.g. "0 7 * * *" (daily 07:00), "0 8 * * 1" (Mondays 08:00), "*/30 * * * *" (every 30 min).
+   schedule_description: a short human-readable description of when it runs (e.g. "every Monday morning at 9am", "daily at 7am", "every 30 minutes"). Always include this.
    maxRuns: limit how many times it runs; infer from context (e.g. "every hour for the rest of the day", "three times a day for a week"). Use null if no limit.
 
-B) One-time: include execution_type: "one-time" and run_at (ISO 8601 date string in UTC, must be in the future).
-   run_at: compute from current date/time above; e.g. "in 10 minutes" = now + 10 min in UTC, "tomorrow at 9am" = 9am in user's timezone converted to UTC.
+B) One-time: include execution_type: "one-time", run_at (ISO 8601 date-time string in UTC), and schedule_description (human-readable description of run_at).
+   run_at: the instant in UTC as an ISO 8601 string (must be in the future). Compute from current date/time above; e.g. "in 10 minutes" = now + 10 min in UTC, "tomorrow at 9am" = 9am in user's timezone converted to UTC.
+   schedule_description: human-readable description of when it runs / of run_at (e.g. "tomorrow at 9am", "in 10 minutes"). Always include this.
 
-Common keys for both: name (string), prompt (string), backend (cursor|opencode|opencode-sdk), provider (local|routstr), model (string), mode (ask|plan|agent|free), budget_sats (number|null), instructions (string|null).`;
+Common keys for both: name (string), prompt (string), schedule_description (string, required), backend (cursor|opencode|opencode-sdk), provider (local|routstr), model (string), mode (ask|plan|agent|free), budget_sats (number|null), instructions (string|null).`;
 };
 
 const CREATE_WITH_REVISE_PROMPT = (entry: CreateWithEntry, corrections: string) => {
@@ -177,19 +179,22 @@ Use this when the correction involves time (e.g. "30 minutes later", "tomorrow a
 
 Current parameters (JSON): ${JSON.stringify(entry.input)}
 
-Output ONLY a single JSON object with the same structure (execution_type, and either schedule+maxRuns for cron or run_at for one-time, plus name, prompt, backend, provider, model, mode, budget_sats, instructions). Apply the user's correction. No markdown, no code fence.`;
+Output ONLY a single JSON object with the same structure (execution_type, schedule_description, and either schedule+maxRuns for cron or run_at for one-time, plus name, prompt, backend, provider, model, mode, budget_sats, instructions). Always include schedule_description: a short human-readable description of when the task runs. Apply the user's correction. No markdown, no code fence.`;
 };
 
 function formatCreateWithPreview(id: string, input: CreateTaskInput): string {
+  const w = 19;
+
   const common = [
-    `name        : ${input.name}`,
-    `prompt      : ${input.prompt}`,
-    `backend     : ${input.backend}`,
-    `provider    : ${input.provider}`,
-    `model       : ${input.model}`,
-    `mode        : ${input.mode}`,
-    `budget_sats : ${input.budget_sats ?? '—'}`,
-    `instructions: ${input.instructions ?? '—'}`,
+    `${'name'.padEnd(w)} : ${input.name}`,
+    `${'prompt'.padEnd(w)} : ${input.prompt}`,
+    `${'schedule_description'.padEnd(w)} : ${input.schedule_description}`,
+    `${'backend'.padEnd(w)} : ${input.backend}`,
+    `${'provider'.padEnd(w)} : ${input.provider}`,
+    `${'model'.padEnd(w)} : ${input.model}`,
+    `${'mode'.padEnd(w)} : ${input.mode}`,
+    `${'budget_sats'.padEnd(w)} : ${input.budget_sats ?? '—'}`,
+    `${'instructions'.padEnd(w)} : ${input.instructions ?? '—'}`,
   ];
 
   const execution =
@@ -352,7 +357,7 @@ export async function handleTask({
   // -------------------------------------------------------------------------
   if (sub === 'drafts') {
     const lines = [...createWithStore.entries()].map(([id, e]) => {
-      const s = e.input.execution_type === 'cron' ? e.input.schedule : e.input.run_at.toISOString();
+      const s = e.input.schedule_description;
 
       return `${id} | ${e.input.name} | ${s}`;
     });
@@ -387,7 +392,9 @@ export async function handleTask({
       const budgetLine =
         task.budget_sats != null ? `\nBudget: ${task.budget_sats} sats (auto-flow)` : '';
 
-      return `Task created: ${task.id}\nName: ${task.name}\nSchedule: ${task.schedule}\nNext run: ${formatNextRun(task.next_run_at)}${budgetLine}`;
+      const scheduleDisplay = task.schedule_description;
+
+      return `Task created: ${task.id}\nName: ${task.name}\nWhen: ${scheduleDisplay}\nNext run: ${formatNextRun(task.next_run_at)}${budgetLine}`;
     } catch (err) {
       return `Failed to create task: ${String(err)}`;
     }
@@ -463,13 +470,9 @@ export async function handleTask({
     }
 
     const scheduleCol = (t: Task): string => {
-      if (t.execution_type === 'one-time') {
-        return 'once';
-      }
+      const desc = t.schedule_description;
 
-      const s = t.schedule;
-
-      return t.max_runs != null ? `${s} (max ${t.max_runs})` : s;
+      return t.max_runs != null ? `${desc} (max ${t.max_runs})` : desc;
     };
 
     const escapeCell = (s: string): string => s.replace(/\|/g, '\\|');
@@ -511,11 +514,14 @@ export async function handleTask({
         ? `Schedule: ${task.schedule}${task.max_runs != null ? ` (max ${task.max_runs} runs)` : ''}`
         : `Run at: ${task.run_at != null ? formatNextRun(task.run_at) : '—'} (once)`;
 
+    const scheduleDescLine = `When: ${task.schedule_description}`;
+
     const lines = [
       `ID: ${task.id}`,
       `Name: ${task.name}`,
       `Type: ${task.execution_type}`,
       scheduleLine,
+      scheduleDescLine,
       `Prompt: ${task.prompt.slice(0, 80)}${task.prompt.length > 80 ? '…' : ''}`,
       `Enabled: ${task.enabled ? 'yes' : 'no'}`,
       `Next run: ${formatNextRun(task.next_run_at)}`,

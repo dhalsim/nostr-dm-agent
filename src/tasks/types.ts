@@ -12,6 +12,7 @@ export type Task = {
   id: number;
   name: string;
   schedule: string;
+  schedule_description: string;
   prompt: string;
   enabled: number;
   created_at: number;
@@ -42,6 +43,7 @@ export type TaskRun = {
 export type TaskInput = {
   name: string;
   prompt: string;
+  schedule_description: string;
   backend: AgentBackendName;
   provider: ProviderName;
   model: string;
@@ -66,6 +68,7 @@ export type CreateTaskInput = Schedule | OneTime;
 const TaskInputSchema = z.object({
   name: z.string().min(1),
   prompt: z.string().min(1),
+  schedule_description: z.string().min(1),
   backend: AgentBackendNameSchema,
   provider: ProviderNameSchema,
   model: z.string(),

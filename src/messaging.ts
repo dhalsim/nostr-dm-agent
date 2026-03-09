@@ -89,7 +89,7 @@ export async function getMasterDmRelays(
     });
 
     if (event) {
-      const urls = event.tags.filter((t) => t[0] === 'relay' && t[1]).map((t) => ensureWss(t[1]));
+      const urls = event.tags.filter((t) => t[0] === 'r' && t[1]).map((t) => ensureWss(t[1]));
 
       if (urls.length > 0) {
         debug('Master kind:10050 relays:', urls);
