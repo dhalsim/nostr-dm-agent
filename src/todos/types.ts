@@ -3,8 +3,12 @@
 // ---------------------------------------------------------------------------
 import { z } from 'zod';
 
-export type TodoStatus = 'pending' | 'in_progress' | 'done' | 'cancelled';
-export type TodoPriority = 'low' | 'medium' | 'high';
+// Schemas (source of truth for validation and inferred types)
+export const TodoStatusSchema = z.enum(['pending', 'in_progress', 'done', 'cancelled']);
+export const TodoPrioritySchema = z.enum(['low', 'medium', 'high']);
+
+export type TodoStatus = z.infer<typeof TodoStatusSchema>;
+export type TodoPriority = z.infer<typeof TodoPrioritySchema>;
 
 export type Todo = {
   id: number;
@@ -20,9 +24,6 @@ export type Todo = {
   updated_at: number | null;
   completed_at: number | null;
 };
-
-export const TodoStatusSchema = z.enum(['pending', 'in_progress', 'done', 'cancelled']);
-export const TodoPrioritySchema = z.enum(['low', 'medium', 'high']);
 
 /** Any change in this schema MUST be reflected in the tools in .opencode/tools/todos.ts */
 export const CreateTodoInputSchema = z.object({
@@ -51,27 +52,3 @@ export const UpdateTodoInputSchema = z.object({
 });
 
 export type UpdateTodoInput = z.infer<typeof UpdateTodoInputSchema>;
-
-type TodoListCall = {
-  type: 'list';
-};
-
-type TodoCreateCall = {
-  type: 'create';
-  input: CreateTodoInput;
-};
-
-type TodoUpdateCall = {
-  type: 'update';
-  input: UpdateTodoInput;
-};
-
-type TodoDeleteCall = {
-  type: 'delete';
-  input: {
-    id: number;
-    cascade?: boolean;
-  };
-};
-
-export type TodoToolCall = TodoListCall | TodoCreateCall | TodoUpdateCall | TodoDeleteCall;

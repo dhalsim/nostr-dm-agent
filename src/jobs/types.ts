@@ -40,31 +40,7 @@ export type JobRun = {
   budget_used_msats: number | null;
 };
 
-export type JobInput = {
-  name: string;
-  prompt: string;
-  schedule_description: string;
-  backend: AgentBackendName;
-  provider: ProviderName;
-  model: string;
-  mode: AgentMode;
-  budget_sats: number | null;
-  instructions: string | null;
-};
-
-export type Schedule = JobInput & {
-  execution_type: 'cron';
-  schedule: string;
-  maxRuns: number | null;
-};
-
-export type OneTime = JobInput & {
-  execution_type: 'one-time';
-  run_at: string;
-};
-
-export type CreateJobInput = Schedule | OneTime;
-
+// Schemas (source of truth for validation and inferred types)
 const JobInputSchema = z.object({
   name: z.string().min(1),
   prompt: z.string().min(1),
@@ -92,3 +68,9 @@ export const CreateJobInputSchema = z.discriminatedUnion('execution_type', [
   ScheduleSchema,
   OneTimeSchema,
 ]);
+
+// Types inferred from schemas
+export type JobInput = z.infer<typeof JobInputSchema>;
+export type Schedule = z.infer<typeof ScheduleSchema>;
+export type OneTime = z.infer<typeof OneTimeSchema>;
+export type CreateJobInput = z.infer<typeof CreateJobInputSchema>;
