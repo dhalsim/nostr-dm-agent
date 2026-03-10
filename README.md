@@ -213,15 +213,15 @@ All commands are prefixed with `!`. The bot responds only to the master pubkey.
 
 You can schedule prompts to run on a **cron schedule** (recurring) or **once at a specific time** (one-time). The bot evaluates due jobs every minute, runs them with the configured backend/provider/model/mode, and sends the output to you by DM prefixed with `[Job: <name>]`.
 
-Job creation is only via **`!job create-with <natural language prompt>`**: the AI suggests parameters (recurring cron or one-time run-at, plus name, prompt, backend, provider, model, mode, budget, instructions). You then confirm, revise, or discard the draft. One-time jobs run once at the given time; after that, `next_run_at` is cleared and the job no longer runs.
+Job creation from natural language is via **`!job-ai <prompt>`**: the AI suggests parameters (recurring cron or one-time run-at, plus name, prompt, backend, provider, model, mode, budget, instructions). You then confirm, revise, or discard the draft with `!job confirm`, `!job revise`, or `!job discard`. One-time jobs run once at the given time; after that, `next_run_at` is cleared and the job no longer runs.
 
 ### Job commands
 
 | Command | Description |
 |--------|-------------|
-| `!job create-with <prompt>` | Create a job from natural language. AI suggests params (cron or one-time); you confirm/revise/discard. |
-| `!job drafts` | List pending create-with drafts. |
-| `!job confirm <draft_id>` | Create the job from a create-with draft. |
+| `!job-ai <prompt>` | Create a job draft from natural language. AI suggests params (cron or one-time); you confirm/revise/discard via !job. |
+| `!job drafts` | List pending job drafts. |
+| `!job confirm <draft_id>` | Create the job from a draft. |
 | `!job revise <draft_id> <corrections>` | Ask AI to revise the draft params. |
 | `!job discard <draft_id>` | Discard a draft without creating the job. |
 | `!job list` | List all jobs (id, name, schedule/once, next run, context). |
@@ -243,7 +243,7 @@ Invalid cron expressions are rejected. One-time `run_at` must be in the future.
 
 ### Execution context
 
-Each job stores **backend**, **provider**, **model**, **mode**, and an optional **budget** (sats). The create-with flow uses current bot settings as defaults. Job runs use a dedicated agent session and do not change your current interactive session. You can ask the AI for **instructions** in natural language; they are stored and prepended to the prompt at run time: `Instructions:\n…\n\nJob:\n…`.
+Each job stores **backend**, **provider**, **model**, **mode**, and an optional **budget** (sats). The !job-ai flow uses current bot settings as defaults. Job runs use a dedicated agent session and do not change your current interactive session. You can ask the AI for **instructions** in natural language; they are stored and prepended to the prompt at run time: `Instructions:\n…\n\nJob:\n…`.
 
 **Budget and auto-flow:** If budget is set and the job's provider is `routstr`, each run automatically deposits that many sats from your local Cashu wallet into a Routstr session before the agent runs, then refunds the unspent remainder. Leave budget unset to use the pre-funded Routstr session balance.
 
@@ -251,21 +251,21 @@ Each job stores **backend**, **provider**, **model**, **mode**, and an optional 
 
 ```
 # Create recurring job (AI suggests cron and params)
-!job create-with send me a morning brief every day at 8am summarizing my top 3 priorities
+!job-ai send me a morning brief every day at 8am summarizing my top 3 priorities
 # → Bot replies with draft (execution_type: cron, schedule: 0 8 * * *, etc.)
-!job confirm abc1
+!job confirm 1
 # → Job created
 
 # One-time job
-!job create-with run a cost report tomorrow at 9am
+!job-ai run a cost report tomorrow at 9am
 # → AI suggests execution_type: one-time, run_at: <ISO date>
 
 # Revise and confirm
-!job revise abc1 use 9am instead of 8am
-!job confirm abc1
+!job revise 1 use 9am instead of 8am
+!job confirm 1
 
 !job list
-!job history abc1 5
+!job history 1 5
 ```
 
 For programmatic use (e.g. from cron or scripts), the optional **`job:create`** npm script accepts `--schedule <cron>` for recurring or `--run-at <ISO date>` for one-time, plus the usual job fields.

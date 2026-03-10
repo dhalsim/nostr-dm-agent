@@ -60,7 +60,7 @@ type TodoToolCall = z.infer<typeof TodoToolCallSchema>;
 // System prompt
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(userPrompt: string, activeTree: string): string {
+export function buildSystemPrompt(userPrompt: string, activeTree: string): string {
   const schema = z.toJSONSchema(TodoToolCallSchema);
 
   return `You are managing a todo list for the user.
@@ -85,7 +85,7 @@ ${JSON.stringify(schema, null, 2)}`;
 // Response parser
 // ---------------------------------------------------------------------------
 
-function parseToolCall(raw: string): TodoToolCall {
+export function parseToolCall(raw: string): TodoToolCall {
   const stripped = raw
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
@@ -243,7 +243,6 @@ export async function handleTodoAi({
       kind: 'create',
       input: call.input,
       originalPrompt: userPrompt,
-      history: [],
     });
 
     return formatCreatePreview(draftId, call);
@@ -255,7 +254,6 @@ export async function handleTodoAi({
       kind: 'update',
       input: call.input,
       originalPrompt: userPrompt,
-      history: [],
     });
 
     return formatUpdatePreview(draftId, call);
@@ -267,7 +265,6 @@ export async function handleTodoAi({
       kind: 'delete',
       input: call.input,
       originalPrompt: userPrompt,
-      history: [],
     });
 
     return formatDeletePreview(draftId, call, db);

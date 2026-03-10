@@ -1,0 +1,44 @@
+---
+alwaysApply: true
+---
+
+# Function parameters (3+ arguments)
+
+When writing a function that takes **more than 2 parameters**, use a single **object parameter** and define a **named type** for its properties.
+
+## Pattern
+
+```ts
+type MyFunctionProps = {
+  foo: string;
+  bar: number;
+  baz: boolean | null;
+};
+
+function myFunction({ foo, bar, baz }: MyFunctionProps): ReturnType {
+  // ...
+}
+```
+
+## Requirements
+
+- **Do not** use optional properties (`?` in TypeScript) on the props type.
+- **Do not** use default parameters (e.g. `= null`) for the object’s properties.
+- Callers must **always pass every property**. If a value is absent, the caller must explicitly pass `null` (or `undefined` where the type allows it).
+
+This keeps call sites explicit and forces every caller to acknowledge every argument.
+
+## Example (from codebase)
+
+```ts
+type ParseModelProps = {
+  dmBotRoot: string;
+  mode: AgentMode;
+  modelOverride: string | null | undefined;
+  providerName: ProviderName | null;
+};
+
+function parseModel({ dmBotRoot, mode, modelOverride, providerName }: ParseModelProps): string {
+  // ...
+}
+```

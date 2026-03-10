@@ -20,6 +20,7 @@ import {
   handleModel,
   handleModels,
 } from './commands/bot';
+import { handleJobAi } from './commands/job-ai';
 import { handleJob } from './commands/jobs';
 import {
   handleProviderAddModel,
@@ -216,8 +217,25 @@ export async function handleBangCommand({
       );
     }
 
+    case 'job-ai': {
+      return handleError(
+        async () =>
+          handleJobAi({
+            args,
+            db: seenDb,
+            backend,
+            workspaceRoot,
+            agentEnv,
+          }),
+        'Job AI failed',
+      );
+    }
+
     case 'todo': {
-      return handleError(async () => handleTodo({ args, db: seenDb }), 'Todo command failed');
+      return handleError(
+        async () => handleTodo({ args, db: seenDb, backend, workspaceRoot, agentEnv }),
+        'Todo command failed',
+      );
     }
 
     case 'todo-ai': {

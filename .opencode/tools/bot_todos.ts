@@ -112,7 +112,6 @@ export const bot_todos_create = tool({
       kind: 'create',
       input,
       originalPrompt: args.original_prompt,
-      history: [],
     });
 
     const lines = [

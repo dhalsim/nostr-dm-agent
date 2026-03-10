@@ -1,12 +1,9 @@
 // ---------------------------------------------------------------------------
 // commands/jobs.ts — !job sub-command handlers
 // ---------------------------------------------------------------------------
-import { randomBytes } from 'crypto';
-
 import { toJSONSchema } from 'zod';
 
 import type { AgentBackend } from '../backends/types';
-import { getAgentBackend, getModelOverride, getProviderName, getRoutstrModel } from '../db';
 import type { SeenDb } from '../db';
 import {
   createJob,
@@ -17,10 +14,10 @@ import {
   listJobRuns,
   listJobs,
 } from '../jobs/db';
+import { deleteDraft, getDraft, listDrafts, storeDraft } from '../jobs/drafts';
 import type { JobEngineContext } from '../jobs/engine';
 import type { CreateJobInput, Job } from '../jobs/types';
 import { CreateJobInputSchema } from '../jobs/types';
-import { debug } from '../logger';
 
 /**
  * Parse args. Special handling:
@@ -109,21 +106,14 @@ function formatNextRun(nextRunAt: number | null): string {
 }
 
 // -------------------------------------------------------------------------
-// In-memory draft stores (both flows; cleared on bot restart)
+// Draft entry shape for revise prompt (matches JobDraftRow minus id/kind)
 // -------------------------------------------------------------------------
-type CreateWithEntry = {
+type ReviseEntry = {
   input: CreateJobInput;
   originalPrompt: string;
-  history: string[];
 };
 
-const createWithStore = new Map<string, CreateWithEntry>();
-
-function generateDraftId(): string {
-  return randomBytes(2).toString('hex');
-}
-
-function getCurrentTimeContext(): { nowUtc: string; timeZone: string; nowLocal: string } {
+export function getCurrentTimeContext(): { nowUtc: string; timeZone: string; nowLocal: string } {
   const now = new Date();
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const nowLocal = now.toLocaleString(undefined, { timeZone });
@@ -138,10 +128,11 @@ function getCurrentTimeContext(): { nowUtc: string; timeZone: string; nowLocal: 
 /** JSON Schema for CreateJobInput (discriminated union cron | one-time). Used in create/revise prompts. */
 const CREATE_JOB_JSON_SCHEMA = JSON.stringify(toJSONSchema(CreateJobInputSchema), null, 2);
 
-const CREATE_WITH_SYSTEM_PROMPT = (
+/** Exported for !job-ai: build system prompt for creating a job from natural language. */
+export function buildJobCreateSystemPrompt(
   userPrompt: string,
   defaults: { backend: string; provider: string; model: string; mode: string },
-) => {
+): string {
   const tc = getCurrentTimeContext();
 
   return `You are creating a scheduled AI agent job from a natural-language request.
@@ -170,15 +161,14 @@ Expected JSON structure (must match this schema):
 \`\`\`json
 ${CREATE_JOB_JSON_SCHEMA}
 \`\`\``;
-};
+}
 
-const CREATE_WITH_REVISE_PROMPT = (entry: CreateWithEntry, corrections: string) => {
+const CREATE_WITH_REVISE_PROMPT = (entry: ReviseEntry, corrections: string) => {
   const tc = getCurrentTimeContext();
 
   return `You are revising a scheduled job configuration.
 
 Original user request: "${entry.originalPrompt}"
-${entry.history.length > 0 ? `Previous corrections:\n${entry.history.map((h) => `- ${h}`).join('\n')}` : ''}
 New correction: ${corrections}
 
 Current date and time (UTC): ${tc.nowUtc}
@@ -195,7 +185,7 @@ ${CREATE_JOB_JSON_SCHEMA}
 \`\`\``;
 };
 
-function formatCreateWithPreview(id: string, input: CreateJobInput): string {
+export function formatCreateWithPreview(id: string, input: CreateJobInput): string {
   const w = 19;
 
   const common = [
@@ -227,7 +217,7 @@ Draft ID: ${id}
 Reply: !job confirm ${id} | !job revise ${id} <corrections> | !job discard ${id}`;
 }
 
-async function generateCreateWithParams(
+export async function generateCreateWithParams(
   backend: AgentBackend,
   systemPrompt: string,
   cwd: string,
@@ -296,10 +286,9 @@ export async function handleJob({
   const rest = args.slice(1);
 
   if (!sub || sub === 'help') {
-    return `!job create-with <prompt> — create a job from natural language (AI suggests params; confirm/revise/discard)
-!job drafts — list pending drafts
-!job confirm <draft_id> — create job from a create-with draft
-!job revise <draft_id> <corrections> — ask AI to revise create-with params
+    return `!job drafts — list pending drafts
+!job confirm <draft_id> — create job from a draft
+!job revise <draft_id> <corrections> — ask AI to revise draft params
 !job discard <draft_id> — discard a draft
 !job list — list all jobs
 !job show <id> — show job details
@@ -312,72 +301,20 @@ export async function handleJob({
   }
 
   // -------------------------------------------------------------------------
-  // create-with (NL → AI-generated params, in-memory draft)
-  // -------------------------------------------------------------------------
-  if (sub === 'create-with') {
-    const userPrompt = rest.join(' ').trim();
-
-    if (!userPrompt) {
-      return 'Usage: !job create-with <natural language request>\nExample: !job create-with send me a DM when weather is rainy in the morning';
-    }
-
-    const defaultBackend = getAgentBackend(db);
-    const defaultProvider = getProviderName(db);
-
-    const defaultModel = getRoutstrModel(db) ?? getModelOverride(db) ?? backend.modelName ?? '';
-
-    const defaultMode = 'agent';
-
-    const defaults = {
-      backend: defaultBackend,
-      provider: defaultProvider,
-      model: defaultModel,
-      mode: defaultMode,
-    };
-
-    const createWithPrompt = CREATE_WITH_SYSTEM_PROMPT(userPrompt, defaults);
-
-    debug('create-with: prompt sent to AI', {
-      userPrompt,
-      defaults,
-      promptLength: createWithPrompt.length,
-      prompt: createWithPrompt,
-    });
-
-    let input: CreateJobInput;
-
-    try {
-      input = await generateCreateWithParams(backend, createWithPrompt, workspaceRoot, agentEnv);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-
-      return `Failed to generate or validate job parameters: ${msg}`;
-    }
-
-    const draftId = generateDraftId();
-
-    createWithStore.set(draftId, {
-      input,
-      originalPrompt: userPrompt,
-      history: [],
-    });
-
-    return formatCreateWithPreview(draftId, input);
-  }
-
-  // -------------------------------------------------------------------------
-  // drafts (create-with in-memory only)
+  // drafts (DB)
   // -------------------------------------------------------------------------
   if (sub === 'drafts') {
-    const lines = [...createWithStore.entries()].map(([id, e]) => {
-      const s = e.input.execution_type === 'cron' ? e.input.schedule : e.input.run_at;
+    const drafts = listDrafts(db);
 
-      return `${id} | ${e.input.name} | ${s} | ${e.input.schedule_description}`;
-    });
-
-    if (lines.length === 0) {
-      return 'No pending drafts.';
+    if (drafts.length === 0) {
+      return 'No pending drafts. Use !job-ai <prompt> to create one.';
     }
+
+    const lines = drafts.map((d) => {
+      const s = d.input.execution_type === 'cron' ? d.input.schedule : d.input.run_at;
+
+      return `${d.id} | ${d.input.name} | ${s} | ${d.input.schedule_description}`;
+    });
 
     return `Pending drafts:\n${lines.join('\n')}\n\n!job confirm <id> | !job revise <id> <corrections> | !job discard <id>`;
   }
@@ -385,22 +322,28 @@ export async function handleJob({
   const draftOrJobId = rest[0]?.trim();
 
   // -------------------------------------------------------------------------
-  // confirm (create-with in-memory draft → create job)
+  // confirm (DB draft → create job)
   // -------------------------------------------------------------------------
   if (sub === 'confirm') {
     if (!draftOrJobId) {
       return 'Usage: !job confirm <draft_id>';
     }
 
-    const entry = createWithStore.get(draftOrJobId);
+    const draftId = parseInt(draftOrJobId, 10);
+
+    if (Number.isNaN(draftId)) {
+      return `Draft not found: ${draftOrJobId}. Use a numeric draft id (e.g. !job confirm 1).`;
+    }
+
+    const entry = getDraft(db, draftId);
 
     if (!entry) {
-      return `Draft not found: ${draftOrJobId}. It may have expired (bot restart clears create-with drafts).`;
+      return `Draft not found: ${draftId}.`;
     }
 
     try {
       const job = createJob(db, entry.input);
-      createWithStore.delete(draftOrJobId);
+      deleteDraft(db, draftId);
 
       const budgetLine =
         job.budget_sats != null ? `\nBudget: ${job.budget_sats} sats (auto-flow)` : '';
@@ -414,7 +357,7 @@ export async function handleJob({
   }
 
   // -------------------------------------------------------------------------
-  // revise (create-with in-memory draft only)
+  // revise (DB draft)
   // -------------------------------------------------------------------------
   if (sub === 'revise') {
     if (!draftOrJobId) {
@@ -427,49 +370,70 @@ export async function handleJob({
       return 'Usage: !job revise <draft_id> <corrections>';
     }
 
-    const createWithEntry = createWithStore.get(draftOrJobId);
+    const draftId = parseInt(draftOrJobId, 10);
 
-    if (createWithEntry) {
-      let input: CreateJobInput;
-
-      try {
-        input = await generateCreateWithParams(
-          backend,
-          CREATE_WITH_REVISE_PROMPT(createWithEntry, corrections),
-          workspaceRoot,
-          agentEnv,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-
-        return `Failed to revise parameters: ${msg}`;
-      }
-
-      createWithEntry.history.push(corrections);
-      createWithEntry.input = input;
-      createWithStore.set(draftOrJobId, createWithEntry);
-
-      return formatCreateWithPreview(draftOrJobId, input);
+    if (Number.isNaN(draftId)) {
+      return `Draft not found: ${draftOrJobId}. Use a numeric draft id.`;
     }
 
-    return `Draft not found: ${draftOrJobId}. It may have expired (bot restart clears drafts).`;
+    const entry = getDraft(db, draftId);
+
+    if (!entry) {
+      return `Draft not found: ${draftId}.`;
+    }
+
+    let input: CreateJobInput;
+
+    try {
+      input = await generateCreateWithParams(
+        backend,
+        CREATE_WITH_REVISE_PROMPT(entry, corrections),
+        workspaceRoot,
+        agentEnv,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+
+      return `Failed to revise parameters: ${msg}`;
+    }
+
+    const newDraftId = storeDraft(db, {
+      kind: 'create',
+      input,
+      originalPrompt: `${entry.originalPrompt} (revised: ${corrections})`,
+    });
+
+    deleteDraft(db, draftId);
+
+    return [
+      `Draft #${draftId} revised. Created new draft #${newDraftId}:`,
+      '',
+      formatCreateWithPreview(String(newDraftId), input),
+      '',
+      `To accept the revised draft: !job confirm ${newDraftId}`,
+      `To decline the revised draft: !job discard ${newDraftId}`,
+    ].join('\n');
   }
 
   // -------------------------------------------------------------------------
-  // discard (create-with in-memory first, else DB draft)
+  // discard (DB draft)
   // -------------------------------------------------------------------------
   if (sub === 'discard') {
     if (!draftOrJobId) {
       return 'Usage: !job discard <draft_id>';
     }
 
-    if (createWithStore.has(draftOrJobId)) {
-      createWithStore.delete(draftOrJobId);
+    const draftId = parseInt(draftOrJobId, 10);
 
-      return `Draft ${draftOrJobId} discarded.`;
+    if (Number.isNaN(draftId)) {
+      return `Draft not found: ${draftOrJobId}. Use a numeric draft id.`;
     }
 
-    return `Draft not found: ${draftOrJobId}. It may have expired (bot restart clears drafts).`;
+    if (deleteDraft(db, draftId)) {
+      return `Draft ${draftId} discarded.`;
+    }
+
+    return `Draft not found: ${draftId}.`;
   }
 
   // -------------------------------------------------------------------------

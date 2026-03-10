@@ -17,21 +17,18 @@ export type CreateDraftEntry = {
   kind: 'create';
   input: CreateTodoInput;
   originalPrompt: string;
-  history: string[];
 };
 
 export type UpdateDraftEntry = {
   kind: 'update';
   input: UpdateTodoInput;
   originalPrompt: string;
-  history: string[];
 };
 
 export type DeleteDraftEntry = {
   kind: 'delete';
   input: { id: number };
   originalPrompt: string;
-  history: string[];
 };
 
 export type TodoDraftEntry = CreateDraftEntry | UpdateDraftEntry | DeleteDraftEntry;
@@ -49,7 +46,6 @@ export function createTodoDraftsTable(db: SeenDb): void {
       kind            TEXT NOT NULL,
       input           TEXT NOT NULL,
       original_prompt TEXT NOT NULL DEFAULT '',
-      history         TEXT NOT NULL DEFAULT '[]',
       created_at      INTEGER NOT NULL
     )
   `);
@@ -59,22 +55,13 @@ export function createTodoDraftsTable(db: SeenDb): void {
 // CRUD
 // ---------------------------------------------------------------------------
 
-export function storeDraft(
-  seenDb: SeenDb,
-  entry: Omit<TodoDraftEntry, 'history'> & { history?: string[] },
-): number {
+export function storeDraft(seenDb: SeenDb, entry: TodoDraftEntry): number {
   const now = Date.now();
 
   const info = seenDb.run(
-    `INSERT INTO todo_drafts (kind, input, original_prompt, history, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [
-      entry.kind,
-      JSON.stringify(entry.input),
-      entry.originalPrompt,
-      JSON.stringify(entry.history ?? []),
-      now,
-    ],
+    `INSERT INTO todo_drafts (kind, input, original_prompt, created_at)
+     VALUES (?, ?, ?, ?)`,
+    [entry.kind, JSON.stringify(entry.input), entry.originalPrompt, now],
   );
 
   return Number(info.lastInsertRowid);
@@ -105,20 +92,6 @@ export function deleteDraft(db: SeenDb, id: number): boolean {
   return db.prepare('DELETE FROM todo_drafts WHERE id = ?').run(id).changes > 0;
 }
 
-export function appendDraftHistory(db: SeenDb, id: number, correction: string): boolean {
-  const draft = getDraft(db, id);
-
-  if (!draft) {
-    return false;
-  }
-
-  const history = [...draft.history, correction];
-
-  db.prepare('UPDATE todo_drafts SET history = ? WHERE id = ?').run(JSON.stringify(history), id);
-
-  return true;
-}
-
 export function updateDraftInput(db: SeenDb, id: number, input: TodoDraftEntry['input']): boolean {
   const info = db
     .prepare('UPDATE todo_drafts SET input = ? WHERE id = ?')
@@ -135,16 +108,15 @@ function rowToDraft(row: Record<string, unknown>): TodoDraftRow {
   const kind = String(row.kind) as TodoDraftEntry['kind'];
   const input = JSON.parse(String(row.input));
   const originalPrompt = String(row.original_prompt);
-  const history = JSON.parse(String(row.history)) as string[];
   const id = Number(row.id);
 
   switch (kind) {
     case 'create':
-      return { id, kind, input: input as CreateTodoInput, originalPrompt, history };
+      return { id, kind, input: input as CreateTodoInput, originalPrompt };
     case 'update':
-      return { id, kind, input: input as UpdateTodoInput, originalPrompt, history };
+      return { id, kind, input: input as UpdateTodoInput, originalPrompt };
     case 'delete':
-      return { id, kind, input: input as { id: number }, originalPrompt, history };
+      return { id, kind, input: input as { id: number }, originalPrompt };
     default:
       throw new Error(`Unknown draft kind: ${kind}`);
   }

@@ -151,6 +151,16 @@ export function openSeenDb(): SeenDb {
   `);
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS job_drafts (
+      id              INTEGER PRIMARY KEY,
+      kind            TEXT NOT NULL,
+      input           TEXT NOT NULL,
+      original_prompt TEXT NOT NULL DEFAULT '',
+      created_at      INTEGER NOT NULL
+    )
+  `);
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS todos (
       id           INTEGER PRIMARY KEY,
       parent_id    INTEGER REFERENCES todos(id) ON DELETE CASCADE,
@@ -176,7 +186,6 @@ export function openSeenDb(): SeenDb {
       kind            TEXT NOT NULL,
       input           TEXT NOT NULL,
       original_prompt TEXT NOT NULL DEFAULT '',
-      history         TEXT NOT NULL DEFAULT '[]',
       created_at      INTEGER NOT NULL
     )
   `);

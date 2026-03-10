@@ -1,12 +1,15 @@
 // ---------------------------------------------------------------------------
 // commands/todos.ts — !todo sub-command handler
 // ---------------------------------------------------------------------------
+import type { AgentBackend } from '../backends/types';
 import type { SeenDb } from '../db';
 import { createTodo, deleteTodo, doneTodo, getTodo, listTodos, updateTodo } from '../todos/db';
-import { appendDraftHistory, deleteDraft, getDraft, listDrafts } from '../todos/drafts';
+import { deleteDraft, getDraft, listDrafts, storeDraft } from '../todos/drafts';
 import { formatTodoDetail, formatTodoTree } from '../todos/format';
 import { CreateTodoInputSchema, TodoStatusSchema } from '../todos/types';
 import type { CreateTodoInput } from '../todos/types';
+
+import { buildSystemPrompt, parseToolCall } from './todo-ai';
 
 // ---------------------------------------------------------------------------
 // Preview formatting
@@ -46,9 +49,18 @@ function formatDraftRow(
 export type HandleTodoProps = {
   args: string[];
   db: SeenDb;
+  backend: AgentBackend | null;
+  workspaceRoot: string | null;
+  agentEnv: Record<string, string | undefined> | null;
 };
 
-export async function handleTodo({ args, db }: HandleTodoProps): Promise<string> {
+export async function handleTodo({
+  args,
+  db,
+  backend,
+  workspaceRoot,
+  agentEnv,
+}: HandleTodoProps): Promise<string> {
   const sub = args[0]?.toLowerCase();
   const rest = args.slice(1);
 
@@ -324,7 +336,6 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
           `  description : ${'description' in entry.input ? (entry.input.description ?? '—') : '—'}`,
           `  tags        : ${'tags' in entry.input && entry.input.tags ? entry.input.tags.join(', ') : '—'}`,
           `  prompt      : ${entry.originalPrompt}`,
-          entry.history.length > 0 ? `  revisions   : ${entry.history.join(' → ')}` : '',
           ``,
           `  !todo accept ${id} | !todo revise ${id} <corrections> | !todo decline ${id}`,
         ]
@@ -488,15 +499,68 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
     }
 
     if (entry.kind !== 'create') {
-      return `Draft ${draftId} is a ${entry.kind} draft. Use !todo decline ${draftId} and re-run your request with the correction applied.`;
+      return `Draft ${draftId} is a ${entry.kind} draft. Use !todo decline ${draftId} and create a new one with the correction applied.`;
     }
 
-    appendDraftHistory(db, draftId, corrections);
+    if (!backend || !workspaceRoot || !agentEnv) {
+      return [
+        `Revision requires AI. To revise draft #${draftId}:`,
+        `1. Note your correction: "${corrections}"`,
+        `2. Run: !todo-ai <revised description>`,
+        `   (include original: "${entry.originalPrompt}")`,
+      ].join('\n');
+    }
+
+    const allTodos = listTodos(db);
+    const activeTodos = allTodos.filter((t) => t.status === 'pending');
+    const activeTree = activeTodos.length > 0 ? formatTodoTree(activeTodos) : '(no active todos)';
+
+    const revisedPrompt = `Revise the following todo: "${entry.input.todo}". Correction: "${corrections}".`;
+    const systemPrompt = buildSystemPrompt(revisedPrompt, activeTree);
+
+    const sessionId = await backend.createSession({ cwd: workspaceRoot, env: agentEnv });
+
+    const result = await backend.runMessage({
+      sessionId,
+      content: systemPrompt,
+      mode: 'ask',
+      cwd: workspaceRoot,
+      env: agentEnv,
+      modelOverride: null,
+    });
+
+    const raw = result.output.trim();
+
+    if (!raw || raw === '(no output)') {
+      return 'AI returned no output. Try running: !todo-ai <revised description>';
+    }
+
+    let call;
+    try {
+      call = parseToolCall(raw);
+    } catch {
+      return `Failed to parse AI response. Try running: !todo-ai <revised description>`;
+    }
+
+    if (call.type !== 'create') {
+      return `AI did not return a create command. Try running: !todo-ai <revised description>`;
+    }
+
+    const newDraftId = storeDraft(db, {
+      kind: 'create',
+      input: call.input,
+      originalPrompt: `${entry.originalPrompt} (revised: ${corrections})`,
+    });
+
+    deleteDraft(db, draftId);
 
     return [
-      `Revision noted for draft #${draftId}: "${corrections}"`,
-      `Original prompt: "${entry.originalPrompt}"`,
-      `Re-run your natural language request with the revision applied, or use !todo add directly.`,
+      `Draft #${draftId} revised. Created new draft #${newDraftId}:`,
+      '',
+      formatDraftPreview(newDraftId, call.input),
+      '',
+      `To accept the revised draft: !todo accept ${newDraftId}`,
+      `To decline the revised draft: !todo decline ${newDraftId}`,
     ].join('\n');
   }
 
