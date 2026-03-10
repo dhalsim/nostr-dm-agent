@@ -170,6 +170,17 @@ export function openSeenDb(): SeenDb {
   db.run('CREATE INDEX IF NOT EXISTS idx_todos_parent_id ON todos(parent_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_todos_parent_sort ON todos(parent_id, sort_order)');
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS todo_drafts (
+      id              INTEGER PRIMARY KEY,
+      kind            TEXT NOT NULL,
+      input           TEXT NOT NULL,
+      original_prompt TEXT NOT NULL DEFAULT '',
+      history         TEXT NOT NULL DEFAULT '[]',
+      created_at      INTEGER NOT NULL
+    )
+  `);
+
   return db as SeenDb;
 }
 

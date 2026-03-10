@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 import type { SeenDb } from '../db';
 import { createTodo, deleteTodo, doneTodo, getTodo, listTodos, updateTodo } from '../todos/db';
-import { draftStore } from '../todos/drafts';
+import { appendDraftHistory, deleteDraft, getDraft, listDrafts } from '../todos/drafts';
 import { formatTodoDetail, formatTodoTree } from '../todos/format';
 import { CreateTodoInputSchema, TodoStatusSchema } from '../todos/types';
 import type { CreateTodoInput } from '../todos/types';
@@ -13,7 +13,7 @@ import type { CreateTodoInput } from '../todos/types';
 // ---------------------------------------------------------------------------
 
 function formatDraftPreview(id: number, input: CreateTodoInput): string {
-  const lines = [
+  return [
     `todo       : ${input.todo}`,
     `parent_id  : ${input.parent_id ?? '(top-level)'}`,
     `priority   : ${input.priority ?? '—'}`,
@@ -22,9 +22,21 @@ function formatDraftPreview(id: number, input: CreateTodoInput): string {
     ``,
     `Draft ID: ${id}`,
     `Reply: !todo accept ${id} | !todo revise ${id} <corrections> | !todo decline ${id}`,
-  ];
+  ].join('\n');
+}
 
-  return lines.join('\n');
+function formatDraftRow(
+  id: number,
+  entry: {
+    kind: string;
+    input: { todo?: string; id?: number; parent_id?: number | null; priority?: string | null };
+  },
+): string {
+  if (entry.kind === 'create' || entry.kind === 'update') {
+    return `#${id} [${entry.kind}] | ${entry.input.todo ?? '—'} | parent: ${entry.input.parent_id ?? 'top-level'} | ${entry.input.priority ?? '—'}`;
+  }
+
+  return `#${id} [${entry.kind}] | todo id: ${entry.input.id}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,9 +64,9 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
       '!todo update <id> <field> <value>  — update a field (todo, status, priority, description)',
       '!todo delete <id>                  — delete todo and all descendants',
       '!todo accept <draft_id>            — confirm a draft and execute it',
-      '!todo revise <draft_id> <text>     — revise a pending create draft',
+      '!todo revise <draft_id> <text>     — note a revision on a pending draft',
       '!todo decline <draft_id>           — discard a draft',
-      '!todo drafts                       — list pending drafts',
+      '!todo drafts [draft_id]            — list all drafts or show one in detail',
       '!todo help                         — this message',
     ].join('\n');
   }
@@ -87,13 +99,7 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
 
     const todo = createTodo(
       db,
-      {
-        todo: text,
-        parent_id: parentId,
-        priority: null,
-        description: null,
-        tags: null,
-      },
+      { todo: text, parent_id: parentId, priority: null, description: null, tags: null },
       'dm',
     );
 
@@ -224,9 +230,7 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
       return 'Usage: !todo update <id> <field> <value>';
     }
 
-    const existing = getTodo(db, id);
-
-    if (!existing) {
+    if (!getTodo(db, id)) {
       return `Todo not found: ${id}`;
     }
 
@@ -269,7 +273,7 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
       }
 
       default:
-        return `Unknown field: ${field}. Supported fields: todo, status, priority, description`;
+        return `Unknown field: ${field}. Supported: todo, status, priority, description`;
     }
   }
 
@@ -296,47 +300,144 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
 
   // --- drafts ---
   if (sub === 'drafts') {
-    if (draftStore.size === 0) {
+    const idRaw = rest[0]?.trim();
+
+    if (idRaw) {
+      const id = parseInt(idRaw, 10);
+
+      if (Number.isNaN(id)) {
+        return 'Usage: !todo drafts [draft_id] (draft_id must be a number)';
+      }
+
+      const entry = getDraft(db, id);
+
+      if (!entry) {
+        return `Draft not found: ${id}`;
+      }
+
+      if (entry.kind === 'create' || entry.kind === 'update') {
+        return [
+          `Draft #${id} [${entry.kind}]:`,
+          `  todo        : ${'todo' in entry.input ? entry.input.todo : '—'}`,
+          `  parent      : ${'parent_id' in entry.input ? (entry.input.parent_id ?? '(top-level)') : '—'}`,
+          `  priority    : ${'priority' in entry.input ? (entry.input.priority ?? '—') : '—'}`,
+          `  description : ${'description' in entry.input ? (entry.input.description ?? '—') : '—'}`,
+          `  tags        : ${'tags' in entry.input && entry.input.tags ? entry.input.tags.join(', ') : '—'}`,
+          `  prompt      : ${entry.originalPrompt}`,
+          entry.history.length > 0 ? `  revisions   : ${entry.history.join(' → ')}` : '',
+          ``,
+          `  !todo accept ${id} | !todo revise ${id} <corrections> | !todo decline ${id}`,
+        ]
+          .filter((l) => l !== '')
+          .join('\n');
+      }
+
+      // delete draft
+      return [
+        `Draft #${id} [delete]:`,
+        `  target todo id: ${entry.input.id}`,
+        `  prompt        : ${entry.originalPrompt}`,
+        ``,
+        `  !todo accept ${id} | !todo decline ${id}`,
+      ].join('\n');
+    }
+
+    const drafts = listDrafts(db);
+
+    if (drafts.length === 0) {
       return 'No pending drafts.';
     }
 
-    const lines = [...draftStore.entries()].map(([id, e]) => {
-      switch (e.kind) {
-        case 'create':
-          return `${id} | create | ${e.input.todo} | parent: ${e.input.parent_id ?? 'top-level'}`;
-        case 'update':
-          return `${id} | update | todo #${e.input.id}${e.input.todo ? ` → "${e.input.todo}"` : ''}`;
-        case 'delete':
-          return `${id} | delete | todo #${e.input.id}`;
-      }
-    });
+    const lines = drafts.map((d) => formatDraftRow(d.id, d));
 
-    return `Pending drafts:\n${lines.join('\n')}`;
+    return `Pending drafts (${drafts.length}):\n${lines.join('\n')}`;
   }
 
+  // --- parse draft id for accept/revise/decline ---
   const draftIdRaw = rest[0]?.trim();
-
-  const draftId =
-    draftIdRaw !== undefined && draftIdRaw !== '' ? parseInt(draftIdRaw, 10) : undefined;
-
-  const draftIdInvalid =
-    draftIdRaw !== undefined &&
-    draftIdRaw !== '' &&
-    (draftId === undefined || Number.isNaN(draftId));
+  const draftId = draftIdRaw ? parseInt(draftIdRaw, 10) : NaN;
+  const draftIdInvalid = !draftIdRaw || Number.isNaN(draftId);
 
   // --- accept ---
   if (sub === 'accept') {
-    if (!draftIdRaw || draftIdInvalid) {
-      return 'Usage: !todo accept <draft_id> (draft_id must be a number)';
+    // accept all
+    if (rest[0]?.toLowerCase() === 'all') {
+      const drafts = listDrafts(db);
+
+      if (drafts.length === 0) {
+        return 'No pending drafts.';
+      }
+
+      const results: string[] = [];
+      const errors: string[] = [];
+
+      for (const draft of drafts) {
+        deleteDraft(db, draft.id);
+
+        switch (draft.kind) {
+          case 'create': {
+            if (draft.input.parent_id != null && !getTodo(db, draft.input.parent_id)) {
+              errors.push(
+                `Draft #${draft.id} "${draft.input.todo}": parent #${draft.input.parent_id} not found — skipped`,
+              );
+
+              break;
+            }
+
+            const todo = createTodo(db, draft.input, 'dm');
+            results.push(`#${todo.id} ${todo.todo}`);
+            break;
+          }
+
+          case 'update': {
+            const updated = updateTodo(db, draft.input);
+
+            if (!updated) {
+              errors.push(`Draft #${draft.id}: todo #${draft.input.id} not found — skipped`);
+            } else {
+              results.push(`#${updated.id} updated`);
+            }
+
+            break;
+          }
+
+          case 'delete': {
+            if (!deleteTodo(db, draft.input.id)) {
+              errors.push(`Draft #${draft.id}: todo #${draft.input.id} not found — skipped`);
+            } else {
+              results.push(`#${draft.input.id} deleted`);
+            }
+
+            break;
+          }
+        }
+      }
+
+      const lines = [`Accepted ${results.length} draft(s):`];
+
+      if (results.length > 0) {
+        lines.push(...results.map((r) => `  ✓ ${r}`));
+      }
+
+      if (errors.length > 0) {
+        lines.push('', `Skipped ${errors.length}:`, ...errors.map((e) => `  ✗ ${e}`));
+      }
+
+      return lines.join('\n');
     }
 
-    const entry = draftStore.get(draftId!);
+    // single accept
+    if (draftIdInvalid) {
+      return 'Usage: !todo accept <draft_id> | !todo accept all';
+    }
+
+    const entry = getDraft(db, draftId);
 
     if (!entry) {
       return `Draft not found: ${draftId}`;
     }
 
-    draftStore.delete(draftId!);
+    deleteDraft(db, draftId);
 
     switch (entry.kind) {
       case 'create': {
@@ -370,7 +471,7 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
 
   // --- revise ---
   if (sub === 'revise') {
-    if (!draftIdRaw || draftIdInvalid) {
+    if (draftIdInvalid) {
       return 'Usage: !todo revise <draft_id> <corrections> (draft_id must be a number)';
     }
 
@@ -380,7 +481,7 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
       return 'Usage: !todo revise <draft_id> <corrections>';
     }
 
-    const entry = draftStore.get(draftId!);
+    const entry = getDraft(db, draftId);
 
     if (!entry) {
       return `Draft not found: ${draftId}`;
@@ -390,25 +491,26 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
       return `Draft ${draftId} is a ${entry.kind} draft. Use !todo decline ${draftId} and re-run your request with the correction applied.`;
     }
 
+    appendDraftHistory(db, draftId, corrections);
+
     return [
-      `Revision noted: "${corrections}"`,
+      `Revision noted for draft #${draftId}: "${corrections}"`,
       `Original prompt: "${entry.originalPrompt}"`,
-      `Please re-run your natural language request with the revision applied,`,
-      `or use !todo add directly.`,
+      `Re-run your natural language request with the revision applied, or use !todo add directly.`,
     ].join('\n');
   }
 
   // --- decline ---
   if (sub === 'decline') {
-    if (!draftIdRaw || draftIdInvalid) {
+    if (draftIdInvalid) {
       return 'Usage: !todo decline <draft_id> (draft_id must be a number)';
     }
 
-    if (!draftStore.has(draftId!)) {
+    if (!getDraft(db, draftId)) {
       return `Draft not found: ${draftId}`;
     }
 
-    draftStore.delete(draftId!);
+    deleteDraft(db, draftId);
 
     return `Draft ${draftId} discarded.`;
   }
@@ -417,7 +519,7 @@ export async function handleTodo({ args, db }: HandleTodoProps): Promise<string>
 }
 
 // ---------------------------------------------------------------------------
-// Internal constants (duplicated from format.ts to avoid import in flat list)
+// Internal constants
 // ---------------------------------------------------------------------------
 
 const STATUS_ICON: Record<string, string> = {
@@ -427,5 +529,4 @@ const STATUS_ICON: Record<string, string> = {
   cancelled: '[-]',
 };
 
-// Re-export formatDraftPreview for use in opencode tools
 export { formatDraftPreview };

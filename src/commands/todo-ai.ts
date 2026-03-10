@@ -18,7 +18,7 @@ import { z } from 'zod';
 import type { AgentBackend } from '../backends/types';
 import type { SeenDb } from '../db';
 import { getTodo, listTodos } from '../todos/db';
-import { draftStore, getNextDraftId } from '../todos/drafts';
+import { storeDraft } from '../todos/drafts';
 import { formatTodoTree } from '../todos/format';
 import { CreateTodoInputSchema, UpdateTodoInputSchema } from '../todos/types';
 
@@ -239,9 +239,7 @@ export async function handleTodoAi({
 
   // --- create: draft + preview ---
   if (call.type === 'create') {
-    const draftId = getNextDraftId();
-
-    draftStore.set(draftId, {
+    const draftId = storeDraft(db, {
       kind: 'create',
       input: call.input,
       originalPrompt: userPrompt,
@@ -253,9 +251,7 @@ export async function handleTodoAi({
 
   // --- update: draft + preview ---
   if (call.type === 'update') {
-    const draftId = getNextDraftId();
-
-    draftStore.set(draftId, {
+    const draftId = storeDraft(db, {
       kind: 'update',
       input: call.input,
       originalPrompt: userPrompt,
@@ -267,9 +263,7 @@ export async function handleTodoAi({
 
   // --- delete: draft + preview ---
   if (call.type === 'delete') {
-    const draftId = getNextDraftId();
-
-    draftStore.set(draftId, {
+    const draftId = storeDraft(db, {
       kind: 'delete',
       input: call.input,
       originalPrompt: userPrompt,
