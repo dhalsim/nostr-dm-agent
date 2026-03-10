@@ -90,7 +90,8 @@ export const bot_todos_create = tool({
     '(5) Create the children using the correct parent_id from bot_todos_list. ' +
     '(6) If there are grandchildren, repeat: stop after creating the second level, wait for accept, then create grandchildren. ' +
     'Never create children in the same batch as their parents. ' +
-    'Never guess a parent_id — always verify with bot_todos_list after the user accepts.',
+    'Never guess a parent_id — always verify with bot_todos_list after the user accepts. ' +
+    'Note: The AI may refer to drafts by a conversational number (#1, #2, etc.) but you MUST use the "Draft ID:" number from the tool output — this is the real database ID for !todo accept/revise/decline commands.',
   args: createArgs,
   async execute(args) {
     const parsed = CreateTodoInputSchema.safeParse({
@@ -115,13 +116,16 @@ export const bot_todos_create = tool({
     });
 
     const lines = [
-      `Draft bot todo #${draftId} — copy this output verbatim:`,
+      `I'm going to create the following todo:`,
+      ``,
       `  todo       : ${input.todo}`,
       `  parent     : ${input.parent_id ?? '(top-level)'}`,
       `  priority   : ${input.priority ?? '—'}`,
       `  description: ${input.description ?? '—'}`,
       `  tags       : ${input.tags?.join(', ') ?? '—'}`,
-      `  !todo accept ${draftId} | !todo revise ${draftId} <corrections> | !todo decline ${draftId}`,
+      ``,
+      `Draft ID: ${draftId}`,
+      `Reply with: !todo accept ${draftId} | !todo revise ${draftId} <corrections> | !todo decline ${draftId}`,
     ];
 
     return lines.join('\n');
@@ -186,7 +190,8 @@ export const bot_todos_update = tool({
 // ---------------------------------------------------------------------------
 
 export const bot_todos_delete = tool({
-  description: 'Delete a bot todo and all its descendants. Call bot_todos_list first to get todo IDs.',
+  description:
+    'Delete a bot todo and all its descendants. Call bot_todos_list first to get todo IDs.',
   args: {
     id: tool.schema.number().describe('ID of the bot todo to delete'),
   },
