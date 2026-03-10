@@ -1,12 +1,12 @@
 {
   "name": "nostr-dm-bot",
-  "version": "3.1.1",
+  "version": "4.0.0",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
     "watch": "bun run run-with-restart.ts",
     "lint": "eslint . --fix",
-    "task:create": "bun run scripts/create-task.ts",
+    "job:create": "bun run scripts/create-job.ts",
     "wallet:setup": "bun run scripts/setup-wallet.ts",
     "nostr:setup": "bun run scripts/nostr-setup.ts",
     "contrib:setup": "chmod +x scripts/commit-msg scripts/post-commit scripts/ngit-helper.sh && git config include.path ../.gitconfig"

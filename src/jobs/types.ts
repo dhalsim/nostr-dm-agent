@@ -1,14 +1,14 @@
 // ---------------------------------------------------------------------------
-// tasks/types.ts — Task and TaskRun types
+// jobs/types.ts — Job and JobRun types
 // ---------------------------------------------------------------------------
 import { z } from 'zod';
 
 import { AgentBackendNameSchema, AgentModeSchema, ProviderNameSchema } from '../db';
 import type { AgentBackendName, AgentMode, ProviderName } from '../db';
 
-export type TaskRunStatus = 'running' | 'success' | 'error';
+export type JobRunStatus = 'running' | 'success' | 'error';
 
-export type Task = {
+export type Job = {
   id: number;
   name: string;
   schedule: string;
@@ -29,18 +29,18 @@ export type Task = {
   max_runs: number | null;
 };
 
-export type TaskRun = {
+export type JobRun = {
   id: number;
-  task_id: number;
+  job_id: number;
   started_at: number;
   finished_at: number | null;
-  status: TaskRunStatus;
+  status: JobRunStatus;
   output: string | null;
   error: string | null;
   budget_used_msats: number | null;
 };
 
-export type TaskInput = {
+export type JobInput = {
   name: string;
   prompt: string;
   schedule_description: string;
@@ -52,20 +52,20 @@ export type TaskInput = {
   instructions: string | null;
 };
 
-export type Schedule = TaskInput & {
+export type Schedule = JobInput & {
   execution_type: 'cron';
   schedule: string;
   maxRuns: number | null;
 };
 
-export type OneTime = TaskInput & {
+export type OneTime = JobInput & {
   execution_type: 'one-time';
   run_at: string;
 };
 
-export type CreateTaskInput = Schedule | OneTime;
+export type CreateJobInput = Schedule | OneTime;
 
-const TaskInputSchema = z.object({
+const JobInputSchema = z.object({
   name: z.string().min(1),
   prompt: z.string().min(1),
   schedule_description: z.string().min(1),
@@ -77,18 +77,18 @@ const TaskInputSchema = z.object({
   instructions: z.string().nullable(),
 });
 
-export const ScheduleSchema = TaskInputSchema.extend({
+export const ScheduleSchema = JobInputSchema.extend({
   execution_type: z.literal('cron'),
   schedule: z.string().min(1),
   maxRuns: z.number().int().positive().nullable(),
 });
 
-export const OneTimeSchema = TaskInputSchema.extend({
+export const OneTimeSchema = JobInputSchema.extend({
   execution_type: z.literal('one-time'),
   run_at: z.iso.datetime().describe('ISO 8601 datetime string in UTC e.g. 2025-12-01T09:00:00Z'),
 });
 
-export const CreateTaskInputSchema = z.discriminatedUnion('execution_type', [
+export const CreateJobInputSchema = z.discriminatedUnion('execution_type', [
   ScheduleSchema,
   OneTimeSchema,
 ]);

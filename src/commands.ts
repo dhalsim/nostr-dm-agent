@@ -20,6 +20,7 @@ import {
   handleModel,
   handleModels,
 } from './commands/bot';
+import { handleJob } from './commands/jobs';
 import {
   handleProviderAddModel,
   handleProviderBalance,
@@ -38,7 +39,6 @@ import {
   handleResumeSession,
   handleShowLastMessages,
 } from './commands/session';
-import { handleTask } from './commands/tasks';
 import { handleTodoAi } from './commands/todo-ai';
 import { handleTodo } from './commands/todos';
 import {
@@ -60,10 +60,10 @@ import {
 import type { BotConfig } from './env';
 import { getEnvFromFile, setEnvInFile } from './env-file';
 import { fileUpload, fileDownload } from './file-sync';
+import type { JobEngineContext } from './jobs/engine';
 import { getInfoLogsEnabled, log, setInfoLogsEnabled } from './logger';
 import { RESTART_REQUESTED_PATH } from './paths';
 import type { ProviderDb } from './providers/db';
-import type { TaskEngineContext } from './tasks/engine';
 import { formatMsats, msats } from './types';
 import { decodeToken } from './wallets/cashu';
 import { getBalanceByMint, type WalletDb } from './wallets/db';
@@ -92,7 +92,7 @@ export type HandleBangCommandProps = {
   walletDb: WalletDb | null;
   providerDb: ProviderDb | null;
   config: BotConfig;
-  taskEngine: TaskEngineContext | null;
+  jobEngine: JobEngineContext | null;
 };
 
 export async function handleBangCommand({
@@ -109,7 +109,7 @@ export async function handleBangCommand({
   botPubkey,
   walletDb,
   config,
-  taskEngine,
+  jobEngine,
 }: HandleBangCommandProps): Promise<string | null> {
   if (!input.startsWith('!')) {
     log.warn(`Input does not start with !: ${input}`);
@@ -201,18 +201,18 @@ export async function handleBangCommand({
     case 'help':
       return getHelpText();
 
-    case 'task': {
+    case 'job': {
       return handleError(
         async () =>
-          handleTask({
+          handleJob({
             args,
             db: seenDb,
-            taskEngine,
+            jobEngine,
             backend,
             workspaceRoot,
             agentEnv,
           }),
-        'Task command failed',
+        'Job command failed',
       );
     }
 

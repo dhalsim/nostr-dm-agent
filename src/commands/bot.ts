@@ -417,7 +417,7 @@ export function getHelpText(): string {
 !provider models [filter] — list Routstr models, optional filter by name
 !provider sync-models — sync models from Routstr
 !provider add-model <id> — add a Routstr model to opencode.json
-!task create-with|confirm|list|show|enable|disable|delete|history|run|help — scheduled prompts
+!job create-with|confirm|list|show|enable|disable|delete|history|run|help — scheduled jobs
 !file upload <path> <npub>   Encrypt and share a file with another bot
 !file download <naddr>       Download and decrypt a file shared with this bot
 !exit — stop the bot process`;

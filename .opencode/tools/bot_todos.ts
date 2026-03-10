@@ -83,9 +83,9 @@ export const bot_todos_create = tool({
   description:
     'Create a draft todo item for the user to review before it is saved. ' +
     'IMPORTANT — when creating todos from a document or list: ' +
-    '(1) First scan the entire document and identify which items have children/subtasks. ' +
-    '(2) Create ALL top-level (parent) items first — including both items with and without subtasks. ' +
-    '(3) Stop and tell the user: which parents were created, which have subtasks pending, and ask them to accept with !todo accept all. ' +
+    '(1) First scan the entire document and identify which items have children/sub-todos. ' +
+    '(2) Create ALL top-level (parent) items first — including both items with and without sub-todos. ' +
+    '(3) Stop and tell the user: which parents were created, which have sub-todos pending, and ask them to accept with !todo accept all. ' +
     '(4) Only after the user accepts and gives the go-ahead, call bot_todos_list to get the real IDs of the accepted parents. ' +
     '(5) Create the children using the correct parent_id from bot_todos_list. ' +
     '(6) If there are grandchildren, repeat: stop after creating the second level, wait for accept, then create grandchildren. ' +

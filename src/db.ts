@@ -112,7 +112,7 @@ export function openSeenDb(): SeenDb {
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS tasks (
+    CREATE TABLE IF NOT EXISTS jobs (
       id                     TEXT    PRIMARY KEY,
       name                   TEXT    NOT NULL UNIQUE,
       schedule               TEXT    NOT NULL,
@@ -134,19 +134,19 @@ export function openSeenDb(): SeenDb {
     )
   `);
 
-  db.run('CREATE UNIQUE INDEX IF NOT EXISTS tasks_name_unique ON tasks(name)');
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS jobs_name_unique ON jobs(name)');
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS task_runs (
+    CREATE TABLE IF NOT EXISTS job_runs (
       id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_id            INTEGER NOT NULL,
+      job_id             INTEGER NOT NULL,
       started_at         INTEGER NOT NULL,
       finished_at        INTEGER,
       status             TEXT    NOT NULL,
       output             TEXT,
       error              TEXT,
       budget_used_msats  INTEGER,
-      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+      FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
     )
   `);
 

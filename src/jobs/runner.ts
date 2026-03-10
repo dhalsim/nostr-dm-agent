@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// tasks/runner.ts — Execute a single task: backend run + DM result
+// jobs/runner.ts — Execute a single job: backend run + DM result
 // ---------------------------------------------------------------------------
 import { createBackend } from '../backends/factory';
 import type { AgentRunResult } from '../backends/types';
@@ -20,10 +20,10 @@ import { msatsRaw } from '../types';
 import type { WalletDb } from '../wallets/db';
 import { InsufficientFundsError } from '../wallets/types';
 
-import { insertTaskRun, updateTaskRun } from './db';
-import type { Task } from './types';
+import { insertJobRun, updateJobRun } from './db';
+import type { Job } from './types';
 
-export type TaskRunnerContext = {
+export type JobRunnerContext = {
   workspaceRoot: string;
   dmBotRoot: string;
   attachUrl: string | null;
@@ -35,11 +35,11 @@ export type TaskRunnerContext = {
   sendDm: (message: string) => Promise<void>;
 };
 
-export async function runTask(task: Task, db: SeenDb, context: TaskRunnerContext): Promise<void> {
-  const backendName = task.backend;
-  const providerName = task.provider;
-  const mode = task.mode;
-  const modelRaw = task.model || null;
+export async function runJob(job: Job, db: SeenDb, context: JobRunnerContext): Promise<void> {
+  const backendName = job.backend;
+  const providerName = job.provider;
+  const mode = job.mode;
+  const modelRaw = job.model || null;
 
   const finalModelOverride =
     providerName === 'routstr' && modelRaw ? `routstr/${modelRaw}` : modelRaw;
@@ -67,14 +67,14 @@ export async function runTask(task: Task, db: SeenDb, context: TaskRunnerContext
     routstrBaseUrl: context.routstrBaseUrl,
   });
 
-  const isAutoFlow = providerName === 'routstr' && task.budget_sats != null;
+  const isAutoFlow = providerName === 'routstr' && job.budget_sats != null;
 
   if (isAutoFlow) {
-    const { budget_sats } = task;
+    const { budget_sats } = job;
 
     if (!context.walletDb) {
       await context.sendDm(
-        `[Task: ${task.name}]\nSkipped: Wallet not available. Run \`npm run wallet:setup\`.`,
+        `[Job: ${job.name}]\nSkipped: Wallet not available. Run \`npm run wallet:setup\`.`,
       );
 
       return;
@@ -84,7 +84,7 @@ export async function runTask(task: Task, db: SeenDb, context: TaskRunnerContext
 
     if (!mintUrl) {
       await context.sendDm(
-        `[Task: ${task.name}]\nSkipped: No mint configured. Use !wallet mint <url>.`,
+        `[Job: ${job.name}]\nSkipped: No mint configured. Use !wallet mint <url>.`,
       );
 
       return;
@@ -94,7 +94,7 @@ export async function runTask(task: Task, db: SeenDb, context: TaskRunnerContext
 
     if (!mnemonic) {
       await context.sendDm(
-        `[Task: ${task.name}]\nSkipped: No wallet mnemonic. Run \`npm run wallet:setup\`.`,
+        `[Job: ${job.name}]\nSkipped: No wallet mnemonic. Run \`npm run wallet:setup\`.`,
       );
 
       return;
@@ -112,18 +112,18 @@ export async function runTask(task: Task, db: SeenDb, context: TaskRunnerContext
       });
 
       log.info(
-        `Task ${task.id}: auto-flow ${wasNew ? 'created session' : 'topped up'} with ${budget_sats} sats`,
+        `Job ${job.id}: auto-flow ${wasNew ? 'created session' : 'topped up'} with ${budget_sats} sats`,
       );
     } catch (err) {
       if (err instanceof InsufficientFundsError) {
         await context.sendDm(
-          `[Task: ${task.name}]\nSkipped: Insufficient wallet balance. Have ${err.available} sats, need ${budget_sats} sats.`,
+          `[Job: ${job.name}]\nSkipped: Insufficient wallet balance. Have ${err.available} sats, need ${budget_sats} sats.`,
         );
 
         return;
       }
 
-      await context.sendDm(`[Task: ${task.name}]\nSkipped: Deposit failed: ${String(err)}`);
+      await context.sendDm(`[Job: ${job.name}]\nSkipped: Deposit failed: ${String(err)}`);
 
       return;
     }
@@ -135,14 +135,14 @@ export async function runTask(task: Task, db: SeenDb, context: TaskRunnerContext
       await provider.prepareRun({ budgetSats });
     } catch (e) {
       if (e instanceof NoRoutstrSessionError || e instanceof ZeroRoutstrBalanceError) {
-        await context.sendDm(`[Task: ${task.name}]\nSkipped: ${e.message}`);
+        await context.sendDm(`[Job: ${job.name}]\nSkipped: ${e.message}`);
 
         return;
       }
 
       if (e instanceof InsufficientFundsError) {
         await context.sendDm(
-          `[Task: ${task.name}]\nSkipped: Wallet balance too low. Have ${e.available} sats, need ${e.required} sats.`,
+          `[Job: ${job.name}]\nSkipped: Wallet balance too low. Have ${e.available} sats, need ${e.required} sats.`,
         );
 
         return;
@@ -152,12 +152,12 @@ export async function runTask(task: Task, db: SeenDb, context: TaskRunnerContext
     }
   }
 
-  const runId = insertTaskRun(db, task.id);
+  const runId = insertJobRun(db, job.id);
 
   const effectiveContent =
-    task.instructions != null && task.instructions.trim().length > 0
-      ? `Instructions:\n${task.instructions}\n\nTask:\n${task.prompt}`
-      : task.prompt;
+    job.instructions != null && job.instructions.trim().length > 0
+      ? `Instructions:\n${job.instructions}\n\nJob:\n${job.prompt}`
+      : job.prompt;
 
   let result: AgentRunResult;
 
@@ -172,8 +172,8 @@ export async function runTask(task: Task, db: SeenDb, context: TaskRunnerContext
     });
   } catch (err) {
     const errMsg = String(err);
-    updateTaskRun(db, runId, 'error', null, errMsg, null);
-    await context.sendDm(`[Task: ${task.name}]\nError: ${errMsg}`);
+    updateJobRun(db, runId, 'error', null, errMsg, null);
+    await context.sendDm(`[Job: ${job.name}]\nError: ${errMsg}`);
 
     return;
   }
@@ -201,7 +201,7 @@ export async function runTask(task: Task, db: SeenDb, context: TaskRunnerContext
     budgetUsedMsats = finalizeResult.spentMsats;
   }
 
-  updateTaskRun(
+  updateJobRun(
     db,
     runId,
     success ? 'success' : 'error',
@@ -221,14 +221,14 @@ export async function runTask(task: Task, db: SeenDb, context: TaskRunnerContext
         const recovered = await refundRoutstr({ mnemonic, providerDb, seenDb: db, mintUrl, skKey });
 
         if (recovered > 0) {
-          log.info(`Task ${task.id}: auto-flow recovered ${recovered} sats`);
+          log.info(`Job ${job.id}: auto-flow recovered ${recovered} sats`);
         }
       } catch (err) {
-        log.error(`Task ${task.id}: auto-flow refund failed: ${String(err)}`);
+        log.error(`Job ${job.id}: auto-flow refund failed: ${String(err)}`);
       }
     }
   }
 
-  const header = `[Task: ${task.name}]\n`;
+  const header = `[Job: ${job.name}]\n`;
   await context.sendDm(header + (output || '(no output)'));
 }

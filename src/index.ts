@@ -51,6 +51,9 @@ import {
 import type { AgentMode, SeenDb } from './db';
 import { loadBotConfig } from './env';
 import type { BotConfig } from './env';
+import { createJobEngine } from './jobs/engine';
+import type { JobRunnerContext } from './jobs/runner';
+import { runJob } from './jobs/runner';
 import { runPostAgentLint, formatLintSummary } from './lint';
 import { C, debug, log } from './logger';
 import {
@@ -74,9 +77,6 @@ import {
 } from './providers/routstr';
 import type { AnyProvider } from './providers/types';
 import { getOrCreateCurrentSession, insertSessionMessage } from './session';
-import { createTaskEngine } from './tasks/engine';
-import type { TaskRunnerContext } from './tasks/runner';
-import { runTask } from './tasks/runner';
 import { msatsRaw } from './types';
 import { openWalletDb } from './wallets/db';
 import type { WalletDb } from './wallets/db';
@@ -531,7 +531,7 @@ function main() {
     });
   }
 
-  const taskRunnerContext: TaskRunnerContext = {
+  const jobRunnerContext: JobRunnerContext = {
     workspaceRoot,
     dmBotRoot,
     attachUrl: opencodeServeUrl,
@@ -552,12 +552,11 @@ function main() {
       }),
   };
 
-  const taskEngineContext = {
-    runTask: (task: import('./tasks/types').Task, db: SeenDb) =>
-      runTask(task, db, taskRunnerContext),
+  const jobEngineContext = {
+    runJob: (job: import('./jobs/types').Job, db: SeenDb) => runJob(job, db, jobRunnerContext),
   };
 
-  createTaskEngine(seenDb, taskEngineContext).start();
+  createJobEngine(seenDb, jobEngineContext).start();
 
   async function handleUserMessage(content: string, source: MessageSource): Promise<void> {
     const isLocal = source === 'local' || getReplyTransport(seenDb) === 'local';
@@ -589,7 +588,7 @@ function main() {
         walletDb,
         providerDb,
         config,
-        taskEngine: taskEngineContext,
+        jobEngine: jobEngineContext,
       });
 
       if (reply === EXIT_COMMAND_SENTINEL) {

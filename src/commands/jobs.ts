@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// commands/tasks.ts — !task sub-command handlers
+// commands/jobs.ts — !job sub-command handlers
 // ---------------------------------------------------------------------------
 import { randomBytes } from 'crypto';
 
@@ -8,19 +8,19 @@ import { toJSONSchema } from 'zod';
 import type { AgentBackend } from '../backends/types';
 import { getAgentBackend, getModelOverride, getProviderName, getRoutstrModel } from '../db';
 import type { SeenDb } from '../db';
-import { debug } from '../logger';
 import {
-  createTask,
-  deleteTask,
-  disableTask,
-  enableTask,
-  getTask,
-  listTaskRuns,
-  listTasks,
-} from '../tasks/db';
-import type { TaskEngineContext } from '../tasks/engine';
-import type { CreateTaskInput, Task } from '../tasks/types';
-import { CreateTaskInputSchema } from '../tasks/types';
+  createJob,
+  deleteJob,
+  disableJob,
+  enableJob,
+  getJob,
+  listJobRuns,
+  listJobs,
+} from '../jobs/db';
+import type { JobEngineContext } from '../jobs/engine';
+import type { CreateJobInput, Job } from '../jobs/types';
+import { CreateJobInputSchema } from '../jobs/types';
+import { debug } from '../logger';
 
 /**
  * Parse args. Special handling:
@@ -88,10 +88,10 @@ export function parseCreateArgs(args: string[]): Record<string, string> {
   return parsed;
 }
 
-function formatContextLine(task: Task): string {
-  const modelPart = task.model ? task.model : '—';
+function formatContextLine(job: Job): string {
+  const modelPart = job.model ? job.model : '—';
 
-  return [task.backend, task.provider, modelPart, task.mode].join(' / ');
+  return [job.backend, job.provider, modelPart, job.mode].join(' / ');
 }
 
 function formatNextRun(nextRunAt: number | null): string {
@@ -112,7 +112,7 @@ function formatNextRun(nextRunAt: number | null): string {
 // In-memory draft stores (both flows; cleared on bot restart)
 // -------------------------------------------------------------------------
 type CreateWithEntry = {
-  input: CreateTaskInput;
+  input: CreateJobInput;
   originalPrompt: string;
   history: string[];
 };
@@ -135,8 +135,8 @@ function getCurrentTimeContext(): { nowUtc: string; timeZone: string; nowLocal: 
   };
 }
 
-/** JSON Schema for CreateTaskInput (discriminated union cron | one-time). Used in create/revise prompts. */
-const CREATE_TASK_JSON_SCHEMA = JSON.stringify(toJSONSchema(CreateTaskInputSchema), null, 2);
+/** JSON Schema for CreateJobInput (discriminated union cron | one-time). Used in create/revise prompts. */
+const CREATE_JOB_JSON_SCHEMA = JSON.stringify(toJSONSchema(CreateJobInputSchema), null, 2);
 
 const CREATE_WITH_SYSTEM_PROMPT = (
   userPrompt: string,
@@ -144,14 +144,14 @@ const CREATE_WITH_SYSTEM_PROMPT = (
 ) => {
   const tc = getCurrentTimeContext();
 
-  return `You are creating a scheduled AI agent task from a natural-language request.
+  return `You are creating a scheduled AI agent job from a natural-language request.
 
 User request: "${userPrompt}"
 
 Current date and time (UTC): ${tc.nowUtc}
 Current date and time (user's timezone): ${tc.nowLocal}
 User's timezone: ${tc.timeZone}
-Use the current date/time above as the reference for relative times ("in 10 minutes", "tomorrow at 9am"). For one-time tasks, output run_at as an ISO 8601 date-time string in UTC (the instant in UTC, as a string; must be in the future). Interpret wall-clock times (e.g. "9am") in the user's timezone.
+Use the current date/time above as the reference for relative times ("in 10 minutes", "tomorrow at 9am"). For one-time jobs, output run_at as an ISO 8601 date-time string in UTC (the instant in UTC, as a string; must be in the future). Interpret wall-clock times (e.g. "9am") in the user's timezone.
 
 Current bot defaults (use these if the user does not specify): backend=${defaults.backend}, provider=${defaults.provider}, model=${defaults.model || '(empty = default)'}, mode=${defaults.mode}.
 
@@ -168,14 +168,14 @@ B) One-time: include execution_type: "one-time", run_at (ISO 8601 date-time stri
 
 Expected JSON structure (must match this schema):
 \`\`\`json
-${CREATE_TASK_JSON_SCHEMA}
+${CREATE_JOB_JSON_SCHEMA}
 \`\`\``;
 };
 
 const CREATE_WITH_REVISE_PROMPT = (entry: CreateWithEntry, corrections: string) => {
   const tc = getCurrentTimeContext();
 
-  return `You are revising a scheduled task configuration.
+  return `You are revising a scheduled job configuration.
 
 Original user request: "${entry.originalPrompt}"
 ${entry.history.length > 0 ? `Previous corrections:\n${entry.history.map((h) => `- ${h}`).join('\n')}` : ''}
@@ -191,11 +191,11 @@ Output ONLY a single JSON object matching this schema. Apply the user's correcti
 
 Schema:
 \`\`\`json
-${CREATE_TASK_JSON_SCHEMA}
+${CREATE_JOB_JSON_SCHEMA}
 \`\`\``;
 };
 
-function formatCreateWithPreview(id: string, input: CreateTaskInput): string {
+function formatCreateWithPreview(id: string, input: CreateJobInput): string {
   const w = 19;
 
   const common = [
@@ -224,7 +224,7 @@ function formatCreateWithPreview(id: string, input: CreateTaskInput): string {
   return `${lines.join('\n')}
 
 Draft ID: ${id}
-Reply: !task confirm ${id} | !task revise ${id} <corrections> | !task discard ${id}`;
+Reply: !job confirm ${id} | !job revise ${id} <corrections> | !job discard ${id}`;
 }
 
 async function generateCreateWithParams(
@@ -232,7 +232,7 @@ async function generateCreateWithParams(
   systemPrompt: string,
   cwd: string,
   agentEnv: Record<string, string | undefined>,
-): Promise<CreateTaskInput> {
+): Promise<CreateJobInput> {
   const sessionId = await backend.createSession({ cwd, env: agentEnv });
 
   const result = await backend.runMessage({
@@ -272,43 +272,43 @@ async function generateCreateWithParams(
     );
   }
 
-  return CreateTaskInputSchema.parse(parsed);
+  return CreateJobInputSchema.parse(parsed);
 }
 
-export type HandleTaskProps = {
+export type HandleJobProps = {
   args: string[];
   db: SeenDb;
-  taskEngine: TaskEngineContext | null;
+  jobEngine: JobEngineContext | null;
   backend: AgentBackend;
   workspaceRoot: string;
   agentEnv: Record<string, string | undefined>;
 };
 
-export async function handleTask({
+export async function handleJob({
   args,
   db,
-  taskEngine,
+  jobEngine,
   backend,
   workspaceRoot,
   agentEnv,
-}: HandleTaskProps): Promise<string> {
+}: HandleJobProps): Promise<string> {
   const sub = args[0]?.toLowerCase();
   const rest = args.slice(1);
 
   if (!sub || sub === 'help') {
-    return `!task create-with <prompt> — create a task from natural language (AI suggests params; confirm/revise/discard)
-!task drafts — list pending drafts
-!task confirm <draft_id> — create task from a create-with draft
-!task revise <draft_id> <corrections> — ask AI to revise create-with params
-!task discard <draft_id> — discard a draft
-!task list — list all tasks
-!task show <id> — show task details
-!task enable <id> — enable a task
-!task disable <id> — disable a task
-!task delete <id> — delete a task
-!task history <id> [N] — show run history (default N=10)
-!task run <id> — run task once now
-!task help — this message`;
+    return `!job create-with <prompt> — create a job from natural language (AI suggests params; confirm/revise/discard)
+!job drafts — list pending drafts
+!job confirm <draft_id> — create job from a create-with draft
+!job revise <draft_id> <corrections> — ask AI to revise create-with params
+!job discard <draft_id> — discard a draft
+!job list — list all jobs
+!job show <id> — show job details
+!job enable <id> — enable a job
+!job disable <id> — disable a job
+!job delete <id> — delete a job
+!job history <id> [N] — show run history (default N=10)
+!job run <id> — run job once now
+!job help — this message`;
   }
 
   // -------------------------------------------------------------------------
@@ -318,7 +318,7 @@ export async function handleTask({
     const userPrompt = rest.join(' ').trim();
 
     if (!userPrompt) {
-      return 'Usage: !task create-with <natural language request>\nExample: !task create-with send me a DM when weather is rainy in the morning';
+      return 'Usage: !job create-with <natural language request>\nExample: !job create-with send me a DM when weather is rainy in the morning';
     }
 
     const defaultBackend = getAgentBackend(db);
@@ -344,14 +344,14 @@ export async function handleTask({
       prompt: createWithPrompt,
     });
 
-    let input: CreateTaskInput;
+    let input: CreateJobInput;
 
     try {
       input = await generateCreateWithParams(backend, createWithPrompt, workspaceRoot, agentEnv);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
 
-      return `Failed to generate or validate task parameters: ${msg}`;
+      return `Failed to generate or validate job parameters: ${msg}`;
     }
 
     const draftId = generateDraftId();
@@ -379,37 +379,37 @@ export async function handleTask({
       return 'No pending drafts.';
     }
 
-    return `Pending drafts:\n${lines.join('\n')}\n\n!task confirm <id> | !task revise <id> <corrections> | !task discard <id>`;
+    return `Pending drafts:\n${lines.join('\n')}\n\n!job confirm <id> | !job revise <id> <corrections> | !job discard <id>`;
   }
 
-  const draftOrTaskId = rest[0]?.trim();
+  const draftOrJobId = rest[0]?.trim();
 
   // -------------------------------------------------------------------------
-  // confirm (create-with in-memory draft → create task)
+  // confirm (create-with in-memory draft → create job)
   // -------------------------------------------------------------------------
   if (sub === 'confirm') {
-    if (!draftOrTaskId) {
-      return 'Usage: !task confirm <draft_id>';
+    if (!draftOrJobId) {
+      return 'Usage: !job confirm <draft_id>';
     }
 
-    const entry = createWithStore.get(draftOrTaskId);
+    const entry = createWithStore.get(draftOrJobId);
 
     if (!entry) {
-      return `Draft not found: ${draftOrTaskId}. It may have expired (bot restart clears create-with drafts).`;
+      return `Draft not found: ${draftOrJobId}. It may have expired (bot restart clears create-with drafts).`;
     }
 
     try {
-      const task = createTask(db, entry.input);
-      createWithStore.delete(draftOrTaskId);
+      const job = createJob(db, entry.input);
+      createWithStore.delete(draftOrJobId);
 
       const budgetLine =
-        task.budget_sats != null ? `\nBudget: ${task.budget_sats} sats (auto-flow)` : '';
+        job.budget_sats != null ? `\nBudget: ${job.budget_sats} sats (auto-flow)` : '';
 
-      const scheduleDisplay = task.schedule_description;
+      const scheduleDisplay = job.schedule_description;
 
-      return `Task created: ${task.id}\nName: ${task.name}\nWhen: ${scheduleDisplay}\nNext run: ${formatNextRun(task.next_run_at)}${budgetLine}`;
+      return `Job created: ${job.id}\nName: ${job.name}\nWhen: ${scheduleDisplay}\nNext run: ${formatNextRun(job.next_run_at)}${budgetLine}`;
     } catch (err) {
-      return `Failed to create task: ${String(err)}`;
+      return `Failed to create job: ${String(err)}`;
     }
   }
 
@@ -417,20 +417,20 @@ export async function handleTask({
   // revise (create-with in-memory draft only)
   // -------------------------------------------------------------------------
   if (sub === 'revise') {
-    if (!draftOrTaskId) {
-      return 'Usage: !task revise <draft_id> <corrections>';
+    if (!draftOrJobId) {
+      return 'Usage: !job revise <draft_id> <corrections>';
     }
 
     const corrections = rest.slice(1).join(' ').trim();
 
     if (!corrections) {
-      return 'Usage: !task revise <draft_id> <corrections>';
+      return 'Usage: !job revise <draft_id> <corrections>';
     }
 
-    const createWithEntry = createWithStore.get(draftOrTaskId);
+    const createWithEntry = createWithStore.get(draftOrJobId);
 
     if (createWithEntry) {
-      let input: CreateTaskInput;
+      let input: CreateJobInput;
 
       try {
         input = await generateCreateWithParams(
@@ -447,57 +447,57 @@ export async function handleTask({
 
       createWithEntry.history.push(corrections);
       createWithEntry.input = input;
-      createWithStore.set(draftOrTaskId, createWithEntry);
+      createWithStore.set(draftOrJobId, createWithEntry);
 
-      return formatCreateWithPreview(draftOrTaskId, input);
+      return formatCreateWithPreview(draftOrJobId, input);
     }
 
-    return `Draft not found: ${draftOrTaskId}. It may have expired (bot restart clears drafts).`;
+    return `Draft not found: ${draftOrJobId}. It may have expired (bot restart clears drafts).`;
   }
 
   // -------------------------------------------------------------------------
   // discard (create-with in-memory first, else DB draft)
   // -------------------------------------------------------------------------
   if (sub === 'discard') {
-    if (!draftOrTaskId) {
-      return 'Usage: !task discard <draft_id>';
+    if (!draftOrJobId) {
+      return 'Usage: !job discard <draft_id>';
     }
 
-    if (createWithStore.has(draftOrTaskId)) {
-      createWithStore.delete(draftOrTaskId);
+    if (createWithStore.has(draftOrJobId)) {
+      createWithStore.delete(draftOrJobId);
 
-      return `Draft ${draftOrTaskId} discarded.`;
+      return `Draft ${draftOrJobId} discarded.`;
     }
 
-    return `Draft not found: ${draftOrTaskId}. It may have expired (bot restart clears drafts).`;
+    return `Draft not found: ${draftOrJobId}. It may have expired (bot restart clears drafts).`;
   }
 
   // -------------------------------------------------------------------------
   // list
   // -------------------------------------------------------------------------
   if (sub === 'list') {
-    const tasks = listTasks(db);
+    const jobs = listJobs(db);
 
-    if (tasks.length === 0) {
-      return 'No tasks. Use `!task create-with <prompt>` to add one.';
+    if (jobs.length === 0) {
+      return 'No jobs. Use `!job create-with <prompt>` to add one.';
     }
 
-    const scheduleCol = (t: Task): string => {
-      const desc = t.schedule_description;
+    const scheduleCol = (j: Job): string => {
+      const desc = j.schedule_description;
 
-      return t.max_runs != null ? `${desc} (max ${t.max_runs})` : desc;
+      return j.max_runs != null ? `${desc} (max ${j.max_runs})` : desc;
     };
 
     const escapeCell = (s: string): string => s.replace(/\|/g, '\\|');
     const header = '| ID | En | Name | Schedule | Next Run | Context |';
     const sep = '| --- | --- | --- | --- | --- | --- |';
 
-    const rows = tasks.map(
-      (t) =>
-        `| ${escapeCell(String(t.id))} | ${t.enabled ? '✓' : '—'} | ${escapeCell(t.name)} | ${escapeCell(scheduleCol(t))} | ${escapeCell(formatNextRun(t.next_run_at))} | ${escapeCell(formatContextLine(t))} |`,
+    const rows = jobs.map(
+      (j) =>
+        `| ${escapeCell(String(j.id))} | ${j.enabled ? '✓' : '—'} | ${escapeCell(j.name)} | ${escapeCell(scheduleCol(j))} | ${escapeCell(formatNextRun(j.next_run_at))} | ${escapeCell(formatContextLine(j))} |`,
     );
 
-    return `## Tasks\n\n${[header, sep, ...rows].join('\n')}`;
+    return `## Jobs\n\n${[header, sep, ...rows].join('\n')}`;
   }
 
   const idRaw = rest[0]?.trim();
@@ -509,41 +509,41 @@ export async function handleTask({
   // -------------------------------------------------------------------------
   if (sub === 'show') {
     if (!idRaw) {
-      return 'Usage: !task show <id>';
+      return 'Usage: !job show <id>';
     }
 
     if (!idValid) {
-      return 'Usage: !task show <id> (id must be a number)';
+      return 'Usage: !job show <id> (id must be a number)';
     }
 
-    const task = getTask(db, id);
+    const job = getJob(db, id);
 
-    if (!task) {
-      return `Task not found: ${id}`;
+    if (!job) {
+      return `Job not found: ${id}`;
     }
 
     const scheduleLine =
-      task.execution_type === 'cron'
-        ? `Schedule: ${task.schedule}${task.max_runs != null ? ` (max ${task.max_runs} runs)` : ''}`
-        : `Run at: ${task.run_at != null ? formatNextRun(task.run_at) : '—'} (once)`;
+      job.execution_type === 'cron'
+        ? `Schedule: ${job.schedule}${job.max_runs != null ? ` (max ${job.max_runs} runs)` : ''}`
+        : `Run at: ${job.run_at != null ? formatNextRun(job.run_at) : '—'} (once)`;
 
-    const scheduleDescLine = `When: ${task.schedule_description}`;
+    const scheduleDescLine = `When: ${job.schedule_description}`;
 
     const lines = [
-      `ID: ${task.id}`,
-      `Name: ${task.name}`,
-      `Type: ${task.execution_type}`,
+      `ID: ${job.id}`,
+      `Name: ${job.name}`,
+      `Type: ${job.execution_type}`,
       scheduleLine,
       scheduleDescLine,
-      `Prompt: ${task.prompt.slice(0, 80)}${task.prompt.length > 80 ? '…' : ''}`,
-      `Enabled: ${task.enabled ? 'yes' : 'no'}`,
-      `Next run: ${formatNextRun(task.next_run_at)}`,
-      `Backend: ${task.backend}`,
-      `Provider: ${task.provider}`,
-      `Model: ${task.model || '(default)'}`,
-      `Mode: ${task.mode}`,
-      `Budget: ${task.budget_sats != null ? `${task.budget_sats} sats (auto-flow)` : '—'}`,
-      `Instructions: ${task.instructions != null ? task.instructions.slice(0, 120) + (task.instructions.length > 120 ? '…' : '') : '—'}`,
+      `Prompt: ${job.prompt.slice(0, 80)}${job.prompt.length > 80 ? '…' : ''}`,
+      `Enabled: ${job.enabled ? 'yes' : 'no'}`,
+      `Next run: ${formatNextRun(job.next_run_at)}`,
+      `Backend: ${job.backend}`,
+      `Provider: ${job.provider}`,
+      `Model: ${job.model || '(default)'}`,
+      `Mode: ${job.mode}`,
+      `Budget: ${job.budget_sats != null ? `${job.budget_sats} sats (auto-flow)` : '—'}`,
+      `Instructions: ${job.instructions != null ? job.instructions.slice(0, 120) + (job.instructions.length > 120 ? '…' : '') : '—'}`,
     ];
 
     return lines.join('\n');
@@ -554,62 +554,62 @@ export async function handleTask({
   // -------------------------------------------------------------------------
   if (sub === 'enable') {
     if (!idValid) {
-      return 'Usage: !task enable <id>';
+      return 'Usage: !job enable <id>';
     }
 
-    if (!getTask(db, id)) {
-      return `Task not found: ${id}`;
+    if (!getJob(db, id)) {
+      return `Job not found: ${id}`;
     }
 
-    if (enableTask(db, id)) {
-      const task = getTask(db, id);
+    if (enableJob(db, id)) {
+      const job = getJob(db, id);
 
-      return `Task ${id} enabled. Next run: ${formatNextRun(task?.next_run_at ?? null)}`;
+      return `Job ${id} enabled. Next run: ${formatNextRun(job?.next_run_at ?? null)}`;
     }
 
-    return `Task ${id} is already enabled or schedule invalid.`;
+    return `Job ${id} is already enabled or schedule invalid.`;
   }
 
   if (sub === 'disable') {
     if (!idValid) {
-      return 'Usage: !task disable <id>';
+      return 'Usage: !job disable <id>';
     }
 
-    if (disableTask(db, id)) {
-      return `Task ${id} disabled.`;
+    if (disableJob(db, id)) {
+      return `Job ${id} disabled.`;
     }
 
-    return `Task not found or already disabled: ${id}`;
+    return `Job not found or already disabled: ${id}`;
   }
 
   if (sub === 'delete') {
     if (!idValid) {
-      return 'Usage: !task delete <id>';
+      return 'Usage: !job delete <id>';
     }
 
-    if (deleteTask(db, id)) {
-      return `Task ${id} deleted.`;
+    if (deleteJob(db, id)) {
+      return `Job ${id} deleted.`;
     }
 
-    return `Task not found: ${id}`;
+    return `Job not found: ${id}`;
   }
 
   if (sub === 'history') {
     if (!idValid) {
-      return 'Usage: !task history <id> [N]';
+      return 'Usage: !job history <id> [N]';
     }
 
-    const task = getTask(db, id);
+    const job = getJob(db, id);
 
-    if (!task) {
-      return `Task not found: ${id}`;
+    if (!job) {
+      return `Job not found: ${id}`;
     }
 
     const n = Math.min(50, Math.max(1, parseInt(rest[1] ?? '10', 10) || 10));
-    const runs = listTaskRuns(db, id, n);
+    const runs = listJobRuns(db, id, n);
 
     if (runs.length === 0) {
-      return `No runs yet for "${task.name}".`;
+      return `No runs yet for "${job.name}".`;
     }
 
     const lines = runs.map((r) => {
@@ -629,32 +629,32 @@ export async function handleTask({
       return `#${r.id} ${start} — ${r.status} (${duration})${err}`;
     });
 
-    return `History for "${task.name}" (last ${n}):\n${lines.join('\n')}`;
+    return `History for "${job.name}" (last ${n}):\n${lines.join('\n')}`;
   }
 
   if (sub === 'run') {
     if (!idValid) {
-      return 'Usage: !task run <id>';
+      return 'Usage: !job run <id>';
     }
 
-    const task = getTask(db, id);
+    const job = getJob(db, id);
 
-    if (!task) {
-      return `Task not found: ${id}`;
+    if (!job) {
+      return `Job not found: ${id}`;
     }
 
-    if (!taskEngine?.runTask) {
-      return 'Task engine not available (scheduled run only).';
+    if (!jobEngine?.runJob) {
+      return 'Job engine not available (scheduled run only).';
     }
 
     try {
-      await taskEngine.runTask(task, db);
+      await jobEngine.runJob(job, db);
 
-      return `Task ${id} (${task.name}) run triggered. Result will be sent by DM.`;
+      return `Job ${id} (${job.name}) run triggered. Result will be sent by DM.`;
     } catch (err) {
       return `Run failed: ${String(err)}`;
     }
   }
 
-  return `Unknown subcommand: ${sub}. Use !task help.`;
+  return `Unknown subcommand: ${sub}. Use !job help.`;
 }

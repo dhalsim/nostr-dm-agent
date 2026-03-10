@@ -1,10 +1,10 @@
 // ---------------------------------------------------------------------------
-// scripts/create-task.ts — CLI to create a task (Zod-validated, writes to DB)
+// scripts/create-job.ts — CLI to create a job (Zod-validated, writes to DB)
 // ---------------------------------------------------------------------------
-import { parseCreateArgs } from '../src/commands/tasks';
+import { parseCreateArgs } from '../src/commands/jobs';
 import { openSeenDb } from '../src/db';
-import { createTask } from '../src/tasks/db';
-import { CreateTaskInputSchema } from '../src/tasks/types';
+import { createJob } from '../src/jobs/db';
+import { CreateJobInputSchema } from '../src/jobs/types';
 
 function main(): void {
   const args = process.argv.slice(2);
@@ -33,7 +33,7 @@ function main(): void {
   const runAtRaw = parsed['run-at']?.trim() ?? '';
   const scheduleRaw = parsed['schedule']?.trim() ?? '';
 
-  let raw: Parameters<typeof CreateTaskInputSchema.safeParse>[0];
+  let raw: Parameters<typeof CreateJobInputSchema.safeParse>[0];
 
   if (runAtRaw) {
     const run_at = new Date(runAtRaw);
@@ -43,7 +43,7 @@ function main(): void {
     }
     raw = {
       execution_type: 'one-time',
-      run_at,
+      run_at: run_at.toISOString(),
       name,
       prompt,
       backend,
@@ -86,7 +86,7 @@ function main(): void {
     };
   }
 
-  const result = CreateTaskInputSchema.safeParse(raw);
+  const result = CreateJobInputSchema.safeParse(raw);
 
   if (!result.success) {
     const msg = result.error.flatten().fieldErrors;
@@ -102,14 +102,14 @@ function main(): void {
   const db = openSeenDb();
 
   try {
-    const task = createTask(db, input);
-    if (task.execution_type === 'one-time') {
+    const job = createJob(db, input);
+    if (job.execution_type === 'one-time') {
       console.log(
-        `Task created: ${task.id}\nName: ${task.name}\nRun at: ${task.run_at != null ? new Date(task.run_at).toISOString() : '—'}`,
+        `Job created: ${job.id}\nName: ${job.name}\nRun at: ${job.run_at != null ? new Date(job.run_at).toISOString() : '—'}`,
       );
     } else {
       console.log(
-        `Task created: ${task.id}\nName: ${task.name}\nSchedule: ${task.schedule}`,
+        `Job created: ${job.id}\nName: ${job.name}\nSchedule: ${job.schedule}`,
       );
     }
   } catch (err) {

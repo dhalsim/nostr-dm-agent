@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// tasks/db.ts — Task CRUD and run history
+// jobs/db.ts — Job CRUD and run history
 // ---------------------------------------------------------------------------
 import { Cron } from 'croner';
 
@@ -8,9 +8,9 @@ import type { SeenDb } from '../db';
 import type { ProviderName } from '../db';
 import { log } from '../logger';
 
-import type { CreateTaskInput, Task, TaskRun, TaskRunStatus } from './types';
+import type { CreateJobInput, Job, JobRun, JobRunStatus } from './types';
 
-export type GetNextRunAtTask = {
+export type GetNextRunAtJob = {
   execution_type: 'cron' | 'one-time';
   schedule: string;
   run_at: number | null;
@@ -18,20 +18,20 @@ export type GetNextRunAtTask = {
 };
 
 /**
- * Returns next run timestamp (ms) for a task, optionally after a given time.
+ * Returns next run timestamp (ms) for a job, optionally after a given time.
  * Uses Croner with paused: true (no callback). For one-time, returns null after that time.
  * For cron, returns null when runCount >= max_runs.
  */
 export function getNextRunAt(
-  task: GetNextRunAtTask,
+  job: GetNextRunAtJob,
   afterTimeMs?: number,
   runCount?: number,
 ): number | null {
-  if (task.execution_type === 'one-time' && task.run_at != null) {
+  if (job.execution_type === 'one-time' && job.run_at != null) {
     try {
-      const job = new Cron(new Date(task.run_at), { paused: true });
+      const cron = new Cron(new Date(job.run_at), { paused: true });
       const from = afterTimeMs != null ? new Date(afterTimeMs) : undefined;
-      const next = job.nextRun(from);
+      const next = cron.nextRun(from);
 
       return next ? next.getTime() : null;
     } catch {
@@ -39,15 +39,15 @@ export function getNextRunAt(
     }
   }
 
-  if (task.execution_type === 'cron' && task.schedule) {
-    if (task.max_runs != null && (runCount ?? 0) >= task.max_runs) {
+  if (job.execution_type === 'cron' && job.schedule) {
+    if (job.max_runs != null && (runCount ?? 0) >= job.max_runs) {
       return null;
     }
 
     try {
-      const job = new Cron(task.schedule, { paused: true });
+      const cron = new Cron(job.schedule, { paused: true });
       const from = afterTimeMs != null ? new Date(afterTimeMs) : undefined;
-      const next = job.nextRun(from);
+      const next = cron.nextRun(from);
 
       return next ? next.getTime() : null;
     } catch {
@@ -62,8 +62,8 @@ export function validateSchedule(
   schedule: string,
 ): { ok: true; cron: string } | { ok: false; error: string } {
   try {
-    const job = new Cron(schedule, { paused: true });
-    const next = job.nextRun();
+    const cron = new Cron(schedule, { paused: true });
+    const next = cron.nextRun();
 
     if (next == null) {
       return { ok: false, error: `Invalid cron expression: ${schedule}` };
@@ -75,7 +75,7 @@ export function validateSchedule(
   }
 }
 
-function rowToTask(row: Record<string, unknown>): Task {
+function rowToJob(row: Record<string, unknown>): Job {
   const backendRaw = row.backend != null && row.backend !== '';
   const providerRaw = row.provider != null && row.provider !== '';
   const modelRaw = row.model != null && row.model !== '';
@@ -105,28 +105,28 @@ function rowToTask(row: Record<string, unknown>): Task {
   };
 }
 
-function rowToTaskRun(row: Record<string, unknown>): TaskRun {
+function rowToJobRun(row: Record<string, unknown>): JobRun {
   return {
     id: Number(row.id),
-    task_id: Number(row.task_id),
+    job_id: Number(row.job_id),
     started_at: Number(row.started_at),
     finished_at: row.finished_at != null ? Number(row.finished_at) : null,
-    status: row.status as TaskRunStatus,
+    status: row.status as JobRunStatus,
     output: row.output != null ? String(row.output) : null,
     error: row.error != null ? String(row.error) : null,
     budget_used_msats: row.budget_used_msats != null ? Number(row.budget_used_msats) : null,
   };
 }
 
-export function getTaskRunCount(db: SeenDb, taskId: number): number {
-  const row = db.prepare('SELECT COUNT(*) as c FROM task_runs WHERE task_id = ?').get(taskId) as {
+export function getJobRunCount(db: SeenDb, jobId: number): number {
+  const row = db.prepare('SELECT COUNT(*) as c FROM job_runs WHERE job_id = ?').get(jobId) as {
     c: number;
   };
 
   return Number(row?.c ?? 0);
 }
 
-export function createTask(db: SeenDb, input: CreateTaskInput): Task {
+export function createJob(db: SeenDb, input: CreateJobInput): Job {
   const now = Date.now();
 
   if (input.execution_type === 'cron') {
@@ -152,7 +152,7 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
     }
 
     const info = db.run(
-      `INSERT INTO tasks (id, name, schedule, schedule_description, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
+      `INSERT INTO jobs (id, name, schedule, schedule_description, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
        VALUES (?, ?, ?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'cron', NULL, ?)`,
       [
         input.name,
@@ -171,9 +171,9 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
       ],
     );
 
-    return getTask(db, Number(info.lastInsertRowid))!;
+    return getJob(db, Number(info.lastInsertRowid))!;
   } else {
-    log.info(`Creating one-time task: ${input.run_at}`);
+    log.info(`Creating one-time job: ${input.run_at}`);
     log.info(`Now: ${new Date(now).toISOString()}`);
     log.info(`Timezone of the machine: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
 
@@ -184,7 +184,7 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
     }
 
     const info = db.run(
-      `INSERT INTO tasks (id, name, schedule, schedule_description, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
+      `INSERT INTO jobs (id, name, schedule, schedule_description, prompt, enabled, created_at, last_run_at, next_run_at, backend, provider, model, mode, budget_sats, instructions, execution_type, run_at, max_runs)
        VALUES (?, ?, ?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'one-time', ?, NULL)`,
       [
         input.name,
@@ -203,101 +203,102 @@ export function createTask(db: SeenDb, input: CreateTaskInput): Task {
       ],
     );
 
-    return getTask(db, Number(info.lastInsertRowid))!;
+    return getJob(db, Number(info.lastInsertRowid))!;
   }
 }
 
-export function listTasks(db: SeenDb): Task[] {
-  const rows = db
-    .prepare('SELECT * FROM tasks ORDER BY next_run_at ASC NULLS LAST')
-    .all() as Record<string, unknown>[];
+export function listJobs(db: SeenDb): Job[] {
+  const rows = db.prepare('SELECT * FROM jobs ORDER BY next_run_at ASC NULLS LAST').all() as Record<
+    string,
+    unknown
+  >[];
 
-  return rows.map(rowToTask);
+  return rows.map(rowToJob);
 }
 
-export function getTask(db: SeenDb, id: number): Task | null {
-  const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as
+export function getJob(db: SeenDb, id: number): Job | null {
+  const row = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) as
     | Record<string, unknown>
     | undefined;
 
-  return row ? rowToTask(row) : null;
+  return row ? rowToJob(row) : null;
 }
 
-export function deleteTask(db: SeenDb, id: number): boolean {
-  const info = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+export function deleteJob(db: SeenDb, id: number): boolean {
+  const info = db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
 
   return info.changes > 0;
 }
 
-export function enableTask(db: SeenDb, id: number): boolean {
-  const task = getTask(db, id);
+export function enableJob(db: SeenDb, id: number): boolean {
+  const job = getJob(db, id);
 
-  if (!task || task.enabled) {
+  if (!job || job.enabled) {
     return false;
   }
 
-  const runCount = getTaskRunCount(db, id);
-  const next_run_at = getNextRunAt(task, undefined, runCount);
+  const runCount = getJobRunCount(db, id);
+  const next_run_at = getNextRunAt(job, undefined, runCount);
 
   if (next_run_at == null) {
     return false;
   }
 
-  db.prepare('UPDATE tasks SET enabled = 1, next_run_at = ? WHERE id = ?').run(next_run_at, id);
+  db.prepare('UPDATE jobs SET enabled = 1, next_run_at = ? WHERE id = ?').run(next_run_at, id);
 
   return true;
 }
 
-export function disableTask(db: SeenDb, id: number): boolean {
-  const info = db.prepare('UPDATE tasks SET enabled = 0, next_run_at = NULL WHERE id = ?').run(id);
+export function disableJob(db: SeenDb, id: number): boolean {
+  const info = db.prepare('UPDATE jobs SET enabled = 0, next_run_at = NULL WHERE id = ?').run(id);
 
   return info.changes > 0;
 }
 
 /**
- * List task IDs that are enabled and due (next_run_at <= now).
+ * List job IDs that are enabled and due (next_run_at <= now).
  */
-export function listDueTasks(db: SeenDb): Task[] {
+export function listDueJobs(db: SeenDb): Job[] {
   const now = Date.now();
 
   const rows = db
     .prepare(
-      'SELECT * FROM tasks WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?',
+      'SELECT * FROM jobs WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?',
     )
     .all(now) as Record<string, unknown>[];
 
-  return rows.map(rowToTask);
+  return rows.map(rowToJob);
 }
 
-export function updateTaskRunTimes(
+export function updateJobRunTimes(
   db: SeenDb,
-  taskId: number,
+  jobId: number,
   lastRunAt: number,
   nextRunAt: number | null,
 ): void {
-  db.prepare('UPDATE tasks SET last_run_at = ?, next_run_at = ? WHERE id = ?').run(
+  db.prepare('UPDATE jobs SET last_run_at = ?, next_run_at = ? WHERE id = ?').run(
     lastRunAt,
     nextRunAt,
-    taskId,
+    jobId,
   );
 }
 
-export function insertTaskRun(db: SeenDb, taskId: number): number {
+export function insertJobRun(db: SeenDb, jobId: number): number {
   const now = Date.now();
 
   const info = db
     .prepare(
-      'INSERT INTO task_runs (task_id, started_at, finished_at, status, output, error) VALUES (?, ?, NULL, ?, NULL, NULL)',
+      'INSERT INTO job_runs (job_id, started_at, finished_at, status, output, error) VALUES (?, ?, NULL, ?, NULL, NULL)',
     )
-    .run(taskId, now, 'running');
+    .run(jobId, now, 'running');
 
   return info.lastInsertRowid as number;
 }
 
-export function updateTaskRun(
+export function updateJobRun(
   db: SeenDb,
   runId: number,
-  status: TaskRunStatus,
+  status: JobRunStatus,
   output: string | null,
   error: string | null,
   budgetUsedMsats: number | null,
@@ -305,14 +306,14 @@ export function updateTaskRun(
   const now = Date.now();
 
   db.prepare(
-    'UPDATE task_runs SET finished_at = ?, status = ?, output = ?, error = ?, budget_used_msats = ? WHERE id = ?',
+    'UPDATE job_runs SET finished_at = ?, status = ?, output = ?, error = ?, budget_used_msats = ? WHERE id = ?',
   ).run(now, status, output ?? null, error ?? null, budgetUsedMsats, runId);
 }
 
-export function listTaskRuns(db: SeenDb, taskId: number, limit: number): TaskRun[] {
+export function listJobRuns(db: SeenDb, jobId: number, limit: number): JobRun[] {
   const rows = db
-    .prepare('SELECT * FROM task_runs WHERE task_id = ? ORDER BY id DESC LIMIT ?')
-    .all(taskId, limit) as Record<string, unknown>[];
+    .prepare('SELECT * FROM job_runs WHERE job_id = ? ORDER BY id DESC LIMIT ?')
+    .all(jobId, limit) as Record<string, unknown>[];
 
-  return rows.map(rowToTaskRun);
+  return rows.map(rowToJobRun);
 }
