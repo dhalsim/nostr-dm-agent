@@ -22,6 +22,9 @@ import { storeDraft } from '../todos/drafts';
 import { formatTodoTree } from '../todos/format';
 import { CreateTodoInputSchema, UpdateTodoInputSchema } from '../todos/types';
 
+import type { ParseSettledResult } from './utils';
+import { parseToolCalls } from './utils';
+
 // ---------------------------------------------------------------------------
 // TodoToolCall discriminated union + schema
 // ---------------------------------------------------------------------------
@@ -65,19 +68,21 @@ export function buildSystemPrompt(userPrompt: string, activeTree: string): strin
 
   return `You are managing a todo list for the user.
 
-Active todos (pending only):
+Active todos (pending and in progress):
 ${activeTree}
 
 User request: "${userPrompt}"
 
 Instructions:
 - If the user wants to see todos, output type "list".
-- If the user wants to create a todo, output type "create". Use the active todos above to resolve any parent todo name to its numeric id.
-- If the user wants to update a todo (change text, priority, status, etc.), output type "update".
+- If the user wants to create a new todo (e.g. "add ...", "create ..."), output type "create". Use the active todos above to resolve any parent todo name to its numeric id.
+- If the user wants to update an existing todo (e.g. "update ...", "change ...", "set ... to ...", "mark ... as ...", or changing status/priority/text of something that already exists), output type "update". Resolve the todo by name from the active list to its numeric id and only include the fields being changed (id plus status, todo, priority, etc. as needed).
 - If the user wants to delete a todo, output type "delete".
-- For parent resolution: match by name (case-insensitive, partial match is fine). If ambiguous, pick the closest match and note it in the todo text.
+- Important: "update [todo name] status to X" or "change [todo name] to pending" means update the existing todo with that name — use "update" with that todo's id and the new status, not "create".
+- For name resolution: match by name (case-insensitive, partial match is fine). If ambiguous, pick the closest match and note it in the todo text.
 
-Output ONLY a single JSON object matching this JSON Schema. No markdown, no code fence, no explanation:
+Output one or more JSON objects matching this JSON Schema. Use a single object for one operation, or one JSON object per line (JSONL) for multiple operations (e.g. creating several todos). No markdown, no code fence, no explanation:
+
 ${JSON.stringify(schema, null, 2)}`;
 }
 
@@ -85,30 +90,8 @@ ${JSON.stringify(schema, null, 2)}`;
 // Response parser
 // ---------------------------------------------------------------------------
 
-export function parseToolCall(raw: string): TodoToolCall {
-  const stripped = raw
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
-
-  let jsonStr = stripped;
-  const firstBrace = stripped.indexOf('{');
-  const lastBrace = stripped.lastIndexOf('}');
-
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    jsonStr = stripped.slice(firstBrace, lastBrace + 1);
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch {
-    throw new Error(
-      `Model response was not valid JSON. Raw output (first 200 chars): ${raw.slice(0, 200)}`,
-    );
-  }
-
-  return TodoToolCallSchema.parse(parsed);
+export function parseTodoToolCalls(raw: string): ParseSettledResult<TodoToolCall>[] {
+  return parseToolCalls({ raw, schema: TodoToolCallSchema });
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +106,7 @@ function formatCreatePreview(draftId: number, call: z.infer<typeof TodoCreateCal
     ``,
     `  todo        : ${input.todo}`,
     `  parent      : ${input.parent_id ?? '(top-level)'}`,
+    `  status      : pending`,
     `  priority    : ${input.priority ?? '—'}`,
     `  description : ${input.description ?? '—'}`,
     `  tags        : ${input.tags?.join(', ') ?? '—'}`,
@@ -132,18 +116,52 @@ function formatCreatePreview(draftId: number, call: z.infer<typeof TodoCreateCal
   ].join('\n');
 }
 
-function formatUpdatePreview(draftId: number, call: z.infer<typeof TodoUpdateCallSchema>): string {
+const UPDATE_PREVIEW_FIELDS: Array<{
+  key: keyof z.infer<typeof UpdateTodoInputSchema>;
+  label: string;
+}> = [
+  { key: 'todo', label: 'todo' },
+  { key: 'status', label: 'status' },
+  { key: 'priority', label: 'priority' },
+  { key: 'description', label: 'description' },
+  { key: 'tags', label: 'tags' },
+];
+
+function formatUpdatePreview(
+  draftId: number,
+  call: z.infer<typeof TodoUpdateCallSchema>,
+  db: SeenDb,
+): string {
   const { input } = call;
 
-  const fields = Object.entries(input)
-    .filter(([k]) => k !== 'id')
-    .map(([k, v]) => `  ${k.padEnd(12)}: ${v ?? '—'}`)
-    .join('\n');
+  const existing = getTodo(db, input.id);
+
+  const titleLine = existing ? `Todo #${input.id}: "${existing.todo}"` : `Todo #${input.id}`;
+
+  const formatVal = (v: string | string[] | null | undefined): string => {
+    if (v === undefined || v === null) {
+      return '—';
+    }
+
+    return Array.isArray(v) ? v.join(', ') : String(v);
+  };
+
+  const lines = UPDATE_PREVIEW_FIELDS.map(({ key, label }) => {
+    const current = existing ? (existing as Record<string, unknown>)[key] : undefined;
+    const next = (input as Record<string, unknown>)[key];
+    const hasChange = key in input && next !== undefined;
+    const currentStr = formatVal(current as string | string[] | null | undefined);
+    const nextStr = formatVal(next as string | string[] | null | undefined);
+
+    const value = hasChange ? `${currentStr} → ${nextStr}` : currentStr;
+
+    return `  ${label.padEnd(12)}: ${value}`;
+  });
 
   return [
-    `I'm going to update todo #${input.id}:`,
+    `I'm going to update ${titleLine}`,
     ``,
-    fields,
+    ...lines,
     ``,
     `Draft ID: ${draftId}`,
     `Reply: !todo accept ${draftId} | !todo revise ${draftId} <corrections> | !todo decline ${draftId}`,
@@ -193,7 +211,7 @@ export async function handleTodoAi({
 
   // Fetch active todos (pending only) for context injection
   const allTodos = listTodos(db);
-  const activeTodos = allTodos.filter((t) => t.status === 'pending');
+  const activeTodos = allTodos.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
   const activeTree = activeTodos.length > 0 ? formatTodoTree(activeTodos) : '(no active todos yet)';
 
   const systemPrompt = buildSystemPrompt(userPrompt, activeTree);
@@ -216,17 +234,27 @@ export async function handleTodoAi({
     return 'Model returned no output. Try again or rephrase your request.';
   }
 
-  let call: TodoToolCall;
-  try {
-    call = parseToolCall(raw);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+  const results = parseTodoToolCalls(raw);
+
+  const fulfilled = results.filter(
+    (r): r is { status: 'fulfilled'; value: TodoToolCall } => r.status === 'fulfilled',
+  );
+
+  if (fulfilled.length === 0) {
+    const firstRejected = results.find((r) => r.status === 'rejected');
+
+    const msg =
+      firstRejected?.status === 'rejected' ? firstRejected.reason.message : 'No valid JSON';
 
     return `Failed to parse model response: ${msg}`;
   }
 
-  // --- list: execute immediately ---
-  if (call.type === 'list') {
+  const calls = fulfilled.map((r) => r.value);
+
+  // --- list: execute immediately (only one list, ignore rest) ---
+  const listCall = calls.find((c) => c.type === 'list');
+
+  if (listCall) {
     const todos = listTodos(db);
     const pending = todos.filter((t) => t.status === 'pending');
 
@@ -237,38 +265,36 @@ export async function handleTodoAi({
     return formatTodoTree(pending);
   }
 
-  // --- create: draft + preview ---
-  if (call.type === 'create') {
-    const draftId = storeDraft(db, {
-      kind: 'create',
-      input: call.input,
-      originalPrompt: userPrompt,
-    });
+  // --- process create/update/delete (can be multiple) ---
+  const previews: string[] = [];
 
-    return formatCreatePreview(draftId, call);
+  for (const call of calls) {
+    if (call.type === 'create') {
+      const draftId = storeDraft(db, {
+        kind: 'create',
+        input: call.input,
+        originalPrompt: userPrompt,
+      });
+
+      previews.push(formatCreatePreview(draftId, call));
+    } else if (call.type === 'update') {
+      const draftId = storeDraft(db, {
+        kind: 'update',
+        input: call.input,
+        originalPrompt: userPrompt,
+      });
+
+      previews.push(formatUpdatePreview(draftId, call, db));
+    } else if (call.type === 'delete') {
+      const draftId = storeDraft(db, {
+        kind: 'delete',
+        input: call.input,
+        originalPrompt: userPrompt,
+      });
+
+      previews.push(formatDeletePreview(draftId, call, db));
+    }
   }
 
-  // --- update: draft + preview ---
-  if (call.type === 'update') {
-    const draftId = storeDraft(db, {
-      kind: 'update',
-      input: call.input,
-      originalPrompt: userPrompt,
-    });
-
-    return formatUpdatePreview(draftId, call);
-  }
-
-  // --- delete: draft + preview ---
-  if (call.type === 'delete') {
-    const draftId = storeDraft(db, {
-      kind: 'delete',
-      input: call.input,
-      originalPrompt: userPrompt,
-    });
-
-    return formatDeletePreview(draftId, call, db);
-  }
-
-  return 'Unknown operation type returned by model.';
+  return previews.length > 0 ? previews.join('\n\n') : 'Unknown operation type returned by model.';
 }

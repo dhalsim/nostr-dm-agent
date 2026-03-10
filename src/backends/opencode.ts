@@ -89,7 +89,7 @@ const toolUseEventSchema = baseEventSchema
   })
   .passthrough();
 
-const MAX_DEBUG_TEXT_LEN = 30;
+const MAX_DEBUG_TEXT_LEN = 300;
 
 function truncate(s: string): string {
   return s.length > MAX_DEBUG_TEXT_LEN ? s.slice(0, MAX_DEBUG_TEXT_LEN) + '...' : s;

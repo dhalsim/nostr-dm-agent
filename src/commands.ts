@@ -40,7 +40,6 @@ import {
   handleResumeSession,
   handleShowLastMessages,
 } from './commands/session';
-import { handleTodoAi } from './commands/todo-ai';
 import { handleTodo } from './commands/todos';
 import {
   handleWalletBalance,
@@ -65,6 +64,7 @@ import type { JobEngineContext } from './jobs/engine';
 import { getInfoLogsEnabled, log, setInfoLogsEnabled } from './logger';
 import { RESTART_REQUESTED_PATH } from './paths';
 import type { ProviderDb } from './providers/db';
+import { handleTodoAi } from './tools/todo-ai';
 import { formatMsats, msats } from './types';
 import { decodeToken } from './wallets/cashu';
 import { getBalanceByMint, type WalletDb } from './wallets/db';

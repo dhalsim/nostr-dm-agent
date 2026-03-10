@@ -8,8 +8,7 @@ import { deleteDraft, getDraft, listDrafts, storeDraft } from '../todos/drafts';
 import { formatTodoDetail, formatTodoTree } from '../todos/format';
 import { CreateTodoInputSchema, TodoStatusSchema } from '../todos/types';
 import type { CreateTodoInput } from '../todos/types';
-
-import { buildSystemPrompt, parseToolCall } from './todo-ai';
+import { buildSystemPrompt, parseTodoToolCalls } from '../tools/todo-ai';
 
 // ---------------------------------------------------------------------------
 // Preview formatting
@@ -327,20 +326,54 @@ export async function handleTodo({
         return `Draft not found: ${id}`;
       }
 
-      if (entry.kind === 'create' || entry.kind === 'update') {
+      if (entry.kind === 'create') {
+        const c = entry.input;
+
         return [
-          `Draft #${id} [${entry.kind}]:`,
-          `  todo        : ${'todo' in entry.input ? entry.input.todo : '—'}`,
-          `  parent      : ${'parent_id' in entry.input ? (entry.input.parent_id ?? '(top-level)') : '—'}`,
-          `  priority    : ${'priority' in entry.input ? (entry.input.priority ?? '—') : '—'}`,
-          `  description : ${'description' in entry.input ? (entry.input.description ?? '—') : '—'}`,
-          `  tags        : ${'tags' in entry.input && entry.input.tags ? entry.input.tags.join(', ') : '—'}`,
+          `Draft #${id} [create]:`,
+          `  todo        : ${c.todo}`,
+          `  parent      : ${c.parent_id ?? '(top-level)'}`,
+          `  priority    : ${c.priority ?? '—'}`,
+          `  description : ${c.description ?? '—'}`,
+          `  tags        : ${c.tags?.join(', ') ?? '—'}`,
           `  prompt      : ${entry.originalPrompt}`,
           ``,
           `  !todo accept ${id} | !todo revise ${id} <corrections> | !todo decline ${id}`,
-        ]
-          .filter((l) => l !== '')
-          .join('\n');
+        ].join('\n');
+      }
+
+      if (entry.kind === 'update') {
+        const u = entry.input;
+
+        const existing = getTodo(db, u.id);
+
+        const targetLine = existing
+          ? `  target      : #${u.id} "${existing.todo}"`
+          : `  target      : #${u.id}`;
+
+        const fieldLines = Object.entries(u)
+          .filter(([k, v]) => k !== 'id' && v !== undefined)
+          .map(([k, v]) => {
+            const val = v === null ? '—' : Array.isArray(v) ? v.join(', ') : String(v);
+
+            const oldVal =
+              existing && (k === 'status' || k === 'priority' || k === 'todo')
+                ? ((existing as Record<string, unknown>)[k] ?? '—')
+                : null;
+
+            const oldStr = oldVal !== null ? `${oldVal} → ` : '';
+
+            return `  ${k.padEnd(12)}: ${oldStr}${val}`;
+          });
+
+        return [
+          `Draft #${id} [update]:`,
+          targetLine,
+          ...(fieldLines.length > 0 ? fieldLines : ['  (no fields set)']),
+          `  prompt      : ${entry.originalPrompt}`,
+          ``,
+          `  !todo accept ${id} | !todo revise ${id} <corrections> | !todo decline ${id}`,
+        ].join('\n');
       }
 
       // delete draft
@@ -512,7 +545,7 @@ export async function handleTodo({
     }
 
     const allTodos = listTodos(db);
-    const activeTodos = allTodos.filter((t) => t.status === 'pending');
+    const activeTodos = allTodos.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
     const activeTree = activeTodos.length > 0 ? formatTodoTree(activeTodos) : '(no active todos)';
 
     const revisedPrompt = `Revise the following todo: "${entry.input.todo}". Correction: "${corrections}".`;
@@ -535,12 +568,22 @@ export async function handleTodo({
       return 'AI returned no output. Try running: !todo-ai <revised description>';
     }
 
-    let call;
-    try {
-      call = parseToolCall(raw);
-    } catch {
-      return `Failed to parse AI response. Try running: !todo-ai <revised description>`;
+    const results = parseTodoToolCalls(raw);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+
+    if (fulfilled.length !== 1) {
+      const firstRejected = results.find((r) => r.status === 'rejected');
+
+      const msg =
+        firstRejected?.status === 'rejected'
+          ? firstRejected.reason.message
+          : 'Expected exactly one tool call';
+
+      return `Failed to parse AI response: ${msg}. Try running: !todo-ai <revised description>`;
     }
+
+    const call = fulfilled[0].value;
 
     if (call.type !== 'create') {
       return `AI did not return a create command. Try running: !todo-ai <revised description>`;
