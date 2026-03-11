@@ -4,6 +4,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
+import type { SessionPromptData } from '@opencode-ai/sdk';
 import { createOpencode } from '@opencode-ai/sdk';
 
 import type { AgentMode } from '../db';
@@ -216,7 +217,13 @@ export function createOpencodeSDKBackend({
       const effectiveModel = runModelOverride ?? modelName;
       const model = modelToProviderAndId(effectiveModel);
 
-      const input = {
+      if (runModelOverride) {
+        debug(`opencode-sdk: runMessage using model override: ${runModelOverride}`);
+      }
+
+      // Send model in both nested (body.model) and flat (body.providerID/modelID) form
+      // so the server respects the override regardless of which shape it expects.
+      const input: SessionPromptData = {
         path: { id: sessionId },
         body: {
           parts: [{ type: 'text', text: content }],
@@ -224,11 +231,12 @@ export function createOpencodeSDKBackend({
           agent: mode,
         },
         query: { directory: cwd },
+        url: '/session/{id}/message',
       };
 
       debug('opencode-sdk session.prompt input', JSON.stringify(input, null, 2));
 
-      const result = await client.session.prompt(input as any);
+      const result = await client.session.prompt(input);
 
       debug('opencode-sdk session.prompt result', JSON.stringify(result, null, 2));
 
