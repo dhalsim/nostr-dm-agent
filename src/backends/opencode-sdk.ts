@@ -232,6 +232,18 @@ export function createOpencodeSDKBackend({
 
       debug('opencode-sdk session.prompt result', JSON.stringify(result, null, 2));
 
+      // Debug: response metadata (body already consumed by SDK into result.data)
+      const res = result.response as Response | undefined;
+
+      if (res) {
+        debug('opencode-sdk session.prompt response', {
+          status: res.status,
+          statusText: res.statusText,
+          contentType: res.headers?.get?.('content-type') ?? null,
+          ok: res.ok,
+        });
+      }
+
       if (result.error) {
         const err = result.error as
           | { data?: { message?: string }; statusCode?: number }
@@ -254,7 +266,14 @@ export function createOpencodeSDKBackend({
         } satisfies AgentErrorResult;
       }
 
-      const data = result.data as
+      // API contract: 200 body is { info, parts }. Some servers may wrap in .data
+      const rawData = result.data as Record<string, unknown> | undefined;
+
+      const data = (
+        rawData && typeof rawData.data === 'object' && rawData.data !== null
+          ? (rawData.data as Record<string, unknown>)
+          : rawData
+      ) as
         | {
             info?: {
               cost?: number;
@@ -331,7 +350,10 @@ export function createOpencodeSDKBackend({
       if (!output) {
         output = '(no output)';
 
+        const res = result.response as Response | undefined;
+
         debug('opencode-sdk prompt: no text in parts', {
+          responseStatus: res?.status ?? null,
           partsLength: parts.length,
           parts: data.parts,
           info: data.info,
