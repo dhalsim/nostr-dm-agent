@@ -37,6 +37,12 @@ You have an existing project — we call it the **parent** in workspace terms.
 
    Add `dm-bot/` to your project’s `.gitignore` so the bot can have its own git repo.
 
+   In order opencode-sdk backend works with your project properly (when workspace is set to `parent` which is the default), you need to copy `dm-bot/opencode.json` to your project root.
+   
+   ```bash
+   cp dm-bot/opencode.json .
+   ```
+
 2. **Quick start (from the bot directory)**
 
 ```bash

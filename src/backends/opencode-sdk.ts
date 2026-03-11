@@ -207,7 +207,6 @@ export function createOpencodeSDKBackend({
       sessionId,
       content,
       mode,
-      // TODO: need to change according to the workspace, no?
       cwd,
       env,
       modelOverride: runModelOverride,
