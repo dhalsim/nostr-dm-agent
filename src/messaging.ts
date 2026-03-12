@@ -1,27 +1,52 @@
 // ---------------------------------------------------------------------------
-// messaging.ts — Message chunking, formatting, and NIP-17 DM sending
+// messaging.ts — Message chunking, formatting, and reply sending
 // ---------------------------------------------------------------------------
-import type { EventTemplate, VerifiedEvent } from 'nostr-tools/core';
-import { wrapEvent } from 'nostr-tools/nip17';
-import type { SimplePool } from 'nostr-tools/pool';
-
 import type { AgentRunResult } from './backends/types';
 import type { AgentMode } from './db';
-import { ensureWss } from './env';
-import { C, debug, log, stripAnsi } from './logger';
+import { C, log } from './logger';
 
 export const CHUNK_MAX = 4200;
 export const CHUNK_DELAY_BASE_MS = 1500;
 export const CHUNK_DELAY_MAX_MS = 12000;
 
-export const PROFILE_RELAYS = new Set([
-  'wss://purplepag.es',
-  'wss://relay.nos.social',
-  'wss://user.kindpag.es',
-  'wss://relay.nostr.band',
-]);
+export type MessageSource = 'nostr' | 'local';
 
-// wss://purplepag.es wss://relay.nos.social wss://user.kindpag.es wss://relay.nostr.band
+export type SendChunkedReplyProps = {
+  source: MessageSource;
+  reply: string;
+  sendReplyForSource: (source: MessageSource, message: string) => Promise<void>;
+};
+
+export async function sendChunkedReply({
+  source,
+  reply,
+  sendReplyForSource,
+}: SendChunkedReplyProps): Promise<void> {
+  const chunks = chunkMessage(reply);
+  const total = chunks.length;
+  let delayMs = CHUNK_DELAY_BASE_MS;
+
+  for (let i = 0; i < chunks.length; i++) {
+    const hasNextChunk = i < chunks.length - 1;
+
+    const maybeNextPrompt = hasNextChunk && source === 'nostr' ? '\n<CHECK NEXT MESSAGE>' : '';
+
+    const chunkBody = `${chunks[i]}${maybeNextPrompt}`;
+    const chunk = total > 1 ? `(${i + 1}/${total}) ${chunkBody}` : chunkBody;
+
+    try {
+      await sendReplyForSource(source, chunk);
+    } catch (e) {
+      const targetLabel = source === 'local' ? 'local output' : 'DM chunk';
+      log.error(`Failed to send ${targetLabel}: ${String(e)}`);
+    }
+
+    if (hasNextChunk) {
+      await sleep(delayMs);
+      delayMs = Math.min(delayMs * 2, CHUNK_DELAY_MAX_MS);
+    }
+  }
+}
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -76,119 +101,4 @@ export function tokenFooter(result: AgentRunResult, local: boolean, spentMsats =
   const raw = `[tokens: ${input} in / ${output} out${costStr}${modelStr}]`;
 
   return local ? `\n${C.gray}${raw}${C.reset}` : `\n${raw}`;
-}
-
-export async function getMasterDmRelays(
-  pool: SimplePool,
-  botRelayUrl: string,
-  masterPubkey: string,
-): Promise<string[]> {
-  try {
-    const relays = Array.from(PROFILE_RELAYS).concat(botRelayUrl);
-
-    const event = await pool.get(relays, {
-      kinds: [10050],
-      authors: [masterPubkey],
-      limit: 1,
-    });
-
-    if (event) {
-      const urls = event.tags.filter((t) => t[0] === 'relay' && t[1]).map((t) => ensureWss(t[1]));
-
-      if (urls.length > 0) {
-        debug('Master kind:10050 relays:', urls);
-
-        return urls;
-      }
-    }
-  } catch (err) {
-    debug('Failed to fetch master kind:10050:', err);
-  }
-
-  debug('No kind:10050 for master, using bot relay');
-
-  return [botRelayUrl];
-}
-
-export type SendDmProps = {
-  pool: SimplePool;
-  botRelayUrl: string;
-  senderSecretKey: Uint8Array;
-  recipientPubkey: string;
-  message: string;
-  signAuthEvent: (template: EventTemplate) => Promise<VerifiedEvent>;
-  redrawPrompt: (() => void) | null;
-};
-
-export async function sendDm({
-  pool,
-  botRelayUrl,
-  senderSecretKey,
-  recipientPubkey,
-  message,
-  signAuthEvent,
-  redrawPrompt,
-}: SendDmProps): Promise<void> {
-  const plain = stripAnsi(message);
-  const targetRelays = await getMasterDmRelays(pool, botRelayUrl, recipientPubkey);
-  const recipientRelayHint = targetRelays[0] ?? botRelayUrl;
-
-  const giftWrap = wrapEvent(
-    senderSecretKey,
-    { publicKey: recipientPubkey, relayUrl: recipientRelayHint },
-    plain,
-  );
-
-  debug('Publishing to relays:', targetRelays, 'event id:', giftWrap.id);
-
-  const publishResults = await Promise.allSettled(
-    pool.publish(targetRelays, giftWrap, { onauth: signAuthEvent }),
-  );
-
-  const successCount = publishResults.filter((r) => r.status === 'fulfilled').length;
-
-  const failed = publishResults
-    .map((r, idx) => ({ r, relay: targetRelays[idx] ?? 'unknown-relay' }))
-    .filter((x) => x.r.status === 'rejected');
-
-  for (const x of failed) {
-    const reason =
-      x.r.status === 'rejected'
-        ? x.r.reason instanceof Error
-          ? x.r.reason.message
-          : String(x.r.reason)
-        : 'unknown';
-
-    log.error(`Publish failed on relay ${x.relay}: ${String(reason)}`);
-  }
-
-  if (successCount === 0) {
-    const reasons = failed
-      .map((x) =>
-        x.r.status === 'rejected'
-          ? x.r.reason instanceof Error
-            ? x.r.reason.message
-            : String(x.r.reason)
-          : 'unknown',
-      )
-      .join(' | ');
-
-    throw new Error(`DM publish failed on all relays: ${reasons || 'unknown error'}`);
-  }
-
-  const lines = plain.split('\n');
-  const lastLine = lines[lines.length - 1] ?? '';
-  const lastIsTokens = lines.length > 0 && /^\[tokens:/.test(lastLine.trimStart());
-  const body = lastIsTokens ? lines.slice(0, -1).join('\n') : plain;
-  const tokensLine = lastIsTokens ? lastLine : null;
-  const bodyStyled = `${C.greenBright}${body}${C.reset}`;
-  const tokensStyled = tokensLine ? `\n${C.dim}${tokensLine}${C.reset}` : '';
-  const sentLine = `${C.green}[sent]${C.reset} ${bodyStyled}${tokensStyled}`;
-
-  if (redrawPrompt) {
-    process.stdout.write(`\n${sentLine}\n`);
-    redrawPrompt();
-  } else {
-    process.stdout.write(`\n${sentLine}\n`);
-  }
 }

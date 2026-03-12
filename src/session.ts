@@ -2,7 +2,7 @@
 // session.ts — Session CRUD and management
 // ---------------------------------------------------------------------------
 import type { AgentBackend } from './backends/types';
-import type { SeenDb } from './db';
+import type { AgentBackendName, SeenDb } from './db';
 import { setState, STATE_CURRENT_SESSION } from './db';
 
 export type CreateNewSessionProps = {
@@ -32,10 +32,10 @@ export async function createNewSession({
   return id;
 }
 
-export function getLatestSession(db: SeenDb, backend: AgentBackend): string | null {
+export function getLatestSession(db: SeenDb, backendName: AgentBackendName): string | null {
   const row = db
     .prepare('SELECT id FROM sessions WHERE backend = ? ORDER BY created_at DESC LIMIT 1')
-    .get(backend.name) as { id: string } | undefined;
+    .get(backendName) as { id: string } | undefined;
 
   return row?.id ?? null;
 }

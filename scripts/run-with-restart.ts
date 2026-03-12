@@ -9,7 +9,8 @@ import { join } from 'path';
 
 import { spawn } from 'bun';
 
-const DM_BOT_DIR = import.meta.dir ?? process.cwd();
+// parent of scripts is the root of the bot
+const DM_BOT_DIR = join(import.meta.dir, '..');
 const RESTART_FILE = join(DM_BOT_DIR, 'restart.requested');
 const INDEX_TS = join(DM_BOT_DIR, 'src', 'index.ts');
 

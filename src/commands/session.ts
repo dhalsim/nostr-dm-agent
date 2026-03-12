@@ -1,5 +1,5 @@
 import type { AgentBackend } from '../backends/types';
-import type { SeenDb } from '../db';
+import type { AgentBackendName, SeenDb } from '../db';
 import { getState, STATE_CURRENT_SESSION } from '../db';
 import { createNewSession, getLatestSession, setCurrentSession } from '../session';
 
@@ -28,14 +28,14 @@ export async function handleNewSession({
 
 export type HandleResumeLastSessionProps = {
   db: SeenDb;
-  backend: AgentBackend;
+  backendName: AgentBackendName;
 };
 
-export function handleResumeLastSession({ db, backend }: HandleResumeLastSessionProps): string {
-  const id = getLatestSession(db, backend);
+export function handleResumeLastSession({ db, backendName }: HandleResumeLastSessionProps): string {
+  const id = getLatestSession(db, backendName);
 
   if (!id) {
-    return `No sessions yet for backend '${backend.name}'. Send a message or use !new-session.`;
+    return `No sessions yet for backend '${backendName}'. Send a message or use !new-session.`;
   }
 
   setCurrentSession(db, id);

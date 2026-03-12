@@ -1,4 +1,9 @@
 #!/usr/bin/env bun
+
+// ---------------------------------------------------------------------------
+// src/index.ts — Main entry point
+// ---------------------------------------------------------------------------
+
 /**
  * NIP-17 DM Bot - Listens for private messages from master and replies.
  *
@@ -17,306 +22,49 @@
 
 import { existsSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import readline from 'readline';
 
 import { spawnSync } from 'bun';
-import type { NostrEvent, EventTemplate, VerifiedEvent } from 'nostr-tools/core';
-import { unwrapEvent } from 'nostr-tools/nip17';
 import { SimplePool } from 'nostr-tools/pool';
-import { getPublicKey, finalizeEvent } from 'nostr-tools/pure';
+import { getPublicKey } from 'nostr-tools/pure';
 import { hexToBytes } from 'nostr-tools/utils';
 
 import { createBackend } from './backends/factory';
-import type { AgentRunResult } from './backends/types';
-import { parseBudgetAnnotation } from './budget-annotation';
+import { startLocalCli } from './cli/local-cli';
 import { handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
 import { getStatusLines } from './commands/bot';
+import { registerPlugin } from './core/registry';
 import {
   openSeenDb,
   initSkKeyEncryption,
-  alreadyHaveEvent,
-  markSeen,
   getDefaultMode,
   getAgentBackend,
-  getReplyTransport,
-  getWorkspaceTarget,
   getModelOverride,
   getProviderName,
-  getRoutstrBudget,
-  getWalletDefaultMintUrl,
-  getLinting,
-  getRoutstrModel,
-  getRoutstrSkKey,
 } from './db';
-import type { AgentMode, SeenDb } from './db';
-import { loadBotConfig } from './env';
-import type { BotConfig } from './env';
+import type { SeenDb } from './db';
+import { createGetAgentEnv, loadBotConfig } from './env';
+import { runAgentConversation } from './flow/agent-conversation';
 import { createJobEngine } from './jobs/engine';
 import type { JobRunnerContext } from './jobs/runner';
 import { runJob } from './jobs/runner';
 import type { Job } from './jobs/types';
-import { runPostAgentLint, formatLintSummary } from './lint';
 import { C, debug, log } from './logger';
+import type { MessageSource } from './messaging';
 import {
-  sleep,
-  chunkMessage,
-  modePrefix,
-  tokenFooter,
+  createDmSubscription,
+  createSendReplyForSource,
+  createSignAuthEvent,
   sendDm,
-  CHUNK_DELAY_BASE_MS,
-  CHUNK_DELAY_MAX_MS,
-} from './messaging';
+} from './nostr/nip17';
 import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
+import { TodoPlugin } from './plugins/todos/init';
 import { asProviderDb } from './providers/db';
-import type { ProviderDb } from './providers/db';
-import { createProvider } from './providers/factory';
-import {
-  depositOrTopup,
-  refundRoutstr,
-  NoRoutstrSessionError,
-  ZeroRoutstrBalanceError,
-} from './providers/routstr';
-import type { AnyProvider } from './providers/types';
-import { getOrCreateCurrentSession, insertSessionMessage } from './session';
-import { msatsRaw } from './types';
 import { openWalletDb } from './wallets/db';
-import type { WalletDb } from './wallets/db';
-import { InsufficientFundsError } from './wallets/types';
-
-const POST_AGENT_LINT_PROMPT_PREFIX = '[Post-edit lint feedback]';
-
-type MessageSource = 'nostr' | 'local';
-
-async function prepareAutoFlowDeposit(opts: {
-  seenDb: SeenDb;
-  config: BotConfig;
-  walletDb: WalletDb | null;
-  providerDb: ProviderDb | null;
-  amountSats: number;
-}): Promise<string | null> {
-  if (!opts.walletDb) {
-    return 'Wallet not available. Run `bun run wallet:setup` to configure your wallet.';
-  }
-
-  const mintUrl = getWalletDefaultMintUrl(opts.seenDb, opts.config.cashuDefaultMintUrl);
-
-  if (!mintUrl) {
-    return 'No mint configured. Use !wallet mint <url> first.';
-  }
-
-  const mnemonic = opts.config.cashuMnemonic;
-
-  if (!mnemonic) {
-    return 'No mnemonic configured. Set one with: !wallet setup';
-  }
-
-  try {
-    const { wasNew } = await depositOrTopup({
-      mnemonic,
-      seenDb: opts.seenDb,
-      walletDb: opts.walletDb,
-      providerDb: opts.providerDb!,
-      mintUrl,
-      amountSats: opts.amountSats,
-      forceNew: false,
-    });
-
-    log.warn(`Auto-flow: ${wasNew ? 'created session' : 'topped up'} with ${opts.amountSats} sats`);
-
-    return null;
-  } catch (err) {
-    if (err instanceof InsufficientFundsError) {
-      return `Insufficient local balance: ${err.available} sats available, ${err.required} needed.\nTop up with: !wallet receive <token>`;
-    }
-
-    return `Deposit failed: ${String(err)}`;
-  }
-}
-
-async function prepareProviderRun(
-  provider: AnyProvider,
-  budgetSats: number,
-): Promise<string | null> {
-  try {
-    await provider.prepareRun({ budgetSats });
-
-    return null;
-  } catch (e) {
-    if (e instanceof NoRoutstrSessionError || e instanceof ZeroRoutstrBalanceError) {
-      return e.message;
-    }
-
-    if (e instanceof InsufficientFundsError) {
-      return `Wallet balance too low. Have ${e.available} sats, need ${e.required} sats. Top up with: !wallet receive <cashuXXX>`;
-    }
-
-    throw e;
-  }
-}
-
-async function runAgentWithLintFollowUp(opts: {
-  runAgentRound: (content: string, startLog: string) => Promise<AgentRunResult>;
-  effectiveContent: string;
-  mode: AgentMode;
-  currentWorkspace: string;
-  backendName: string;
-  seenDb: SeenDb;
-  sessionId: string;
-  cwd: string;
-}): Promise<{ output: string; result: AgentRunResult }> {
-  const initialResult = await opts.runAgentRound(
-    opts.effectiveContent,
-    `${C.dim}Starting ${opts.backendName} agent (${opts.mode})…${C.reset}\n`,
-  );
-
-  let finalOutput = initialResult.output;
-  let finalResult = initialResult;
-
-  if (initialResult.type === 'error') {
-    return { output: finalOutput, result: finalResult };
-  }
-
-  const linting = getLinting(opts.seenDb);
-
-  if (opts.mode !== 'agent' || linting === 'off') {
-    return { output: finalOutput, result: finalResult };
-  }
-
-  const lintLabel = opts.currentWorkspace === 'bot' ? 'dm-bot' : 'workspace';
-  const lintResult = runPostAgentLint({ cwd: opts.cwd, label: lintLabel });
-
-  if (!lintResult.available) {
-    log.error(
-      `Skipping post-agent lint: bun run lint is unavailable in this runtime for ${lintLabel}.`,
-    );
-
-    return { output: finalOutput, result: finalResult };
-  }
-
-  const lintSummary = formatLintSummary(lintResult);
-  finalOutput = `${initialResult.output}\n\n${lintSummary}`;
-  const lintFailed = lintResult.exitCode !== 0;
-
-  if (!lintFailed) {
-    return { output: finalOutput, result: finalResult };
-  }
-
-  const lintPrompt = `${POST_AGENT_LINT_PROMPT_PREFIX}\n${lintSummary}\n\nFix any lint issues and provide your final summary.`;
-  insertSessionMessage(opts.seenDb, opts.sessionId, 'user', lintPrompt);
-
-  try {
-    const fixResult = await opts.runAgentRound(
-      lintPrompt,
-      `${C.dim}Starting ${opts.backendName} agent (lint feedback)…${C.reset}\n`,
-    );
-
-    finalOutput = `${finalOutput}\n\n${fixResult.output}`;
-    finalResult = fixResult;
-  } catch (lintFollowupErr) {
-    log.error(`Lint follow-up agent process error: ${String(lintFollowupErr)}`);
-    finalOutput = `${finalOutput}\n\nAutomatic lint-fix round failed: ${String(lintFollowupErr)}`;
-  }
-
-  return { output: finalOutput, result: finalResult };
-}
-
-async function sendChunkedReply(opts: {
-  source: MessageSource;
-  reply: string;
-  sendReplyForSource: (source: MessageSource, message: string) => Promise<void>;
-}): Promise<void> {
-  const chunks = chunkMessage(opts.reply);
-  const total = chunks.length;
-  let delayMs = CHUNK_DELAY_BASE_MS;
-
-  for (let i = 0; i < chunks.length; i++) {
-    const hasNextChunk = i < chunks.length - 1;
-
-    const maybeNextPrompt = hasNextChunk && opts.source === 'nostr' ? '\n<CHECK NEXT MESSAGE>' : '';
-
-    const chunkBody = `${chunks[i]}${maybeNextPrompt}`;
-    const chunk = total > 1 ? `(${i + 1}/${total}) ${chunkBody}` : chunkBody;
-
-    try {
-      await opts.sendReplyForSource(opts.source, chunk);
-    } catch (e) {
-      const targetLabel = opts.source === 'local' ? 'local output' : 'DM chunk';
-      log.error(`Failed to send ${targetLabel}: ${String(e)}`);
-    }
-
-    if (hasNextChunk) {
-      await sleep(delayMs);
-      delayMs = Math.min(delayMs * 2, CHUNK_DELAY_MAX_MS);
-    }
-  }
-}
-
-async function finalizeAutoFlowRefund(opts: {
-  isAutoFlow: boolean;
-  walletDb: WalletDb | null;
-  seenDb: SeenDb;
-  config: BotConfig;
-  providerDb: ProviderDb | null;
-  sendReply: (message: string) => Promise<void>;
-}): Promise<void> {
-  if (!opts.isAutoFlow) {
-    return;
-  }
-
-  if (!opts.walletDb) {
-    await opts.sendReply(
-      "Wallet not available. Auto-flow won't run. `bun run wallet:setup` to configure your wallet.",
-    );
-
-    return;
-  }
-
-  const skKey = getRoutstrSkKey(opts.seenDb);
-
-  if (!skKey) {
-    await opts.sendReply('No Routstr session key. Use !provider deposit <sats> first.');
-
-    return;
-  }
-
-  const mnemonic = opts.config.cashuMnemonic;
-
-  if (!mnemonic) {
-    await opts.sendReply(
-      'No mnemonic configured. Run `bun run wallet:setup` to configure your wallet.',
-    );
-
-    return;
-  }
-
-  const mintUrl = getWalletDefaultMintUrl(opts.seenDb, opts.config.cashuDefaultMintUrl);
-
-  if (!mintUrl) {
-    await opts.sendReply('No mint configured. Use !wallet mint <url> first.');
-
-    return;
-  }
-
-  if (!opts.providerDb) {
-    return;
-  }
-
-  const recovered = await refundRoutstr({
-    mnemonic,
-    providerDb: opts.providerDb,
-    seenDb: opts.seenDb,
-    mintUrl,
-    skKey,
-  });
-
-  if (recovered > 0) {
-    log.warn(`Auto-flow: recovered ${recovered} sats`);
-  }
-}
 
 let redrawPrompt: (() => void) | null = null;
 
 function main() {
+  // --- Restart & config ---
   if (existsSync(RESTART_REQUESTED_PATH)) {
     try {
       unlinkSync(RESTART_REQUESTED_PATH);
@@ -327,6 +75,7 @@ function main() {
 
   const config = loadBotConfig();
 
+  // --- Identity & Nostr setup ---
   const {
     botKeyHex,
     botPubkey: botPubkeyFromEnv,
@@ -353,10 +102,12 @@ function main() {
 
   initSkKeyEncryption(botKeyHex, botPubkey);
 
+  // --- Databases & plugins ---
   const seenDb = openSeenDb();
   const providerDb = asProviderDb(seenDb);
   const walletDb = cashuMnemonic ? openWalletDb(cashuMnemonic) : null;
 
+  registerPlugin(TodoPlugin, dmBotRoot);
   const parentOfBotRoot = join(dmBotRoot, '..');
 
   const agentEnv: Record<string, string | undefined> = {
@@ -364,35 +115,15 @@ function main() {
     PATH: agentPath,
   };
 
-  function getAgentEnv(): Record<string, string | undefined> {
-    const env = { ...agentEnv };
-
-    const backendName = getAgentBackend(seenDb);
-
-    if (
-      getProviderName(seenDb) === 'routstr' &&
-      (backendName === 'opencode' || backendName === 'opencode-sdk')
-    ) {
-      const skKey = getRoutstrSkKey(seenDb);
-
-      if (skKey) {
-        env.ROUTSTR_API_KEY = skKey;
-      }
-    }
-
-    return env;
-  }
+  const getAgentEnv = createGetAgentEnv({ baseEnv: agentEnv, seenDb });
 
   const packageJson = readFileSync(join(dmBotRoot, 'package.json'), 'utf-8');
   const packageJsonData = JSON.parse(packageJson) as { version: string };
   const VERSION = packageJsonData.version;
 
-  const signAuthEvent = async (authTemplate: EventTemplate): Promise<VerifiedEvent> => {
-    debug('Signing AUTH challenge event:', authTemplate);
+  const signAuthEvent = createSignAuthEvent({ botSecretKey });
 
-    return finalizeEvent(authTemplate, botSecretKey);
-  };
-
+  // --- Startup logging & ready DM ---
   log.info(`${C.bold}Bot pubkey:${C.reset} ${botPubkey}`);
   log.info(`${C.bold}Master:${C.reset} ${masterPubkey}`);
 
@@ -437,100 +168,15 @@ function main() {
 
   debug('Subscription filter:', JSON.stringify(dmFilter));
 
-  const RECONNECT_BASE_MS = 2_000;
-  const RECONNECT_MAX_MS = 60_000;
-  let dmReconnectAttempt = 0;
-
-  function subscribeDm(): void {
-    debug('Subscribing to DM relays:', relayUrls.join(', '));
-
-    pool.subscribe(relayUrls, dmFilter, {
-      onauth: signAuthEvent,
-      alreadyHaveEvent: alreadyHaveEvent(seenDb),
-      onevent: async (wrap: NostrEvent) => {
-        debug('Received event kind:', wrap.kind, 'id:', wrap.id);
-
-        dmReconnectAttempt = 0;
-
-        try {
-          const rumor = unwrapEvent(wrap, botSecretKey);
-
-          if (rumor.pubkey !== masterPubkey) {
-            debug('Ignoring rumor from non-master:', rumor.pubkey);
-
-            return;
-          }
-
-          const content = rumor.content?.trim() ?? '';
-          const kind = rumor.kind ?? 0;
-
-          if (kind !== 14) {
-            debug('Ignoring non–kind-14 rumor:', kind);
-
-            return;
-          }
-
-          if (getReplyTransport(seenDb) === 'local') {
-            markSeen(seenDb, wrap.id);
-            debug('Reply transport is local; ignoring incoming Nostr message.');
-
-            redrawPrompt?.();
-
-            return;
-          }
-
-          markSeen(seenDb, wrap.id);
-          await handleUserMessage(content, 'nostr');
-        } catch (err) {
-          debug('Unwrap failed (not for us or wrong format):', err);
-        }
-      },
-      onclose(reasons) {
-        debug('Subscription closed:', reasons);
-
-        dmReconnectAttempt += 1;
-
-        const backoffMs = Math.min(
-          RECONNECT_BASE_MS * Math.pow(2, dmReconnectAttempt - 1),
-          RECONNECT_MAX_MS,
-        );
-
-        debug(`Reconnecting DM subscription in ${backoffMs}ms (attempt ${dmReconnectAttempt})…`);
-
-        setTimeout(() => {
-          debug('Reconnecting DM subscription now.');
-          subscribeDm();
-        }, backoffMs);
-      },
-    });
-  }
-
-  async function sendReplyForSource(source: MessageSource, message: string): Promise<void> {
-    const replyTransport = getReplyTransport(seenDb);
-    const sourceIsLocal = source === 'local';
-    const replyTransportIsLocal = replyTransport === 'local';
-    const shouldBypassNostr = sourceIsLocal || replyTransportIsLocal;
-
-    if (shouldBypassNostr) {
-      log.info(
-        `${C.dim}[bypassing to send as a DM because ${sourceIsLocal ? 'source is local' : 'reply transport is local'}]${C.reset}\n`,
-      );
-
-      console.log(message ?? '(no message)');
-
-      return;
-    }
-
-    await sendDm({
-      pool,
-      botRelayUrl: primaryRelay,
-      senderSecretKey: botSecretKey,
-      recipientPubkey: masterPubkey,
-      message,
-      signAuthEvent,
-      redrawPrompt: null,
-    });
-  }
+  // --- Reply transport & job engine ---
+  const sendReplyForSource = createSendReplyForSource({
+    seenDb,
+    pool,
+    botRelayUrl: primaryRelay,
+    senderSecretKey: botSecretKey,
+    recipientPubkey: masterPubkey,
+    signAuthEvent,
+  });
 
   const jobRunnerContext: JobRunnerContext = {
     dmBotRoot,
@@ -559,8 +205,8 @@ function main() {
 
   createJobEngine(seenDb, jobEngineContext).start();
 
+  // --- Message handler: commands, session, agent run, reply ---
   async function handleUserMessage(content: string, source: MessageSource): Promise<void> {
-    const isLocal = source === 'local' || getReplyTransport(seenDb) === 'local';
     process.stdout.write(`${C.dim}${C.magenta} > ${content}${C.reset}\n`);
 
     const backend = createBackend({
@@ -574,6 +220,7 @@ function main() {
 
     const input = content.trim();
 
+    // Commands (!help, !backend, etc.)
     if (input.startsWith('!')) {
       const reply = await handleBangCommand({
         input,
@@ -615,210 +262,50 @@ function main() {
       return;
     }
 
-    const mode = getDefaultMode(seenDb);
-    const currentWorkspace = getWorkspaceTarget(seenDb);
-    const cwd = currentWorkspace === 'bot' ? dmBotRoot : parentOfBotRoot;
-
-    const sessionId = await getOrCreateCurrentSession({
-      db: seenDb,
+    await runAgentConversation({
+      content,
+      source,
+      sendReplyForSource,
       backend,
-      cwd,
-      env: getAgentEnv(),
-    });
-
-    insertSessionMessage(seenDb, sessionId, 'user', content);
-
-    const { prompt: effectiveContent, budgetSats: inlineBudget } = parseBudgetAnnotation(content);
-
-    const configuredProviderName = getProviderName(seenDb);
-
-    const isAutoFlow = inlineBudget !== null && configuredProviderName === 'routstr';
-
-    const provider = createProvider({
-      name: configuredProviderName,
-      walletDb,
       seenDb,
-      providerDb,
+      dmBotRoot,
+      parentOfBotRoot,
+      opencodeServeUrl,
+      getAgentEnv,
       config,
+      walletDb,
+      providerDb,
       routstrBaseUrl,
     });
-
-    if (isAutoFlow) {
-      const depositErr = await prepareAutoFlowDeposit({
-        seenDb,
-        config,
-        walletDb,
-        providerDb,
-        amountSats: inlineBudget,
-      });
-
-      if (depositErr) {
-        await sendReplyForSource(source, depositErr);
-
-        return;
-      }
-    }
-
-    const prepareErr = await prepareProviderRun(
-      provider,
-      inlineBudget != null ? inlineBudget * 1000 : msatsRaw(getRoutstrBudget(seenDb)),
-    );
-
-    if (prepareErr) {
-      await sendReplyForSource(source, prepareErr);
-
-      return;
-    }
-
-    const runAgentRound = async (roundContent: string, startLog: string) => {
-      log.info(startLog);
-
-      const modelOverride = getModelOverride(seenDb);
-      const backendName = getAgentBackend(seenDb);
-      const routstrModel = getRoutstrModel(seenDb);
-
-      const finalModelOverride =
-        configuredProviderName === 'routstr' && routstrModel
-          ? `routstr/${routstrModel}`
-          : (modelOverride ?? null);
-
-      log.info(`finalModelOverride: ${finalModelOverride}`);
-
-      const roundBackend = createBackend({
-        backendName,
-        dmBotRoot,
-        mode,
-        attachUrl: opencodeServeUrl,
-        modelOverride: finalModelOverride,
-        providerName: configuredProviderName,
-      });
-
-      return roundBackend.runMessage({
-        sessionId,
-        content: roundContent,
-        mode,
-        cwd,
-        env: getAgentEnv(),
-        modelOverride: finalModelOverride,
-      });
-    };
-
-    try {
-      const { output: finalOutput, result: finalResult } = await runAgentWithLintFollowUp({
-        runAgentRound,
-        effectiveContent,
-        mode,
-        currentWorkspace,
-        backendName: backend.name,
-        seenDb,
-        sessionId,
-        cwd,
-      });
-
-      const isErrorResponse =
-        finalResult.type === 'error' ||
-        finalOutput.startsWith('Unexpected error') ||
-        finalOutput.startsWith('Error:') ||
-        finalOutput.includes('check log file at') ||
-        finalOutput === '(no output)';
-
-      if (!isErrorResponse) {
-        insertSessionMessage(seenDb, sessionId, 'assistant', finalOutput);
-      } else {
-        log.error(`${C.red}[bot] Error response — not stored in session history.${C.reset}`);
-        log.error(finalOutput);
-      }
-
-      const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
-      let spentMsats = 0;
-
-      if (mintUrl) {
-        const cost = finalResult.type === 'success' ? finalResult.cost : undefined;
-        const tokens = finalResult.type === 'success' ? finalResult.tokens : undefined;
-
-        const result = await provider.finalizeRun({
-          success: finalResult.type === 'success',
-          sessionId,
-          promptPrefix: effectiveContent,
-          model: backend.modelName,
-          mintUrl,
-          cost,
-          tokens,
-        });
-
-        spentMsats = result.spentMsats;
-      }
-
-      const prefix = modePrefix(mode, isLocal);
-      const footer = tokenFooter(finalResult, isLocal, spentMsats);
-      const fullReply = prefix + finalOutput + footer;
-
-      await sendChunkedReply({
-        source,
-        reply: fullReply,
-        sendReplyForSource,
-      });
-    } catch (err) {
-      log.error(`${C.red}Agent process error:${C.reset} ${String(err)}`);
-
-      sendReplyForSource(source, `<${mode}> Error: ${String(err)}`).catch((e) =>
-        log.error(`Failed to send error reply: ${String(e)}`),
-      );
-    } finally {
-      await finalizeAutoFlowRefund({
-        isAutoFlow,
-        walletDb,
-        seenDb,
-        config,
-        providerDb,
-        sendReply: (msg) => sendReplyForSource(source, msg),
-      });
-    }
   }
+
+  // --- Start DM subscription and optional local CLI ---
+  const startDmSubscription = createDmSubscription({
+    pool,
+    relayUrls,
+    dmFilter,
+    signAuthEvent,
+    seenDb,
+    botSecretKey,
+    masterPubkey,
+    onMessage: (content) => handleUserMessage(content, 'nostr'),
+    redrawPromptRef: { get: () => redrawPrompt },
+    reconnectBaseMs: 2_000,
+    reconnectMaxMs: 60_000,
+  });
 
   if (process.stdin.isTTY) {
-    const startLocalCli = () => {
-      console.log(
-        `${C.dim}Type a prompt or ${C.reset}${C.white}!help${C.reset}${C.dim} to list commands.${C.reset}\n`,
-      );
-
-      const localCli = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-        prompt: `${C.bold}>${C.reset} `,
-      });
-
-      redrawPrompt = () => localCli.prompt();
-
-      let localQueue = Promise.resolve();
-
-      localCli.on('line', (line) => {
-        const input = line.trim();
-
-        if (!input) {
-          localCli.prompt();
-
-          return;
-        }
-
-        localQueue = localQueue
-          .then(() => handleUserMessage(input, 'local'))
-          .catch((err) => log.error(`Local CLI message processing failed: ${String(err)}`))
-          .finally(() => localCli.prompt());
-      });
-
-      localCli.on('close', () => {
-        redrawPrompt = null;
-        log.ok('Local terminal chat closed. Nostr DM listener continues running.');
-      });
-
-      localCli.prompt();
-    };
-
-    readyDmPromise.finally(startLocalCli);
+    readyDmPromise.finally(() =>
+      startLocalCli({
+        onMessage: (input) => handleUserMessage(input, 'local'),
+        setRedrawPrompt: (fn) => {
+          redrawPrompt = fn;
+        },
+      }),
+    );
   }
 
-  subscribeDm();
+  startDmSubscription();
 }
 
 main();

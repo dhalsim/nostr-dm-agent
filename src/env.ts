@@ -3,7 +3,38 @@
 // ---------------------------------------------------------------------------
 import { delimiter } from 'path';
 
+import { getAgentBackend, getProviderName, getRoutstrSkKey } from './db';
+import type { SeenDb } from './db';
 import { log } from './logger';
+
+export type CreateGetAgentEnvProps = {
+  baseEnv: Record<string, string | undefined>;
+  seenDb: SeenDb;
+};
+
+export function createGetAgentEnv({
+  baseEnv,
+  seenDb,
+}: CreateGetAgentEnvProps): () => Record<string, string | undefined> {
+  return function getAgentEnv(): Record<string, string | undefined> {
+    const env = { ...baseEnv };
+
+    const backendName = getAgentBackend(seenDb);
+
+    if (
+      getProviderName(seenDb) === 'routstr' &&
+      (backendName === 'opencode' || backendName === 'opencode-sdk')
+    ) {
+      const skKey = getRoutstrSkKey(seenDb);
+
+      if (skKey) {
+        env.ROUTSTR_API_KEY = skKey;
+      }
+    }
+
+    return env;
+  };
+}
 
 export type BotConfig = {
   botKeyHex: string;

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// commands.ts — ! command handler
+// src/commands.ts — ! command handler
 // ---------------------------------------------------------------------------
 
 import { writeFileSync } from 'fs';
@@ -49,6 +49,7 @@ import {
   handleWalletReceive,
   handleWalletSend,
 } from './commands/wallet';
+import { dispatchPluginCommand } from './core/registry';
 import type { SeenDb } from './db';
 import {
   getProviderName,
@@ -64,6 +65,7 @@ import type { JobEngineContext } from './jobs/engine';
 import { getInfoLogsEnabled, log, setInfoLogsEnabled } from './logger';
 import { RESTART_REQUESTED_PATH } from './paths';
 import type { ProviderDb } from './providers/db';
+import { getLatestSession } from './session';
 import { handleTodoAi } from './tools/todo-ai';
 import { formatMsats, msats } from './types';
 import { decodeToken } from './wallets/cashu';
@@ -143,7 +145,7 @@ export async function handleBangCommand({
 
     case 'resume-last-session': {
       return handleError(
-        async () => handleResumeLastSession({ db: seenDb, backend }),
+        async () => handleResumeLastSession({ db: seenDb, backendName: backend.name }),
         'Failed to resume last session',
       );
     }
@@ -734,7 +736,31 @@ export async function handleBangCommand({
       return 'Usage: !file <upload|download>';
     }
 
-    default:
+    default: {
+      const runAgent = async (prompt: string) => {
+        const sessionId =
+          getLatestSession(seenDb, backend.name) ??
+          (await backend.createSession({ cwd, env: agentEnv }));
+
+        const result = await backend.runMessage({
+          sessionId,
+          content: prompt,
+          mode: 'ask',
+          cwd,
+          env: agentEnv,
+          modelOverride: null,
+        });
+
+        return result.output;
+      };
+
+      const pluginResult = await dispatchPluginCommand(cmd, args, runAgent);
+
+      if (pluginResult !== null) {
+        return pluginResult;
+      }
+
       return `Unknown command: !${cmd}. Use !help for commands.`;
+    }
   }
 }

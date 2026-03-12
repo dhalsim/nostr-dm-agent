@@ -1,10 +1,10 @@
 {
   "name": "nostr-dm-bot",
-  "version": "5.1.0",
+  "version": "5.1.1",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
-    "watch": "bun run run-with-restart.ts",
+    "watch": "bun run scripts/run-with-restart.ts",
     "lint": "eslint . --fix",
     "job:create": "bun run scripts/create-job.ts",
     "wallet:setup": "bun run scripts/setup-wallet.ts",

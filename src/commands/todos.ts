@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// commands/todos.ts — !todo sub-command handler
+// src/commands/todos.ts — !todo sub-command handler
 // ---------------------------------------------------------------------------
 import type { AgentBackend } from '../backends/types';
 import type { SeenDb } from '../db';
@@ -48,9 +48,9 @@ function formatDraftRow(
 export type HandleTodoProps = {
   args: string[];
   db: SeenDb;
-  backend: AgentBackend | null;
+  backend: AgentBackend;
   cwd: string;
-  agentEnv: Record<string, string | undefined> | null;
+  agentEnv: Record<string, string | undefined>;
 };
 
 export async function handleTodo({
@@ -535,15 +535,6 @@ export async function handleTodo({
       return `Draft ${draftId} is a ${entry.kind} draft. Use !todo decline ${draftId} and create a new one with the correction applied.`;
     }
 
-    if (!backend || !agentEnv) {
-      return [
-        `Revision requires AI. To revise draft #${draftId}:`,
-        `1. Note your correction: "${corrections}"`,
-        `2. Run: !todo-ai <revised description>`,
-        `   (include original: "${entry.originalPrompt}")`,
-      ].join('\n');
-    }
-
     const allTodos = listTodos(db);
     const activeTodos = allTodos.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
     const activeTree = activeTodos.length > 0 ? formatTodoTree(activeTodos) : '(no active todos)';
@@ -551,7 +542,8 @@ export async function handleTodo({
     const revisedPrompt = `Revise the following todo: "${entry.input.todo}". Correction: "${corrections}".`;
     const systemPrompt = buildSystemPrompt(revisedPrompt, activeTree);
 
-    const sessionId = await backend.createSession({ cwd, env: agentEnv });
+    // TODO: get sessionId from db or better from the args?
+    const sessionId = '';
 
     const result = await backend.runMessage({
       sessionId,

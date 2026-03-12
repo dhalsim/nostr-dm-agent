@@ -12,10 +12,10 @@ When editing or extending the dm-bot (NIP-17 DM bot), use this as the map. The b
 | File | Purpose |
 |------|---------|
 | `index.ts` | Main entry: env, SQLite, Nostr pool, subscription (kind 1059), command handling, agent backend dispatch, DM sending. Version computed at startup with `git rev-parse HEAD` from the project root. |
-| `run-with-restart.ts` | Watcher: runs the bot and restarts only when `restart.requested` is created/touched (for agent-driven code edits). |
+| `scripts/run-with-restart.ts` | Watcher: runs the bot and restarts only when `restart.requested` is created/touched (for agent-driven code edits). |
 | `package.json` | Scripts: `start`/`bot`, `watch`, `lint` (dm-bot local eslint). Deps: nostr-tools, @types/bun. |
 | `.env.example` | Template for BOT_KEY, BOT_MASTER_PUBKEY, BOT_RELAYS, BOT_OPENCODE_SERVE_URL, DEBUG. |
-| `../opencode.json` | OpenCode project config: defines `ask`, `plan`, `build` agents with per-agent models and permissions. |
+| `opencode.json` | OpenCode project config: defines `ask`, `plan`, `build` agents with per-agent models and permissions. |
 
 ## State and persistence
 

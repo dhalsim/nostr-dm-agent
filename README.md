@@ -414,7 +414,7 @@ When changing dm-bot code:
   - `src/messaging.ts` — sendDm(), chunkMessage(), NIP-17 relay discovery
   - `src/commands.ts` — handleBangCommand()
   - `src/lint.ts` — runPostAgentLint(), formatLintSummary()
-  - `run-with-restart.ts` watches for restart.requested
+  - `scripts/run-with-restart.ts` watches for restart.requested
 - **State**: SQLite at `dm-bot.sqlite` (tables: `seen_events`, `sessions`, `session_messages`, `state`). See `index.ts` for schema.
 - **New commands**: Add a branch in `handleBangCommand` in `index.ts`.
 - **After edits**: Touch `restart.requested` in the dm-bot directory so the watcher restarts the bot (when using `bun run watch`). Run the linter with auto-fix: from project root `bun run lint`, or from dm-bot `bun run lint`.
