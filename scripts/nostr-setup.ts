@@ -180,8 +180,8 @@ async function main() {
   
 
   console.log('\n✓ Setup complete!');
-  console.log('  Next: npm run wallet:setup (optional, for paid AI)');
-  console.log('  Then: npm run start');
+  console.log('  Next: bun run wallet:setup (optional, for paid AI)');
+  console.log('  Then: bun run start');
 
   process.exit(0);
 }

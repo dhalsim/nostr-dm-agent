@@ -127,7 +127,7 @@ export function handleRemote({ db }: { db: SeenDb }): string {
 export type HandleWorkspaceProps = {
   db: SeenDb;
   backend: AgentBackend;
-  workspaceRoot: string;
+  parentOfBotRoot: string;
   dmBotRoot: string;
   agentEnv: Record<string, string | undefined>;
   selected?: string;
@@ -136,7 +136,7 @@ export type HandleWorkspaceProps = {
 export async function handleWorkspace({
   db,
   backend,
-  workspaceRoot,
+  parentOfBotRoot,
   dmBotRoot,
   agentEnv,
   selected,
@@ -144,7 +144,7 @@ export async function handleWorkspace({
   const usageOpts = WorkspaceTargetSchema.options.join('|');
 
   const currentTarget = getWorkspaceTarget(db);
-  const pwdFor = (target: WorkspaceTarget) => (target === 'bot' ? dmBotRoot : workspaceRoot);
+  const pwdFor = (target: WorkspaceTarget) => (target === 'bot' ? dmBotRoot : parentOfBotRoot);
 
   if (!selected) {
     const cwd = pwdFor(currentTarget);
@@ -168,7 +168,8 @@ export async function handleWorkspace({
   }
 
   setWorkspaceTarget(db, nextTarget);
-  const cwd = nextTarget === 'bot' ? dmBotRoot : workspaceRoot;
+  const cwd = nextTarget === 'bot' ? dmBotRoot : parentOfBotRoot;
+
   try {
     const sessionId = await createNewSession({
       db,
@@ -186,18 +187,18 @@ export async function handleWorkspace({
 export type HandleBackendProps = {
   db: SeenDb;
   dmBotRoot: string;
+  parentOfBotRoot: string;
   attachUrl: string | null;
   agentEnv: Record<string, string | undefined>;
-  workspaceRoot: string;
   selected?: string;
 };
 
 export async function handleBackend({
   db,
   dmBotRoot,
+  parentOfBotRoot,
   attachUrl,
   agentEnv,
-  workspaceRoot,
   selected,
 }: HandleBackendProps): Promise<string> {
   if (!selected) {
@@ -219,8 +220,9 @@ export async function handleBackend({
 
   setAgentBackend(db, nextBackendName);
   setModelOverride(db, null);
+
   const workspace = getWorkspaceTarget(db);
-  const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
+  const cwd = workspace === 'bot' ? dmBotRoot : parentOfBotRoot;
   const mode = getDefaultMode(db);
   const modelOverride = getModelOverride(db);
   const providerName = getProviderName(db);
@@ -352,7 +354,7 @@ export function handleLint({ db, args, workspaceRoot, dmBotRoot }: HandleLintPro
     const result = runPostAgentLint({ cwd, label });
 
     if (!result.available) {
-      return `Lint not available in this runtime for ${label} (npm run lint missing).`;
+      return `Lint not available in this runtime for ${label} (bun run lint missing).`;
     }
 
     return formatLintSummary(result);

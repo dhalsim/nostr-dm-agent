@@ -83,7 +83,7 @@ export type HandleBangCommandProps = {
   input: string;
   relayUrls: string[];
   version: string;
-  workspaceRoot: string;
+  parentOfBotRoot: string;
   dmBotRoot: string;
   agentEnv: Record<string, string | undefined>;
   attachUrl: string | null;
@@ -102,7 +102,7 @@ export async function handleBangCommand({
   seenDb,
   providerDb,
   version,
-  workspaceRoot,
+  parentOfBotRoot,
   dmBotRoot,
   agentEnv,
   attachUrl,
@@ -123,14 +123,15 @@ export async function handleBangCommand({
   const cmd = (parts[0] ?? '').toLowerCase();
   const args = parts.slice(1);
 
+  const cwd = getWorkspaceTarget(seenDb) === 'bot' ? dmBotRoot : parentOfBotRoot;
+
   switch (cmd) {
     case 'new-session': {
       return handleError(async () => {
         const out = await handleNewSession({
-          db: seenDb,
+          seenDb,
           backend,
-          workspaceRoot,
-          dmBotRoot,
+          cwd,
           agentEnv,
         });
 
@@ -210,7 +211,7 @@ export async function handleBangCommand({
             db: seenDb,
             jobEngine,
             backend,
-            workspaceRoot,
+            workspaceRoot: parentOfBotRoot,
             agentEnv,
           }),
         'Job command failed',
@@ -224,7 +225,7 @@ export async function handleBangCommand({
             args,
             db: seenDb,
             backend,
-            workspaceRoot,
+            workspaceRoot: parentOfBotRoot,
             agentEnv,
           }),
         'Job AI failed',
@@ -233,7 +234,7 @@ export async function handleBangCommand({
 
     case 'todo': {
       return handleError(
-        async () => handleTodo({ args, db: seenDb, backend, workspaceRoot, agentEnv }),
+        async () => handleTodo({ args, db: seenDb, backend, cwd, agentEnv }),
         'Todo command failed',
       );
     }
@@ -245,7 +246,7 @@ export async function handleBangCommand({
             args,
             db: seenDb,
             backend,
-            workspaceRoot,
+            cwd,
             agentEnv,
           }),
         'Todo AI failed',
@@ -271,8 +272,8 @@ export async function handleBangCommand({
         const out = await handleWorkspace({
           db: seenDb,
           backend,
-          workspaceRoot,
           dmBotRoot,
+          parentOfBotRoot,
           agentEnv,
           selected: args[0],
         });
@@ -287,8 +288,8 @@ export async function handleBangCommand({
       return handleError(async () => {
         const out = await handleBackend({
           db: seenDb,
-          workspaceRoot,
           dmBotRoot,
+          parentOfBotRoot,
           agentEnv,
           attachUrl,
           selected: args[0],
@@ -321,7 +322,7 @@ export async function handleBangCommand({
           handleLint({
             db: seenDb,
             args,
-            workspaceRoot,
+            workspaceRoot: parentOfBotRoot,
             dmBotRoot,
           }),
         'Lint command failed',
@@ -407,7 +408,7 @@ export async function handleBangCommand({
           }
 
           if (!mnemonic) {
-            return 'No mnemonic configured. Set one with: npm run wallet:setup';
+            return 'No mnemonic configured. Set one with: bun run wallet:setup';
           }
 
           if (!mint) {
@@ -438,7 +439,7 @@ export async function handleBangCommand({
           }
 
           if (!mnemonic) {
-            return 'No mnemonic configured. Set one with: npm run wallet:setup';
+            return 'No mnemonic configured. Set one with: bun run wallet:setup';
           }
 
           if (!mint) {
@@ -556,7 +557,7 @@ export async function handleBangCommand({
           const mnemonic = config.cashuMnemonic;
 
           if (!mnemonic) {
-            return 'No mnemonic configured. Set one with: npm run wallet:setup';
+            return 'No mnemonic configured. Set one with: bun run wallet:setup';
           }
 
           if (!providerDb) {
@@ -692,7 +693,7 @@ export async function handleBangCommand({
         const filePath = () =>
           workspace === 'bot'
             ? resolve(dmBotRoot, filePathArg)
-            : resolve(workspaceRoot, filePathArg);
+            : resolve(parentOfBotRoot, filePathArg);
 
         return handleError(async () => {
           const result = await fileUpload({
@@ -718,7 +719,7 @@ export async function handleBangCommand({
 
         return handleError(async () => {
           const workspace = getWorkspaceTarget(seenDb);
-          const filePath = workspace === 'bot' ? dmBotRoot : workspaceRoot;
+          const filePath = workspace === 'bot' ? dmBotRoot : parentOfBotRoot;
 
           const result = await fileDownload({ naddr, config, filePath });
 

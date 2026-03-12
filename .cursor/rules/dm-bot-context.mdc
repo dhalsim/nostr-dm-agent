@@ -75,14 +75,14 @@ Colors are applied for local terminal output and stripped (`stripAnsi()`) before
 - **JSONL parsing**: `parseOpenCodeJsonl()` handles OpenCode `--format json` output. Accumulates tokens across multiple steps.
 - **Workspace targeting + auto session reset**: `!workspace [parent|bot]` sets the active workspace target and auto-creates a new session on change.
 - **Backend switching + auto session reset**: `!backend [cursor|opencode]` sets the active backend and auto-creates a new session on change.
-- **Post-agent lint flow (agent mode)**: After an `agent`-mode run, bot runs `npm run lint` for the active workspace; on lint errors, performs one additional agent round with lint feedback.
+- **Post-agent lint flow (agent mode)**: After an `agent`-mode run, bot runs `bun run lint` for the active workspace; on lint errors, performs one additional agent round with lint feedback.
 - **Reply formatting / chunking**: `chunkMessage` (max length), `modePrefix()` (colored prefix), `tokenFooter()` (token/cost line).
 - **DM relay discovery**: `getMasterDmRelays` (kind 10050) and `PROFILE_RELAYS`. `sendDm` uses these to decide where to publish.
 
 ## After editing dm-bot code
 
 - Touch `dm-bot/restart.requested` so the watcher restarts the bot (if using `watch`).
-- Run the linter with auto-fix after modifications: from project root `bun run lint`, or from dm-bot `npm run lint`.
+- Run the linter with auto-fix after modifications: from project root `bun run lint`, or from dm-bot `bun run lint`.
 
 ## Workspace boundary
 

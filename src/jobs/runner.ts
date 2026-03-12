@@ -24,8 +24,8 @@ import { insertJobRun, updateJobRun } from './db';
 import type { Job } from './types';
 
 export type JobRunnerContext = {
-  workspaceRoot: string;
   dmBotRoot: string;
+  parentOfBotRoot: string;
   attachUrl: string | null;
   getAgentEnv: () => Record<string, string | undefined>;
   walletDb: WalletDb | null;
@@ -40,6 +40,7 @@ export async function runJob(job: Job, db: SeenDb, context: JobRunnerContext): P
   const providerName = job.provider;
   const mode = job.mode;
   const modelRaw = job.model || null;
+  const workspaceTarget = job.workspace_target;
 
   const finalModelOverride =
     providerName === 'routstr' && modelRaw ? `routstr/${modelRaw}` : modelRaw;
@@ -53,7 +54,7 @@ export async function runJob(job: Job, db: SeenDb, context: JobRunnerContext): P
     providerName,
   });
 
-  const cwd = context.workspaceRoot;
+  const cwd = workspaceTarget === 'bot' ? context.dmBotRoot : context.parentOfBotRoot;
   const env = context.getAgentEnv();
 
   const sessionId = await backend.createSession({ cwd, env });
@@ -74,7 +75,7 @@ export async function runJob(job: Job, db: SeenDb, context: JobRunnerContext): P
 
     if (!context.walletDb) {
       await context.sendDm(
-        `[Job: ${job.name}]\nSkipped: Wallet not available. Run \`npm run wallet:setup\`.`,
+        `[Job: ${job.name}]\nSkipped: Wallet not available. Run \`bun run wallet:setup\`.`,
       );
 
       return;
@@ -94,7 +95,7 @@ export async function runJob(job: Job, db: SeenDb, context: JobRunnerContext): P
 
     if (!mnemonic) {
       await context.sendDm(
-        `[Job: ${job.name}]\nSkipped: No wallet mnemonic. Run \`npm run wallet:setup\`.`,
+        `[Job: ${job.name}]\nSkipped: No wallet mnemonic. Run \`bun run wallet:setup\`.`,
       );
 
       return;

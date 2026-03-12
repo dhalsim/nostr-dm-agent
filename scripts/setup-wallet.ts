@@ -78,7 +78,7 @@ async function main() {
   console.log('✓ Written to .env');
 
   console.log('✓ Wallet setup complete. Mnemonic is only in .env and your backup');
-  console.log('  Start the bot normally: npm run start');
+  console.log('  Start the bot normally: bun run start');
 
   process.exit(0);
 }

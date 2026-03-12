@@ -5,7 +5,7 @@
 After cloning, run this once to enable the version bump hook:
 
 ```bash
-npm run contrib:setup
+bun run contrib:setup
 ```
 
 This makes Git load the repo’s `.gitconfig` (which sets `core.hooksPath = scripts`), so the `commit-msg` and `post-commit` hooks run.

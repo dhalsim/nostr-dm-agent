@@ -17,16 +17,16 @@ type RunPostAgentLintProps = {
 };
 
 export function runPostAgentLint({ cwd, label }: RunPostAgentLintProps): LintResult {
-  const proc = spawnSync(['npm', 'run', 'lint'], { cwd, stdout: 'pipe', stderr: 'pipe' });
+  const proc = spawnSync(['bun', 'run', 'lint'], { cwd, stdout: 'pipe', stderr: 'pipe' });
   const stdout = proc.stdout?.toString().trim() ?? '';
   const stderr = proc.stderr?.toString().trim() ?? '';
   const exitCode = proc.exitCode ?? -1;
 
   const lintCommandMissing =
     exitCode === 127 &&
-    (stderr.includes('command not found: npm') ||
+    (stderr.includes('command not found: bun') ||
       stderr.includes('No such file or directory') ||
-      stderr.includes('not found: npm'));
+      stderr.includes('not found: bun'));
 
   return { label, available: !lintCommandMissing, exitCode, stdout, stderr };
 }

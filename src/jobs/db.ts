@@ -3,7 +3,14 @@
 // ---------------------------------------------------------------------------
 import { Cron } from 'croner';
 
-import { AgentBackendNameSchema, AgentModeSchema, DEFAULT_BACKEND, DEFAULT_PROVIDER } from '../db';
+import {
+  AgentBackendNameSchema,
+  AgentModeSchema,
+  DEFAULT_BACKEND,
+  DEFAULT_PROVIDER,
+  DEFAULT_WORKSPACE_TARGET,
+  WorkspaceTargetSchema,
+} from '../db';
 import type { SeenDb } from '../db';
 import type { ProviderName } from '../db';
 import { log } from '../logger';
@@ -95,6 +102,9 @@ function rowToJob(row: Record<string, unknown>): Job {
     next_run_at: row.next_run_at != null ? Number(row.next_run_at) : null,
     backend: backendRaw ? AgentBackendNameSchema.parse(row.backend) : DEFAULT_BACKEND,
     provider: providerRaw ? (row.provider as ProviderName) : DEFAULT_PROVIDER,
+    workspace_target: row.workspace_target
+      ? WorkspaceTargetSchema.parse(row.workspace_target)
+      : DEFAULT_WORKSPACE_TARGET,
     model: modelRaw ? String(row.model) : '',
     mode: modeRaw ? AgentModeSchema.parse(row.mode) : 'agent',
     budget_sats: row.budget_sats != null ? Number(row.budget_sats) : null,

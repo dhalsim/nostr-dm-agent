@@ -110,7 +110,6 @@
           "cat *": "allow",
           "ls *": "allow",
           "pwd": "allow",
-          "npm run lint": "allow",
           "bun run lint": "allow"
         },
         "task": "allow",

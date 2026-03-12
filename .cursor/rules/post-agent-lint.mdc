@@ -7,7 +7,7 @@ alwaysApply: true
 
 When the bot runs in `agent` mode:
 
-- After each agent response, the bot runs `npm run lint` for the active workspace target (`parent` or `bot`).
+- After each agent response, the bot runs `bun run lint` for the active workspace target (`parent` or `bot`).
 - The lint result is appended to the response sent to the user.
 - If lint fails, the bot performs one additional agent round and sends lint output as feedback.
 - The user receives the combined output after this lint step (and optional fix round).

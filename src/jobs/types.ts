@@ -3,8 +3,13 @@
 // ---------------------------------------------------------------------------
 import { z } from 'zod';
 
-import { AgentBackendNameSchema, AgentModeSchema, ProviderNameSchema } from '../db';
-import type { AgentBackendName, AgentMode, ProviderName } from '../db';
+import {
+  AgentBackendNameSchema,
+  AgentModeSchema,
+  ProviderNameSchema,
+  WorkspaceTargetSchema,
+} from '../db';
+import type { AgentBackendName, AgentMode, ProviderName, WorkspaceTarget } from '../db';
 
 export type JobRunStatus = 'running' | 'success' | 'error';
 
@@ -22,6 +27,7 @@ export type Job = {
   provider: ProviderName;
   model: string;
   mode: AgentMode;
+  workspace_target: WorkspaceTarget;
   budget_sats: number | null;
   instructions: string | null;
   execution_type: 'cron' | 'one-time';
@@ -49,6 +55,7 @@ const JobInputSchema = z.object({
   provider: ProviderNameSchema,
   model: z.string(),
   mode: AgentModeSchema,
+  workspace_target: WorkspaceTargetSchema,
   budget_sats: z.number().int().positive().nullable(),
   instructions: z.string().nullable(),
 });

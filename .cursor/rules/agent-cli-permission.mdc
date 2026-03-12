@@ -20,9 +20,9 @@ You may run these without asking. Everything else requires permission.
 
 ### Package scripts (trusted by project config)
 
-- `npm run <script>` when `<script>` exists in the nearest `package.json` `scripts` field.
-- `npm test` when backed by package scripts or default npm test behavior.
-- `npm run` (list scripts only, read-only).
+- `bun run <script>` when `<script>` exists in the nearest `package.json` `scripts` field.
+- `bun test` when backed by package scripts or default bun test behavior.
+- `bun run` (list scripts only, read-only).
 
 Before running a package script, the agent should:
 1. Read `package.json`.
@@ -31,7 +31,7 @@ Before running a package script, the agent should:
 
 ### Common read-only commands
 
-- `node --version`, `npm --version`
+- `bun --version`
 - `ls`, `pwd`, `cat` for reading files
 - `git status`, `git diff`, `git log`
 

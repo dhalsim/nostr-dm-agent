@@ -1,26 +1,23 @@
 import type { AgentBackend } from '../backends/types';
 import type { SeenDb } from '../db';
-import { getState, getWorkspaceTarget, STATE_CURRENT_SESSION } from '../db';
+import { getState, STATE_CURRENT_SESSION } from '../db';
 import { createNewSession, getLatestSession, setCurrentSession } from '../session';
 
-export async function handleNewSession({
-  db,
-  backend,
-  workspaceRoot,
-  dmBotRoot,
-  agentEnv,
-}: {
-  db: SeenDb;
+export type HandleNewSessionProps = {
+  seenDb: SeenDb;
   backend: AgentBackend;
-  workspaceRoot: string;
-  dmBotRoot: string;
+  cwd: string;
   agentEnv: Record<string, string | undefined>;
-}): Promise<string> {
-  const workspace = getWorkspaceTarget(db);
-  const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
+};
 
+export async function handleNewSession({
+  seenDb,
+  backend,
+  cwd,
+  agentEnv,
+}: HandleNewSessionProps): Promise<string> {
   const id = await createNewSession({
-    db,
+    db: seenDb,
     backend,
     cwd,
     env: agentEnv,
@@ -29,13 +26,12 @@ export async function handleNewSession({
   return `New session: ${id}`;
 }
 
-export function handleResumeLastSession({
-  db,
-  backend,
-}: {
+export type HandleResumeLastSessionProps = {
   db: SeenDb;
   backend: AgentBackend;
-}): string {
+};
+
+export function handleResumeLastSession({ db, backend }: HandleResumeLastSessionProps): string {
   const id = getLatestSession(db, backend);
 
   if (!id) {

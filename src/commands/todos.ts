@@ -49,7 +49,7 @@ export type HandleTodoProps = {
   args: string[];
   db: SeenDb;
   backend: AgentBackend | null;
-  workspaceRoot: string | null;
+  cwd: string;
   agentEnv: Record<string, string | undefined> | null;
 };
 
@@ -57,7 +57,7 @@ export async function handleTodo({
   args,
   db,
   backend,
-  workspaceRoot,
+  cwd,
   agentEnv,
 }: HandleTodoProps): Promise<string> {
   const sub = args[0]?.toLowerCase();
@@ -535,7 +535,7 @@ export async function handleTodo({
       return `Draft ${draftId} is a ${entry.kind} draft. Use !todo decline ${draftId} and create a new one with the correction applied.`;
     }
 
-    if (!backend || !workspaceRoot || !agentEnv) {
+    if (!backend || !agentEnv) {
       return [
         `Revision requires AI. To revise draft #${draftId}:`,
         `1. Note your correction: "${corrections}"`,
@@ -551,13 +551,13 @@ export async function handleTodo({
     const revisedPrompt = `Revise the following todo: "${entry.input.todo}". Correction: "${corrections}".`;
     const systemPrompt = buildSystemPrompt(revisedPrompt, activeTree);
 
-    const sessionId = await backend.createSession({ cwd: workspaceRoot, env: agentEnv });
+    const sessionId = await backend.createSession({ cwd, env: agentEnv });
 
     const result = await backend.runMessage({
       sessionId,
       content: systemPrompt,
       mode: 'ask',
-      cwd: workspaceRoot,
+      cwd,
       env: agentEnv,
       modelOverride: null,
     });

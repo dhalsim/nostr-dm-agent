@@ -54,6 +54,7 @@ import type { BotConfig } from './env';
 import { createJobEngine } from './jobs/engine';
 import type { JobRunnerContext } from './jobs/runner';
 import { runJob } from './jobs/runner';
+import type { Job } from './jobs/types';
 import { runPostAgentLint, formatLintSummary } from './lint';
 import { C, debug, log } from './logger';
 import {
@@ -94,7 +95,7 @@ async function prepareAutoFlowDeposit(opts: {
   amountSats: number;
 }): Promise<string | null> {
   if (!opts.walletDb) {
-    return 'Wallet not available. Run `npm run wallet:setup` to configure your wallet.';
+    return 'Wallet not available. Run `bun run wallet:setup` to configure your wallet.';
   }
 
   const mintUrl = getWalletDefaultMintUrl(opts.seenDb, opts.config.cashuDefaultMintUrl);
@@ -186,7 +187,7 @@ async function runAgentWithLintFollowUp(opts: {
 
   if (!lintResult.available) {
     log.error(
-      `Skipping post-agent lint: npm run lint is unavailable in this runtime for ${lintLabel}.`,
+      `Skipping post-agent lint: bun run lint is unavailable in this runtime for ${lintLabel}.`,
     );
 
     return { output: finalOutput, result: finalResult };
@@ -264,7 +265,7 @@ async function finalizeAutoFlowRefund(opts: {
 
   if (!opts.walletDb) {
     await opts.sendReply(
-      "Wallet not available. Auto-flow won't run. `npm run wallet:setup` to configure your wallet.",
+      "Wallet not available. Auto-flow won't run. `bun run wallet:setup` to configure your wallet.",
     );
 
     return;
@@ -282,7 +283,7 @@ async function finalizeAutoFlowRefund(opts: {
 
   if (!mnemonic) {
     await opts.sendReply(
-      'No mnemonic configured. Run `npm run wallet:setup` to configure your wallet.',
+      'No mnemonic configured. Run `bun run wallet:setup` to configure your wallet.',
     );
 
     return;
@@ -356,7 +357,7 @@ function main() {
   const providerDb = asProviderDb(seenDb);
   const walletDb = cashuMnemonic ? openWalletDb(cashuMnemonic) : null;
 
-  const workspaceRoot = join(dmBotRoot, '..');
+  const parentOfBotRoot = join(dmBotRoot, '..');
 
   const agentEnv: Record<string, string | undefined> = {
     ...process.env,
@@ -532,8 +533,8 @@ function main() {
   }
 
   const jobRunnerContext: JobRunnerContext = {
-    workspaceRoot,
     dmBotRoot,
+    parentOfBotRoot,
     attachUrl: opencodeServeUrl,
     getAgentEnv,
     walletDb,
@@ -553,7 +554,7 @@ function main() {
   };
 
   const jobEngineContext = {
-    runJob: (job: import('./jobs/types').Job, db: SeenDb) => runJob(job, db, jobRunnerContext),
+    runJob: (job: Job, db: SeenDb) => runJob(job, db, jobRunnerContext),
   };
 
   createJobEngine(seenDb, jobEngineContext).start();
@@ -579,7 +580,7 @@ function main() {
         relayUrls,
         seenDb,
         version: VERSION,
-        workspaceRoot,
+        parentOfBotRoot,
         dmBotRoot,
         agentEnv: getAgentEnv(),
         attachUrl: opencodeServeUrl,
@@ -616,7 +617,7 @@ function main() {
 
     const mode = getDefaultMode(seenDb);
     const currentWorkspace = getWorkspaceTarget(seenDb);
-    const cwd = currentWorkspace === 'bot' ? dmBotRoot : workspaceRoot;
+    const cwd = currentWorkspace === 'bot' ? dmBotRoot : parentOfBotRoot;
 
     const sessionId = await getOrCreateCurrentSession({
       db: seenDb,

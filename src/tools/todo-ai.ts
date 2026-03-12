@@ -192,7 +192,7 @@ export type HandleTodoAiProps = {
   args: string[];
   db: SeenDb;
   backend: AgentBackend;
-  workspaceRoot: string;
+  cwd: string;
   agentEnv: Record<string, string | undefined>;
 };
 
@@ -200,7 +200,7 @@ export async function handleTodoAi({
   args,
   db,
   backend,
-  workspaceRoot,
+  cwd,
   agentEnv,
 }: HandleTodoAiProps): Promise<string> {
   const userPrompt = args.join(' ').trim();
@@ -217,13 +217,13 @@ export async function handleTodoAi({
   const systemPrompt = buildSystemPrompt(userPrompt, activeTree);
 
   // createSession returns Promise<string>
-  const sessionId = await backend.createSession({ cwd: workspaceRoot, env: agentEnv });
+  const sessionId = await backend.createSession({ cwd, env: agentEnv });
 
   const result = await backend.runMessage({
     sessionId,
     content: systemPrompt,
     mode: 'ask',
-    cwd: workspaceRoot,
+    cwd,
     env: agentEnv,
     modelOverride: null,
   });

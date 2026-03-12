@@ -50,10 +50,10 @@ cd dm-bot
 bun install
 
 # Setup Nostr identity, relays, and publish kind 10050
-npm run nostr:setup
+bun run nostr:setup
 
 # Optional: setup Cashu wallet for paid AI (Routstr)
-npm run wallet:setup
+bun run wallet:setup
 
 # Start the bot
 bun run start
@@ -108,7 +108,7 @@ After that, set the bot’s provider to Routstr (`!provider set routstr`) and us
 ### Using Routstr
 
 1. **Setup a Cashu wallet**  
-   Run `npm run wallet:setup` and store the mnemonic in `.env` as `CASHU_MNEMONIC`.
+   Run `bun run wallet:setup` and store the mnemonic in `.env` as `CASHU_MNEMONIC`.
 
 2. **Add a mint**  
    Use a mint that Routstr accepts. Official options:
@@ -274,7 +274,7 @@ Each job stores **backend**, **provider**, **model**, **mode**, and an optional 
 !job history 1 5
 ```
 
-For programmatic use (e.g. from cron or scripts), the optional **`job:create`** npm script accepts `--schedule <cron>` for recurring or `--run-at <ISO date>` for one-time, plus the usual job fields.
+For programmatic use (e.g. from cron or scripts), the optional **`job:create`** bun script accepts `--schedule <cron>` for recurring or `--run-at <ISO date>` for one-time, plus the usual job fields.
 
 ## Cashu / Routstr Integration (Optional)
 
@@ -362,20 +362,20 @@ Ways to get Cashu tokens that you can paste into the bot with `!wallet receive <
 ### Troubleshooting
 
 - **"No mint configured"**: Run `!wallet mint <url>` first
-- **"Wallet not available"**: Make sure to run `npm run wallet:setup` to create a Cashu wallet and set the mnemonic in `.env`
+- **"Wallet not available"**: Make sure to run `bun run wallet:setup` to create a Cashu wallet and set the mnemonic in `.env`
 - **"Insufficient balance"**: Top up with `!wallet receive <token>` from external wallet
 - **"No Routstr session"**: Run `!provider deposit <sats>` or append `!!sats` to your prompt
 
 ### Post-agent lint behavior
 
-When execution mode is `agent`, the bot runs `npm run lint` after each agent response for the active workspace target:
+When execution mode is `agent`, the bot runs `bun run lint` after each agent response for the active workspace target:
 
 - `parent` = project root (default),
 - `bot` = `dm-bot` directory.
 
 - If lint passes, the lint summary is appended to the response.
 - If lint fails, the bot runs one additional agent round with lint output as feedback, then sends the combined result.
-- If lint cannot run in runtime (for example, missing npm), bot logs the issue and sends the original agent response.
+- If lint cannot run in runtime (for example, missing bun), bot logs the issue and sends the original agent response.
 
 ## Sending a DM to the bot
 
@@ -401,7 +401,7 @@ Use a NIP-17–compatible client (e.g. Damus, Coracle, 0xChat, or any app that s
 
 When changing dm-bot code:
 
-- **Contributing:** Run `npm run contrib:setup` once to enable the version-bump commit hooks (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+- **Contributing:** Run `bun run contrib:setup` once to enable the version-bump commit hooks (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 - **File map**: Main entry is `src/index.ts`. Key modules:
   - `src/logger.ts` — debug(), log(), logError(), ANSI colors
   - `src/env.ts` — loadBotConfig(), env parsing
@@ -419,9 +419,9 @@ When changing dm-bot code:
 - **New commands**: Add a branch in `handleBangCommand` in `index.ts`.
 - **After edits**: Touch `restart.requested` in the dm-bot directory so the watcher restarts the bot (when using `bun run watch`). Run the linter with auto-fix: from project root `bun run lint`, or from dm-bot `bun run lint`.
 
-### Configure safe npm scripts for agent shell access
+### Configure safe bun scripts for agent shell access
 
-If your project rule requires approval for shell commands, you can still allow common project tasks by whitelisting npm scripts.
+If your project rule requires approval for shell commands, you can still allow common project tasks by whitelisting bun scripts.
 This is a practical pattern because the agent can only run commands already defined in `package.json` `scripts` (for example `build`, `lint`, `test`).
 
 Add or update `dm-bot/.cursor/rules/agent-cli-permission.mdc` like this:
@@ -433,9 +433,9 @@ You may run these without asking. Everything else requires permission.
 
 ### Package scripts (trusted by project config)
 
-- `npm run <script>` when `<script>` exists in the nearest `package.json` `scripts` field.
-- `npm test` when backed by package scripts or default npm test behavior.
-- `npm run` (list scripts only, read-only).
+- `bun run <script>` when `<script>` exists in the nearest `package.json` `scripts` field.
+- `bun test` when backed by package scripts or default bun test behavior.
+- `bun run` (list scripts only, read-only).
 
 Before running a package script, the agent should:
 1. Read `package.json`.
@@ -444,12 +444,12 @@ Before running a package script, the agent should:
 
 ### Common read-only commands
 
-- `node --version`, `npm --version`
+- `bun --version`
 - `ls`, `pwd`, `cat` for reading files
 - `git status`, `git diff`, `git log`
 ```
 
-With this setup, commands such as `npm run build` and `npm run lint` are available to the agent without extra per-command approvals, while still keeping execution bounded to your script definitions.
+With this setup, commands such as `bun run build` and `bun run lint` are available to the agent without extra per-command approvals, while still keeping execution bounded to your script definitions.
 
 Full codebase context and extension points are in **.cursor/rules/dm-bot-context.mdc** in this directory.
 test
