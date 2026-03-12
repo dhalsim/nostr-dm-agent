@@ -90,6 +90,7 @@ export type HandleBangCommandProps = {
   agentEnv: Record<string, string | undefined>;
   attachUrl: string | null;
   backend: AgentBackend;
+  sessionId: string;
   botPubkey: string | null;
   seenDb: SeenDb;
   walletDb: WalletDb | null;
@@ -109,6 +110,7 @@ export async function handleBangCommand({
   agentEnv,
   attachUrl,
   backend,
+  sessionId,
   botPubkey,
   walletDb,
   config,
@@ -213,7 +215,8 @@ export async function handleBangCommand({
             db: seenDb,
             jobEngine,
             backend,
-            workspaceRoot: parentOfBotRoot,
+            sessionId,
+            cwd,
             agentEnv,
           }),
         'Job command failed',
@@ -227,7 +230,8 @@ export async function handleBangCommand({
             args,
             db: seenDb,
             backend,
-            workspaceRoot: parentOfBotRoot,
+            sessionId,
+            cwd,
             agentEnv,
           }),
         'Job AI failed',
@@ -236,7 +240,7 @@ export async function handleBangCommand({
 
     case 'todo': {
       return handleError(
-        async () => handleTodo({ args, db: seenDb, backend, cwd, agentEnv }),
+        async () => handleTodo({ args, db: seenDb, backend, sessionId, cwd, agentEnv }),
         'Todo command failed',
       );
     }
@@ -248,6 +252,7 @@ export async function handleBangCommand({
             args,
             db: seenDb,
             backend,
+            sessionId,
             cwd,
             agentEnv,
           }),

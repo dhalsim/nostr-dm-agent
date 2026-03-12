@@ -20,7 +20,8 @@ export type HandleJobAiProps = {
   args: string[];
   db: SeenDb;
   backend: AgentBackend;
-  workspaceRoot: string;
+  sessionId: string;
+  cwd: string;
   agentEnv: Record<string, string | undefined>;
 };
 
@@ -28,7 +29,8 @@ export async function handleJobAi({
   args,
   db,
   backend,
-  workspaceRoot,
+  sessionId,
+  cwd,
   agentEnv,
 }: HandleJobAiProps): Promise<string> {
   const userPrompt = args.join(' ').trim();
@@ -49,7 +51,13 @@ export async function handleJobAi({
   let input;
 
   try {
-    input = await generateCreateWithParams(backend, systemPrompt, workspaceRoot, agentEnv);
+    input = await generateCreateWithParams({
+      backend,
+      sessionId,
+      systemPrompt,
+      cwd,
+      agentEnv,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
 

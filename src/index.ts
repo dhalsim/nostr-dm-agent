@@ -59,6 +59,7 @@ import {
 import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
 import { TodoPlugin } from './plugins/todos/init';
 import { asProviderDb } from './providers/db';
+import { getOrCreateCurrentSession } from './session';
 import { openWalletDb } from './wallets/db';
 
 let redrawPrompt: (() => void) | null = null;
@@ -220,6 +221,15 @@ function main() {
 
     const input = content.trim();
 
+    const agentEnv = getAgentEnv();
+
+    const sessionId = await getOrCreateCurrentSession({
+      db: seenDb,
+      backend,
+      cwd: dmBotRoot,
+      env: agentEnv,
+    });
+
     // Commands (!help, !backend, etc.)
     if (input.startsWith('!')) {
       const reply = await handleBangCommand({
@@ -229,9 +239,10 @@ function main() {
         version: VERSION,
         parentOfBotRoot,
         dmBotRoot,
-        agentEnv: getAgentEnv(),
+        agentEnv,
         attachUrl: opencodeServeUrl,
         backend,
+        sessionId,
         botPubkey,
         walletDb,
         providerDb,

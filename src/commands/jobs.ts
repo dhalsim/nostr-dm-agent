@@ -217,14 +217,21 @@ Draft ID: ${id}
 Reply: !job confirm ${id} | !job revise ${id} <corrections> | !job discard ${id}`;
 }
 
-export async function generateCreateWithParams(
-  backend: AgentBackend,
-  systemPrompt: string,
-  cwd: string,
-  agentEnv: Record<string, string | undefined>,
-): Promise<CreateJobInput> {
-  const sessionId = await backend.createSession({ cwd, env: agentEnv });
+export type GenerateCreateWithParamsProps = {
+  backend: AgentBackend;
+  sessionId: string;
+  systemPrompt: string;
+  cwd: string;
+  agentEnv: Record<string, string | undefined>;
+};
 
+export async function generateCreateWithParams({
+  backend,
+  sessionId,
+  systemPrompt,
+  cwd,
+  agentEnv,
+}: GenerateCreateWithParamsProps): Promise<CreateJobInput> {
   const result = await backend.runMessage({
     sessionId,
     content: systemPrompt,
@@ -270,7 +277,8 @@ export type HandleJobProps = {
   db: SeenDb;
   jobEngine: JobEngineContext | null;
   backend: AgentBackend;
-  workspaceRoot: string;
+  sessionId: string;
+  cwd: string;
   agentEnv: Record<string, string | undefined>;
 };
 
@@ -279,7 +287,8 @@ export async function handleJob({
   db,
   jobEngine,
   backend,
-  workspaceRoot,
+  sessionId,
+  cwd,
   agentEnv,
 }: HandleJobProps): Promise<string> {
   const sub = args[0]?.toLowerCase();
@@ -385,12 +394,13 @@ export async function handleJob({
     let input: CreateJobInput;
 
     try {
-      input = await generateCreateWithParams(
+      input = await generateCreateWithParams({
         backend,
-        CREATE_WITH_REVISE_PROMPT(entry, corrections),
-        workspaceRoot,
+        sessionId,
+        systemPrompt: CREATE_WITH_REVISE_PROMPT(entry, corrections),
+        cwd,
         agentEnv,
-      );
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
 

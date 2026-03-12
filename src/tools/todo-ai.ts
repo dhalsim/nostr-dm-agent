@@ -192,6 +192,7 @@ export type HandleTodoAiProps = {
   args: string[];
   db: SeenDb;
   backend: AgentBackend;
+  sessionId: string;
   cwd: string;
   agentEnv: Record<string, string | undefined>;
 };
@@ -200,6 +201,7 @@ export async function handleTodoAi({
   args,
   db,
   backend,
+  sessionId,
   cwd,
   agentEnv,
 }: HandleTodoAiProps): Promise<string> {
@@ -215,9 +217,6 @@ export async function handleTodoAi({
   const activeTree = activeTodos.length > 0 ? formatTodoTree(activeTodos) : '(no active todos yet)';
 
   const systemPrompt = buildSystemPrompt(userPrompt, activeTree);
-
-  // createSession returns Promise<string>
-  const sessionId = await backend.createSession({ cwd, env: agentEnv });
 
   const result = await backend.runMessage({
     sessionId,

@@ -49,6 +49,7 @@ export type HandleTodoProps = {
   args: string[];
   db: SeenDb;
   backend: AgentBackend;
+  sessionId: string;
   cwd: string;
   agentEnv: Record<string, string | undefined>;
 };
@@ -57,6 +58,7 @@ export async function handleTodo({
   args,
   db,
   backend,
+  sessionId,
   cwd,
   agentEnv,
 }: HandleTodoProps): Promise<string> {
@@ -541,9 +543,6 @@ export async function handleTodo({
 
     const revisedPrompt = `Revise the following todo: "${entry.input.todo}". Correction: "${corrections}".`;
     const systemPrompt = buildSystemPrompt(revisedPrompt, activeTree);
-
-    // TODO: get sessionId from db or better from the args?
-    const sessionId = '';
 
     const result = await backend.runMessage({
       sessionId,
