@@ -28,11 +28,12 @@ import { SimplePool } from 'nostr-tools/pool';
 import { getPublicKey } from 'nostr-tools/pure';
 import { hexToBytes } from 'nostr-tools/utils';
 
+import { registerPlugins } from '../generated/plugins';
+
 import { createBackend } from './backends/factory';
 import { startLocalCli } from './cli/local-cli';
 import { handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
 import { getStatusLines } from './commands/bot';
-import { registerPlugin } from './core/registry';
 import {
   openSeenDb,
   initSkKeyEncryption,
@@ -57,7 +58,6 @@ import {
   sendDm,
 } from './nostr/nip17';
 import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
-import { TodoPlugin } from './plugins/todos/init';
 import { asProviderDb } from './providers/db';
 import { getOrCreateCurrentSession } from './session';
 import { openWalletDb } from './wallets/db';
@@ -99,6 +99,11 @@ function main() {
     process.exit(1);
   }
 
+  // --- Register plugins ---
+  log.info(`Registering plugins from ${join(dmBotRoot, 'plugins')}`);
+  registerPlugins(dmBotRoot);
+  log.info('Plugins registered');
+
   const pool = new SimplePool({ enablePing: true, enableReconnect: true });
 
   initSkKeyEncryption(botKeyHex, botPubkey);
@@ -108,7 +113,6 @@ function main() {
   const providerDb = asProviderDb(seenDb);
   const walletDb = cashuMnemonic ? openWalletDb(cashuMnemonic) : null;
 
-  registerPlugin(TodoPlugin, dmBotRoot);
   const parentOfBotRoot = join(dmBotRoot, '..');
 
   const agentEnv: Record<string, string | undefined> = {

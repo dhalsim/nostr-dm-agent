@@ -1,3 +1,4 @@
+import { getPluginHelpTexts } from '@src/core/registry';
 import { createBackend } from '../backends/factory';
 import type { AgentBackend } from '../backends/types';
 import {
@@ -420,9 +421,8 @@ export function getHelpText(): string {
 !provider sync-models — sync models from Routstr
 !provider add-model <id> — add a Routstr model to opencode.json
 !job-ai <prompt> — create a job draft from natural language; !job drafts|confirm|revise|discard|list|show|...
-!todo — list|add|accept|revise|decline|show|done|undone|delete (todo list)
-!todo-ai <prompt> — create or update a todo from natural language (draft; then !todo accept|revise|decline)
 !file upload <path> <npub>   Encrypt and share a file with another bot
 !file download <naddr>       Download and decrypt a file shared with this bot
-!exit — stop the bot process`;
+!exit — stop the bot process
+${getPluginHelpTexts() ?? ''}`;
 }

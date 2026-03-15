@@ -40,7 +40,6 @@ import {
   handleResumeSession,
   handleShowLastMessages,
 } from './commands/session';
-import { handleTodo } from './commands/todos';
 import {
   handleWalletBalance,
   handleWalletHistory,
@@ -65,8 +64,6 @@ import type { JobEngineContext } from './jobs/engine';
 import { getInfoLogsEnabled, log, setInfoLogsEnabled } from './logger';
 import { RESTART_REQUESTED_PATH } from './paths';
 import type { ProviderDb } from './providers/db';
-import { getLatestSession } from './session';
-import { handleTodoAi } from './tools/todo-ai';
 import { formatMsats, msats } from './types';
 import { decodeToken } from './wallets/cashu';
 import { getBalanceByMint, type WalletDb } from './wallets/db';
@@ -235,28 +232,6 @@ export async function handleBangCommand({
             agentEnv,
           }),
         'Job AI failed',
-      );
-    }
-
-    case 'todo': {
-      return handleError(
-        async () => handleTodo({ args, db: seenDb, backend, sessionId, cwd, agentEnv }),
-        'Todo command failed',
-      );
-    }
-
-    case 'todo-ai': {
-      return handleError(
-        async () =>
-          handleTodoAi({
-            args,
-            db: seenDb,
-            backend,
-            sessionId,
-            cwd,
-            agentEnv,
-          }),
-        'Todo AI failed',
       );
     }
 
@@ -743,10 +718,6 @@ export async function handleBangCommand({
 
     default: {
       const runAgent = async (prompt: string) => {
-        const sessionId =
-          getLatestSession(seenDb, backend.name) ??
-          (await backend.createSession({ cwd, env: agentEnv }));
-
         const result = await backend.runMessage({
           sessionId,
           content: prompt,

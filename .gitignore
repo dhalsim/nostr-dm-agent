@@ -2,3 +2,7 @@
 dm-bot.sqlite
 restart.requested
 node_modules
+.opencode/
+plugins.json
+plugins/
+generated/

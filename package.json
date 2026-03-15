@@ -1,6 +1,6 @@
 {
   "name": "nostr-dm-bot",
-  "version": "5.1.2",
+  "version": "5.2.0",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
@@ -9,7 +9,10 @@
     "job:create": "bun run scripts/create-job.ts",
     "wallet:setup": "bun run scripts/setup-wallet.ts",
     "nostr:setup": "bun run scripts/nostr-setup.ts",
-    "contrib:setup": "chmod +x scripts/commit-msg scripts/post-commit scripts/ngit-helper.sh && git config include.path ../.gitconfig"
+    "contrib:setup": "chmod +x scripts/commit-msg scripts/post-commit scripts/ngit-helper.sh && git config include.path ../.gitconfig",
+    "plugin:publish": "bun run scripts/publish-plugin.ts",
+    "plugin:install": "bun run scripts/install-plugin.ts",
+    "plugin:generate": "bun run scripts/generate-tools.ts"
   },
   "dependencies": {
     "@cashu/cashu-ts": "^3.5.0",
@@ -23,13 +26,14 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@eslint/js": "^9.17.0",
-    "@stylistic/eslint-plugin": "^5.8.0",
-    "@types/bun": "^1.3.9",
-    "eslint": "^9.17.0",
-    "eslint-plugin-import": "^2.31.0",
-    "eslint-plugin-prettier": "^5.2.1",
-    "prettier": "^3.4.2",
-    "typescript-eslint": "^8.18.0"
+    "@eslint/js": "^10.0.1",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "@types/bun": "^1.3.10",
+    "eslint": "^10.0.3",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-prettier": "^5.5.5",
+    "prettier": "^3.8.1",
+    "typescript-eslint": "^8.57.0"
   }
 }

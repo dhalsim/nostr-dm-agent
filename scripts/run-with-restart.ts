@@ -43,6 +43,7 @@ function start(): void {
       rapidCrashCount = 0;
       console.log('\n[run-with-restart] Restarting bot...\n');
       start();
+
       return;
     }
 
@@ -54,17 +55,21 @@ function start(): void {
 
     if (uptime < RAPID_CRASH_WINDOW_MS) {
       rapidCrashCount++;
+
       if (rapidCrashCount >= MAX_RAPID_CRASHES) {
-        console.error(
-          `[run-with-restart] ${MAX_RAPID_CRASHES} rapid crashes in a row. Stopping.`,
-        );
+        console.error(`[run-with-restart] ${MAX_RAPID_CRASHES} rapid crashes in a row. Stopping.`);
+
         process.exit(1);
       }
+
       const delayMs = 1000 * rapidCrashCount;
+
       console.error(
         `[run-with-restart] Bot exited with code ${code}. Rapid crash #${rapidCrashCount}, waiting ${delayMs}ms...`,
       );
+
       setTimeout(() => start(), delayMs);
+
       return;
     }
 

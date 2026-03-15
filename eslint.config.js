@@ -13,7 +13,7 @@ export default [
     ignores: ['dist/**', 'public/**', 'node_modules/**'],
   },
   {
-    files: ['src/**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.{ts,tsx}', 'plugins/**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -32,8 +32,11 @@ export default [
     },
     settings: {
       'import/resolver': {
+        typescript: {},
         node: true,
       },
+      'import/internal-regex': '^@src/',
+      'import/external-regex': '^(?!@src/)',
     },
     rules: {
       'import/order': [
