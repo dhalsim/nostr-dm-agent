@@ -28,8 +28,6 @@ import { SimplePool } from 'nostr-tools/pool';
 import { getPublicKey } from 'nostr-tools/pure';
 import { hexToBytes } from 'nostr-tools/utils';
 
-import { registerPlugins } from '../generated/plugins';
-
 import { createBackend } from './backends/factory';
 import { startLocalCli } from './cli/local-cli';
 import { handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
@@ -64,7 +62,7 @@ import { openWalletDb } from './wallets/db';
 
 let redrawPrompt: (() => void) | null = null;
 
-function main() {
+async function main() {
   // --- Restart & config ---
   if (existsSync(RESTART_REQUESTED_PATH)) {
     try {
@@ -99,10 +97,15 @@ function main() {
     process.exit(1);
   }
 
-  // --- Register plugins ---
-  log.info(`Registering plugins from ${join(dmBotRoot, 'plugins')}`);
-  registerPlugins(dmBotRoot);
-  log.info('Plugins registered');
+  // Register plugins if generated/plugins.ts exists (created by install-plugin script)
+  try {
+    const { registerPlugins } = await import('../generated/plugins');
+    log.info(`Registering plugins from ${join(dmBotRoot, 'plugins')}`);
+    registerPlugins(dmBotRoot);
+    log.info('Plugins registered');
+  } catch {
+    log.info('No plugins registered (run plugin:install to add plugins)');
+  }
 
   const pool = new SimplePool({ enablePing: true, enableReconnect: true });
 
@@ -323,4 +326,7 @@ function main() {
   startDmSubscription();
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
