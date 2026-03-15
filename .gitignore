@@ -6,3 +6,4 @@ node_modules
 plugins.json
 plugins/
 generated/
+AGENTS.md
