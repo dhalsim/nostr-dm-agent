@@ -378,7 +378,6 @@ async function main(): Promise<void> {
 
   console.log(`\n✓ Plugin "${alias}" installed successfully.`);
   console.log(`  Commands: !${alias} help`);
-  console.log(`  Tools:    ${alias}_list, ${alias}_create, ...\n`);
 
   process.exit(0);
 }
