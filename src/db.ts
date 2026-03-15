@@ -52,7 +52,7 @@ export const DEFAULT_BACKEND: AgentBackendName = 'cursor';
 export const DEFAULT_REPLY_TRANSPORT: ReplyTransport = 'remote';
 export const DEFAULT_WORKSPACE_TARGET: WorkspaceTarget = 'parent';
 export const DEFAULT_PROVIDER: ProviderName = 'local';
-export const DEFAULT_LINTING: Linting = 'on';
+export const DEFAULT_LINTING: Linting = 'off';
 
 let skKeyConversationKey: Uint8Array | null = null;
 
