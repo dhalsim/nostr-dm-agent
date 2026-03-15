@@ -85,7 +85,7 @@ for (const entry of pluginsJson.plugins) {
   const relPath = `../../plugins/${alias}/opencode`;
 
   // Generate named exports — just def.name, opencode prefixes filename automatically
-  const exports = defs.map((def, i) => `export const ${def.name} = tool(defs[${i}]);`).join('\n');
+  const exports = defs.map((def, i) => `export const _${def.name} = tool(defs[${i}]);`).join('\n');
 
   const toolFile = `\
 // ---------------------------------------------------------------------------
