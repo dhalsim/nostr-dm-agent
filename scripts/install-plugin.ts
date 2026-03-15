@@ -18,7 +18,7 @@
 //     ["ref", "<git-tag>", "<core-major>", "<changelog>"]  (one per release)
 // ---------------------------------------------------------------------------
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as readline from 'readline';
 
@@ -132,6 +132,11 @@ async function fetchNip65WriteRelays(pubkey: string): Promise<string[]> {
 
 async function main(): Promise<void> {
   console.log('\n── Bot Plugin Publisher ──\n');
+
+  if (!existsSync(PLUGINS_JSON)) {
+    console.log('No plugins.json found, creating default one');
+    writeFileSync(PLUGINS_JSON, JSON.stringify({ plugins: [] }, null, 2), 'utf8');
+  }
 
   // Step 1: resolve plugin alias
   let alias = process.argv[2]?.trim() ?? '';
