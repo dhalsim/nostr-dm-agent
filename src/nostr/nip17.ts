@@ -8,7 +8,7 @@ import type { SimplePool } from 'nostr-tools/pool';
 import { finalizeEvent } from 'nostr-tools/pure';
 
 import { alreadyHaveEvent, getReplyTransport, markSeen } from '../db';
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import { ensureWss } from '../env';
 import { C, debug, log, stripAnsi } from '../logger';
 import type { MessageSource } from '../messaging';
@@ -150,7 +150,7 @@ export async function sendDm({
 }
 
 export type CreateSendReplyForSourceProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   pool: SimplePool;
   botRelayUrl: string;
   senderSecretKey: Uint8Array;
@@ -205,7 +205,7 @@ export type CreateDmSubscriptionProps = {
   relayUrls: string[];
   dmFilter: DmFilter;
   signAuthEvent: (authTemplate: EventTemplate) => Promise<VerifiedEvent>;
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   botSecretKey: Uint8Array;
   masterPubkey: string;
   onMessage: (content: string) => Promise<void>;

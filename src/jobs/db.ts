@@ -11,7 +11,7 @@ import {
   DEFAULT_WORKSPACE_TARGET,
   WorkspaceTargetSchema,
 } from '../db';
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import type { ProviderName } from '../db';
 import { log } from '../logger';
 
@@ -128,7 +128,7 @@ function rowToJobRun(row: Record<string, unknown>): JobRun {
   };
 }
 
-export function getJobRunCount(db: SeenDb, jobId: number): number {
+export function getJobRunCount(db: CoreDb, jobId: number): number {
   const row = db.prepare('SELECT COUNT(*) as c FROM job_runs WHERE job_id = ?').get(jobId) as {
     c: number;
   };
@@ -136,7 +136,7 @@ export function getJobRunCount(db: SeenDb, jobId: number): number {
   return Number(row?.c ?? 0);
 }
 
-export function createJob(db: SeenDb, input: CreateJobInput): Job {
+export function createJob(db: CoreDb, input: CreateJobInput): Job {
   const now = Date.now();
 
   if (input.execution_type === 'cron') {
@@ -217,7 +217,7 @@ export function createJob(db: SeenDb, input: CreateJobInput): Job {
   }
 }
 
-export function listJobs(db: SeenDb): Job[] {
+export function listJobs(db: CoreDb): Job[] {
   const rows = db.prepare('SELECT * FROM jobs ORDER BY next_run_at ASC NULLS LAST').all() as Record<
     string,
     unknown
@@ -226,7 +226,7 @@ export function listJobs(db: SeenDb): Job[] {
   return rows.map(rowToJob);
 }
 
-export function getJob(db: SeenDb, id: number): Job | null {
+export function getJob(db: CoreDb, id: number): Job | null {
   const row = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) as
     | Record<string, unknown>
     | undefined;
@@ -234,13 +234,13 @@ export function getJob(db: SeenDb, id: number): Job | null {
   return row ? rowToJob(row) : null;
 }
 
-export function deleteJob(db: SeenDb, id: number): boolean {
+export function deleteJob(db: CoreDb, id: number): boolean {
   const info = db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
 
   return info.changes > 0;
 }
 
-export function enableJob(db: SeenDb, id: number): boolean {
+export function enableJob(db: CoreDb, id: number): boolean {
   const job = getJob(db, id);
 
   if (!job || job.enabled) {
@@ -259,7 +259,7 @@ export function enableJob(db: SeenDb, id: number): boolean {
   return true;
 }
 
-export function disableJob(db: SeenDb, id: number): boolean {
+export function disableJob(db: CoreDb, id: number): boolean {
   const info = db.prepare('UPDATE jobs SET enabled = 0, next_run_at = NULL WHERE id = ?').run(id);
 
   return info.changes > 0;
@@ -268,7 +268,7 @@ export function disableJob(db: SeenDb, id: number): boolean {
 /**
  * List job IDs that are enabled and due (next_run_at <= now).
  */
-export function listDueJobs(db: SeenDb): Job[] {
+export function listDueJobs(db: CoreDb): Job[] {
   const now = Date.now();
 
   const rows = db
@@ -281,7 +281,7 @@ export function listDueJobs(db: SeenDb): Job[] {
 }
 
 export function updateJobRunTimes(
-  db: SeenDb,
+  db: CoreDb,
   jobId: number,
   lastRunAt: number,
   nextRunAt: number | null,
@@ -293,7 +293,7 @@ export function updateJobRunTimes(
   );
 }
 
-export function insertJobRun(db: SeenDb, jobId: number): number {
+export function insertJobRun(db: CoreDb, jobId: number): number {
   const now = Date.now();
 
   const info = db
@@ -306,7 +306,7 @@ export function insertJobRun(db: SeenDb, jobId: number): number {
 }
 
 export function updateJobRun(
-  db: SeenDb,
+  db: CoreDb,
   runId: number,
   status: JobRunStatus,
   output: string | null,
@@ -320,7 +320,7 @@ export function updateJobRun(
   ).run(now, status, output ?? null, error ?? null, budgetUsedMsats, runId);
 }
 
-export function listJobRuns(db: SeenDb, jobId: number, limit: number): JobRun[] {
+export function listJobRuns(db: CoreDb, jobId: number, limit: number): JobRun[] {
   const rows = db
     .prepare('SELECT * FROM job_runs WHERE job_id = ? ORDER BY id DESC LIMIT ?')
     .all(jobId, limit) as Record<string, unknown>[];

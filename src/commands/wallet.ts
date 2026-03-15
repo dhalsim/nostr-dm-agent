@@ -1,4 +1,4 @@
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import { getWalletDefaultMintUrl, setWalletDefaultMintUrl } from '../db';
 import { log } from '../logger';
 import { CashuWallet } from '../wallets/cashu';
@@ -12,7 +12,7 @@ import {
 } from '../wallets/db';
 
 export type HandleWalletMintProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   defaultMintUrl: string | null;
   url: string | null;
 };

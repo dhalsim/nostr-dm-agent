@@ -1,11 +1,11 @@
 import type { Database } from 'bun:sqlite';
 
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import type { Brand } from '../types';
 
 export type ProviderDb = Brand<Database, 'ProviderDb'>;
 
-export function asProviderDb(db: SeenDb): ProviderDb {
+export function asProviderDb(db: CoreDb): ProviderDb {
   return db as unknown as ProviderDb;
 }
 

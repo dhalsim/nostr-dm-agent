@@ -5,7 +5,7 @@
 import { createBackend } from '../backends/factory';
 import type { AgentRunResult } from '../backends/types';
 import { getAgentBackend, getLinting, getModelOverride, getRoutstrModel } from '../db';
-import type { AgentMode, SeenDb } from '../db';
+import type { AgentMode, CoreDb } from '../db';
 import { runPostAgentLint, formatLintSummary } from '../lint';
 import { C, log } from '../logger';
 import type { ProviderName } from '../providers/types';
@@ -21,7 +21,7 @@ export type RunAgentWithLintFollowUpProps = {
   sessionId: string;
   cwd: string;
   getAgentEnv: () => Record<string, string | undefined>;
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   effectiveContent: string;
   currentWorkspace: string;
   backendName: string;

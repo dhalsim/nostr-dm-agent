@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { getWalletDefaultMintUrl } from '../db';
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import { log } from '../logger';
 import type { ProviderDb } from '../providers/db';
 import { depositOrTopup } from '../providers/routstr';
@@ -11,7 +11,7 @@ import type { WalletDb } from '../wallets/db';
 import { InsufficientFundsError } from '../wallets/types';
 
 export type PrepareAutoFlowDepositProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   cashuDefaultMintUrl: string | null;
   cashuMnemonic: string | null;
   walletDb: WalletDb | null;

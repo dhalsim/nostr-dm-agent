@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 import type { AgentBackend } from '../backends/types';
 import { getAgentBackend, getModelOverride, getProviderName, getRoutstrModel } from '../db';
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import { storeDraft } from '../jobs/drafts';
 
 import {
@@ -18,7 +18,7 @@ import {
 
 export type HandleJobAiProps = {
   args: string[];
-  db: SeenDb;
+  db: CoreDb;
   backend: AgentBackend;
   sessionId: string;
   cwd: string;

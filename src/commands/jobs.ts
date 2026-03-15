@@ -4,7 +4,7 @@
 import { toJSONSchema } from 'zod';
 
 import type { AgentBackend } from '../backends/types';
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import {
   createJob,
   deleteJob,
@@ -274,7 +274,7 @@ export async function generateCreateWithParams({
 
 export type HandleJobProps = {
   args: string[];
-  db: SeenDb;
+  db: CoreDb;
   jobEngine: JobEngineContext | null;
   backend: AgentBackend;
   sessionId: string;

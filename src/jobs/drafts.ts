@@ -5,7 +5,7 @@
 // and read by src/commands/jobs.ts. In-memory Maps cannot be shared across
 // processes, so all draft state lives in the SQLite DB.
 // ---------------------------------------------------------------------------
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 
 import type { CreateJobInput } from './types';
 import { CreateJobInputSchema } from './types';
@@ -26,7 +26,7 @@ export type JobDraftRow = JobDraftEntry & { id: number };
 // CRUD
 // ---------------------------------------------------------------------------
 
-export function storeDraft(seenDb: SeenDb, entry: JobDraftEntry): number {
+export function storeDraft(seenDb: CoreDb, entry: JobDraftEntry): number {
   const now = Date.now();
 
   const info = seenDb.run(
@@ -38,7 +38,7 @@ export function storeDraft(seenDb: SeenDb, entry: JobDraftEntry): number {
   return Number(info.lastInsertRowid);
 }
 
-export function getDraft(db: SeenDb, id: number): JobDraftRow | null {
+export function getDraft(db: CoreDb, id: number): JobDraftRow | null {
   const row = db.prepare('SELECT * FROM job_drafts WHERE id = ?').get(id) as
     | Record<string, unknown>
     | undefined;
@@ -50,7 +50,7 @@ export function getDraft(db: SeenDb, id: number): JobDraftRow | null {
   return rowToDraft(row);
 }
 
-export function listDrafts(db: SeenDb): JobDraftRow[] {
+export function listDrafts(db: CoreDb): JobDraftRow[] {
   const rows = db.prepare('SELECT * FROM job_drafts ORDER BY id ASC').all() as Record<
     string,
     unknown
@@ -59,11 +59,11 @@ export function listDrafts(db: SeenDb): JobDraftRow[] {
   return rows.map(rowToDraft);
 }
 
-export function deleteDraft(db: SeenDb, id: number): boolean {
+export function deleteDraft(db: CoreDb, id: number): boolean {
   return db.prepare('DELETE FROM job_drafts WHERE id = ?').run(id).changes > 0;
 }
 
-export function updateDraftInput(db: SeenDb, id: number, input: CreateJobInput): boolean {
+export function updateDraftInput(db: CoreDb, id: number, input: CreateJobInput): boolean {
   const info = db
     .prepare('UPDATE job_drafts SET input = ? WHERE id = ?')
     .run(JSON.stringify(input), id);

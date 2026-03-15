@@ -4,12 +4,12 @@
 import { delimiter } from 'path';
 
 import { getAgentBackend, getProviderName, getRoutstrSkKey } from './db';
-import type { SeenDb } from './db';
+import type { CoreDb } from './db';
 import { log } from './logger';
 
 export type CreateGetAgentEnvProps = {
   baseEnv: Record<string, string | undefined>;
-  seenDb: SeenDb;
+  seenDb: CoreDb;
 };
 
 export function createGetAgentEnv({

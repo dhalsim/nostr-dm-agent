@@ -7,7 +7,7 @@ import {
   type Linting,
   type ProviderName,
   type ReplyTransport,
-  type SeenDb,
+  type CoreDb,
   type WorkspaceTarget,
   AgentBackendNameSchema,
   AgentModeSchema,
@@ -49,7 +49,7 @@ const STATUS_EMOJI = {
 
 export type StatusProps = {
   relayUrls: string[];
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   version: string;
   dmBotRoot: string;
   attachUrl: string | null;
@@ -113,20 +113,20 @@ export function getStatusLines({
   return lines.join('\n');
 }
 
-export function handleLocal({ db }: { db: SeenDb }): string {
+export function handleLocal({ db }: { db: CoreDb }): string {
   setReplyTransport(db, 'local');
 
   return 'Reply transport switched to local.';
 }
 
-export function handleRemote({ db }: { db: SeenDb }): string {
+export function handleRemote({ db }: { db: CoreDb }): string {
   setReplyTransport(db, 'remote');
 
   return 'Reply transport switched to remote.';
 }
 
 export type HandleWorkspaceProps = {
-  db: SeenDb;
+  db: CoreDb;
   backend: AgentBackend;
   parentOfBotRoot: string;
   dmBotRoot: string;
@@ -186,7 +186,7 @@ export async function handleWorkspace({
 }
 
 export type HandleBackendProps = {
-  db: SeenDb;
+  db: CoreDb;
   dmBotRoot: string;
   parentOfBotRoot: string;
   attachUrl: string | null;
@@ -251,7 +251,7 @@ export async function handleBackend({
   }
 }
 
-export function handleMode({ db, modeArg }: { db: SeenDb; modeArg: string }): string {
+export function handleMode({ db, modeArg }: { db: CoreDb; modeArg: string }): string {
   const parsed = AgentModeSchema.safeParse(modeArg);
 
   if (!parsed.success) {
@@ -272,7 +272,7 @@ export function handleMode({ db, modeArg }: { db: SeenDb; modeArg: string }): st
   }
 }
 
-export function handleModel({ db, selected }: { db: SeenDb; selected?: string }): string {
+export function handleModel({ db, selected }: { db: CoreDb; selected?: string }): string {
   if (!selected) {
     const current = getModelOverride(db);
 
@@ -291,7 +291,7 @@ export function handleModel({ db, selected }: { db: SeenDb; selected?: string })
 }
 
 export type HandleModelsProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   dmBotRoot: string;
   attachUrl: string | null;
 };
@@ -337,7 +337,7 @@ export function handleVersion({ version }: { version: string }): string {
 }
 
 export type HandleLintProps = {
-  db: SeenDb;
+  db: CoreDb;
   args: string[];
   workspaceRoot: string;
   dmBotRoot: string;

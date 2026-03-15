@@ -35,14 +35,14 @@ import { startLocalCli } from './cli/local-cli';
 import { handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
 import { getStatusLines } from './commands/bot';
 import {
-  openSeenDb,
+  openCoreDb,
   initSkKeyEncryption,
   getDefaultMode,
   getAgentBackend,
   getModelOverride,
   getProviderName,
 } from './db';
-import type { SeenDb } from './db';
+import type { CoreDb } from './db';
 import { createGetAgentEnv, loadBotConfig } from './env';
 import { runAgentConversation } from './flow/agent-conversation';
 import { createJobEngine } from './jobs/engine';
@@ -109,7 +109,7 @@ function main() {
   initSkKeyEncryption(botKeyHex, botPubkey);
 
   // --- Databases & plugins ---
-  const seenDb = openSeenDb();
+  const seenDb = openCoreDb();
   const providerDb = asProviderDb(seenDb);
   const walletDb = cashuMnemonic ? openWalletDb(cashuMnemonic) : null;
 
@@ -205,7 +205,7 @@ function main() {
   };
 
   const jobEngineContext = {
-    runJob: (job: Job, db: SeenDb) => runJob(job, db, jobRunnerContext),
+    runJob: (job: Job, db: CoreDb) => runJob(job, db, jobRunnerContext),
   };
 
   createJobEngine(seenDb, jobEngineContext).start();

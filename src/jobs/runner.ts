@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 import { createBackend } from '../backends/factory';
 import type { AgentRunResult } from '../backends/types';
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import { getRoutstrBudget, getRoutstrSkKey, getWalletDefaultMintUrl } from '../db';
 import type { BotConfig } from '../env';
 import { log } from '../logger';
@@ -35,7 +35,7 @@ export type JobRunnerContext = {
   sendDm: (message: string) => Promise<void>;
 };
 
-export async function runJob(job: Job, db: SeenDb, context: JobRunnerContext): Promise<void> {
+export async function runJob(job: Job, db: CoreDb, context: JobRunnerContext): Promise<void> {
   const backendName = job.backend;
   const providerName = job.provider;
   const mode = job.mode;

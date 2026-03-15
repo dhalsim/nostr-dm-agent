@@ -12,7 +12,7 @@ import {
   getWalletDefaultMintUrl,
   getWorkspaceTarget,
 } from '../db';
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import type { BotConfig } from '../env';
 import { C, log } from '../logger';
 import { modePrefix, tokenFooter, sendChunkedReply } from '../messaging';
@@ -33,7 +33,7 @@ export type RunAgentConversationProps = {
   source: MessageSource;
   sendReplyForSource: (source: MessageSource, message: string) => Promise<void>;
   backend: AgentBackend;
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   dmBotRoot: string;
   parentOfBotRoot: string;
   opencodeServeUrl: string | null;

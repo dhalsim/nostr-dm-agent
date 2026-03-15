@@ -7,12 +7,12 @@ import { hexToBytes } from 'nostr-tools/utils';
 import { z } from 'zod';
 
 import { assertUnreachable, log } from './logger';
-import { SEEN_DB_PATH, RESTART_REQUESTED_PATH } from './paths';
+import { CORE_DB_PATH, RESTART_REQUESTED_PATH } from './paths';
 import { msats, msatsRaw } from './types';
 import type { Brand } from './types';
 import type { Msats } from './types';
 
-export { SEEN_DB_PATH, RESTART_REQUESTED_PATH };
+export { CORE_DB_PATH as SEEN_DB_PATH, RESTART_REQUESTED_PATH };
 
 export const AgentModeSchema = z.enum(['free', 'ask', 'plan', 'agent']);
 export type AgentMode = z.infer<typeof AgentModeSchema>;
@@ -60,10 +60,10 @@ export function initSkKeyEncryption(botKeyHex: string, botPubkey: string): void 
   skKeyConversationKey = getConversationKey(hexToBytes(botKeyHex), botPubkey);
 }
 
-export type SeenDb = Brand<Database, 'SeenDb'>;
+export type CoreDb = Brand<Database, 'CoreDb'>;
 
-export function openSeenDb(): SeenDb {
-  const db = new Database(SEEN_DB_PATH);
+export function openCoreDb(): CoreDb {
+  const db = new Database(CORE_DB_PATH);
   db.run('PRAGMA foreign_keys = ON');
   db.run('CREATE TABLE IF NOT EXISTS seen_events (id TEXT PRIMARY KEY)');
 
@@ -160,20 +160,20 @@ export function openSeenDb(): SeenDb {
     )
   `);
 
-  return db as SeenDb;
+  return db as CoreDb;
 }
 
-export function alreadyHaveEvent(db: SeenDb): (id: string) => boolean {
+export function alreadyHaveEvent(db: CoreDb): (id: string) => boolean {
   const stmt = db.prepare('SELECT 1 FROM seen_events WHERE id = ?');
 
   return (id: string) => stmt.get(id) !== null;
 }
 
-export function markSeen(db: SeenDb, id: string): void {
+export function markSeen(db: CoreDb, id: string): void {
   db.run('INSERT OR IGNORE INTO seen_events (id) VALUES (?)', [id]);
 }
 
-export function getState(db: SeenDb, key: string): string | null {
+export function getState(db: CoreDb, key: string): string | null {
   const row = db.prepare('SELECT value FROM state WHERE key = ?').get(key) as
     | { value: string }
     | undefined;
@@ -181,11 +181,11 @@ export function getState(db: SeenDb, key: string): string | null {
   return row?.value ?? null;
 }
 
-export function setState(db: SeenDb, key: string, value: string): void {
+export function setState(db: CoreDb, key: string, value: string): void {
   db.run('INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)', [key, value]);
 }
 
-export function getDefaultMode(db: SeenDb): AgentMode {
+export function getDefaultMode(db: CoreDb): AgentMode {
   const v = getState(db, STATE_DEFAULT_MODE);
   const parsed = AgentModeSchema.safeParse(v);
 
@@ -208,45 +208,45 @@ export function getDefaultMode(db: SeenDb): AgentMode {
   }
 }
 
-export function setDefaultMode(db: SeenDb, mode: AgentMode): void {
+export function setDefaultMode(db: CoreDb, mode: AgentMode): void {
   setState(db, STATE_DEFAULT_MODE, mode);
 }
 
-export function getAgentBackend(db: SeenDb): AgentBackendName {
+export function getAgentBackend(db: CoreDb): AgentBackendName {
   const v = getState(db, STATE_AGENT_BACKEND);
 
   return AgentBackendNameSchema.safeParse(v).data ?? DEFAULT_BACKEND;
 }
 
-export function setAgentBackend(db: SeenDb, backend: AgentBackendName): void {
+export function setAgentBackend(db: CoreDb, backend: AgentBackendName): void {
   setState(db, STATE_AGENT_BACKEND, backend);
 }
 
-export function getReplyTransport(db: SeenDb): ReplyTransport {
+export function getReplyTransport(db: CoreDb): ReplyTransport {
   const v = getState(db, STATE_REPLY_TRANSPORT);
 
   return ReplyTransportSchema.safeParse(v).data ?? DEFAULT_REPLY_TRANSPORT;
 }
 
-export function setReplyTransport(db: SeenDb, transport: ReplyTransport): void {
+export function setReplyTransport(db: CoreDb, transport: ReplyTransport): void {
   setState(db, STATE_REPLY_TRANSPORT, transport);
 }
 
-export function getWorkspaceTarget(db: SeenDb): WorkspaceTarget {
+export function getWorkspaceTarget(db: CoreDb): WorkspaceTarget {
   const v = getState(db, STATE_WORKSPACE_TARGET);
 
   return WorkspaceTargetSchema.safeParse(v).data ?? DEFAULT_WORKSPACE_TARGET;
 }
 
-export function setWorkspaceTarget(db: SeenDb, target: WorkspaceTarget): void {
+export function setWorkspaceTarget(db: CoreDb, target: WorkspaceTarget): void {
   setState(db, STATE_WORKSPACE_TARGET, target);
 }
 
-export function getModelOverride(db: SeenDb): string | null {
+export function getModelOverride(db: CoreDb): string | null {
   return getState(db, STATE_MODEL_OVERRIDE);
 }
 
-export function setModelOverride(db: SeenDb, model: string | null): void {
+export function setModelOverride(db: CoreDb, model: string | null): void {
   if (model === null) {
     db.run('DELETE FROM state WHERE key = ?', [STATE_MODEL_OVERRIDE]);
   } else {
@@ -254,17 +254,17 @@ export function setModelOverride(db: SeenDb, model: string | null): void {
   }
 }
 
-export function getProviderName(db: SeenDb): ProviderName {
+export function getProviderName(db: CoreDb): ProviderName {
   const v = getState(db, STATE_PROVIDER_NAME);
 
   return ProviderNameSchema.safeParse(v).data ?? DEFAULT_PROVIDER;
 }
 
-export function setProviderName(db: SeenDb, name: ProviderName): void {
+export function setProviderName(db: CoreDb, name: ProviderName): void {
   setState(db, STATE_PROVIDER_NAME, name);
 }
 
-export function getRoutstrBudget(seenDb: SeenDb): Msats {
+export function getRoutstrBudget(seenDb: CoreDb): Msats {
   const v = getState(seenDb, STATE_ROUTSTR_BUDGET_MSATS);
 
   if (v === null) {
@@ -280,11 +280,11 @@ export function getRoutstrBudget(seenDb: SeenDb): Msats {
   return msats(parsed.data);
 }
 
-export function setRoutstrBudget(db: SeenDb, budgetMSats: Msats): void {
+export function setRoutstrBudget(db: CoreDb, budgetMSats: Msats): void {
   setState(db, STATE_ROUTSTR_BUDGET_MSATS, String(msatsRaw(budgetMSats)));
 }
 
-export function getRoutstrSkKey(db: SeenDb): string | null {
+export function getRoutstrSkKey(db: CoreDb): string | null {
   const stored = getState(db, STATE_ROUTSTR_SK_KEY);
 
   if (!stored) {
@@ -304,7 +304,7 @@ export function getRoutstrSkKey(db: SeenDb): string | null {
   }
 }
 
-export function setRoutstrSkKey(db: SeenDb, key: string): void {
+export function setRoutstrSkKey(db: CoreDb, key: string): void {
   if (!skKeyConversationKey) {
     log.warn('SK key encryption not initialized — storing raw value');
     setState(db, STATE_ROUTSTR_SK_KEY, key);
@@ -315,19 +315,19 @@ export function setRoutstrSkKey(db: SeenDb, key: string): void {
   setState(db, STATE_ROUTSTR_SK_KEY, encrypt(key, skKeyConversationKey));
 }
 
-export function getWalletDefaultMintUrl(db: SeenDb, defaultMintUrl: string | null): string | null {
+export function getWalletDefaultMintUrl(db: CoreDb, defaultMintUrl: string | null): string | null {
   return getState(db, STATE_CASHU_DEFAULT_MINT_URL) ?? defaultMintUrl;
 }
 
-export function setWalletDefaultMintUrl(db: SeenDb, url: string): void {
+export function setWalletDefaultMintUrl(db: CoreDb, url: string): void {
   setState(db, STATE_CASHU_DEFAULT_MINT_URL, url);
 }
 
-export function getRoutstrModel(db: SeenDb): string | null {
+export function getRoutstrModel(db: CoreDb): string | null {
   return getState(db, STATE_ROUTSTR_MODEL);
 }
 
-export function setRoutstrModel(db: SeenDb, model: string | null): void {
+export function setRoutstrModel(db: CoreDb, model: string | null): void {
   if (model === null) {
     db.run('DELETE FROM state WHERE key = ?', [STATE_ROUTSTR_MODEL]);
   } else {
@@ -341,7 +341,7 @@ export type RoutstrModelCache = {
   context_length?: number;
 }[];
 
-export function getCachedRoutstrModels(db: SeenDb): {
+export function getCachedRoutstrModels(db: CoreDb): {
   models: RoutstrModelCache;
   ts: number;
 } | null {
@@ -357,17 +357,17 @@ export function getCachedRoutstrModels(db: SeenDb): {
   return models ? { models, ts } : null;
 }
 
-export function setCachedRoutstrModels(db: SeenDb, models: RoutstrModelCache): void {
+export function setCachedRoutstrModels(db: CoreDb, models: RoutstrModelCache): void {
   setState(db, STATE_ROUTSTR_MODELS_CACHE, JSON.stringify(models));
   setState(db, STATE_ROUTSTR_MODELS_CACHE_TS, String(Date.now()));
 }
 
-export function getLinting(db: SeenDb): Linting {
+export function getLinting(db: CoreDb): Linting {
   const v = getState(db, STATE_LINTING);
 
   return LintingSchema.safeParse(v).data ?? DEFAULT_LINTING;
 }
 
-export function setLinting(db: SeenDb, value: Linting): void {
+export function setLinting(db: CoreDb, value: Linting): void {
   setState(db, STATE_LINTING, value);
 }

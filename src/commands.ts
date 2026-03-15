@@ -49,7 +49,7 @@ import {
   handleWalletSend,
 } from './commands/wallet';
 import { dispatchPluginCommand } from './core/registry';
-import type { SeenDb } from './db';
+import type { CoreDb } from './db';
 import {
   getProviderName,
   getRoutstrBudget,
@@ -89,7 +89,7 @@ export type HandleBangCommandProps = {
   backend: AgentBackend;
   sessionId: string;
   botPubkey: string | null;
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   walletDb: WalletDb | null;
   providerDb: ProviderDb | null;
   config: BotConfig;

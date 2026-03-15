@@ -1,10 +1,10 @@
 import type { AgentBackend } from '../backends/types';
-import type { AgentBackendName, SeenDb } from '../db';
+import type { AgentBackendName, CoreDb } from '../db';
 import { getState, STATE_CURRENT_SESSION } from '../db';
 import { createNewSession, getLatestSession, setCurrentSession } from '../session';
 
 export type HandleNewSessionProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   backend: AgentBackend;
   cwd: string;
   agentEnv: Record<string, string | undefined>;
@@ -27,7 +27,7 @@ export async function handleNewSession({
 }
 
 export type HandleResumeLastSessionProps = {
-  db: SeenDb;
+  db: CoreDb;
   backendName: AgentBackendName;
 };
 
@@ -43,7 +43,7 @@ export function handleResumeLastSession({ db, backendName }: HandleResumeLastSes
   return `Resumed session ${id}.`;
 }
 
-export function handleResumeSession({ db, sessionId }: { db: SeenDb; sessionId: string }): string {
+export function handleResumeSession({ db, sessionId }: { db: CoreDb; sessionId: string }): string {
   if (!sessionId) {
     return 'Usage: !resume-session <SESSION-ID>';
   }
@@ -55,7 +55,7 @@ export function handleResumeSession({ db, sessionId }: { db: SeenDb; sessionId: 
   return `Resumed session ${sessionId}.`;
 }
 
-export function handleListSessions({ db }: { db: SeenDb }): string {
+export function handleListSessions({ db }: { db: CoreDb }): string {
   const rows = db
     .prepare('SELECT id, created_at, backend FROM sessions ORDER BY created_at DESC')
     .all() as { id: string; created_at: number; backend: string }[];
@@ -81,7 +81,7 @@ export function handleShowLastMessages({
   sessionId,
   n = 5,
 }: {
-  db: SeenDb;
+  db: CoreDb;
   sessionId?: string;
   n?: number;
 }): string {

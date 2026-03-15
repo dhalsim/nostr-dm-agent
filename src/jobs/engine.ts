@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // jobs/engine.ts — Scheduler: every 60s check due jobs and run them
 // ---------------------------------------------------------------------------
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import { log } from '../logger';
 
 import { getNextRunAt, getJobRunCount, listDueJobs, updateJobRunTimes } from './db';
@@ -10,11 +10,11 @@ import type { Job } from './types';
 const TICK_MS = 60_000;
 
 export type JobEngineContext = {
-  runJob: (job: Job, db: SeenDb) => Promise<void>;
+  runJob: (job: Job, db: CoreDb) => Promise<void>;
 };
 
 export function createJobEngine(
-  db: SeenDb,
+  db: CoreDb,
   context: JobEngineContext,
 ): {
   start: () => void;

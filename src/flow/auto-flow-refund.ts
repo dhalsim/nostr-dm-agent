@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { getRoutstrSkKey, getWalletDefaultMintUrl } from '../db';
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import { log } from '../logger';
 import type { ProviderDb } from '../providers/db';
 import { refundRoutstr } from '../providers/routstr';
@@ -12,7 +12,7 @@ import type { WalletDb } from '../wallets/db';
 export type FinalizeAutoFlowRefundProps = {
   isAutoFlow: boolean;
   walletDb: WalletDb | null;
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   cashuDefaultMintUrl: string | null;
   cashuMnemonic: string | null;
   providerDb: ProviderDb | null;

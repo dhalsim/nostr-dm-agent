@@ -1,6 +1,6 @@
 import * as z from 'zod';
 
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import { getRoutstrBudget, getRoutstrSkKey, setRoutstrBudget, setRoutstrSkKey } from '../db';
 import type { BotConfig } from '../env';
 import { debug, debugAsync, log } from '../logger';
@@ -24,7 +24,7 @@ const ROUTSTR_BASE_URL = 'https://api.routstr.com/v1';
 export type CreateRoutstrProviderProps = {
   baseUrl: string;
   providerDb: ProviderDb;
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   config: BotConfig;
 };
 
@@ -115,7 +115,7 @@ const TopupResponseSchema = z.object({
 
 type DepositOrTopupProps = {
   mnemonic: string;
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   walletDb: WalletDb;
   providerDb: ProviderDb;
   mintUrl: string;
@@ -261,7 +261,7 @@ export async function depositOrTopup(
 
 export type RefundRoutstrProps = {
   mnemonic: string;
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   providerDb: ProviderDb;
   mintUrl: string;
   skKey: string;
@@ -334,7 +334,7 @@ const BalanceInfoResponseSchema = z
   })
   .loose();
 
-export async function getRoutstrBalance(seenDb: SeenDb): Promise<Msats> {
+export async function getRoutstrBalance(seenDb: CoreDb): Promise<Msats> {
   const skKey = getRoutstrSkKey(seenDb);
 
   if (!skKey) {

@@ -1,4 +1,4 @@
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import type { BotConfig } from '../env';
 import type { WalletDb } from '../wallets/db';
 
@@ -10,7 +10,7 @@ import type { AnyProvider, ProviderName } from './types';
 export type CreateProviderProps = {
   name: ProviderName;
   walletDb: WalletDb | null;
-  seenDb: SeenDb | null;
+  seenDb: CoreDb | null;
   providerDb: ProviderDb | null;
   config: BotConfig;
   routstrBaseUrl?: string;

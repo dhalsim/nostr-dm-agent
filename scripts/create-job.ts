@@ -2,7 +2,7 @@
 // scripts/create-job.ts — CLI to create a job (Zod-validated, writes to DB)
 // ---------------------------------------------------------------------------
 import { parseCreateArgs } from '../src/commands/jobs';
-import { openSeenDb } from '../src/db';
+import { openCoreDb } from '../src/db';
 import { createJob } from '../src/jobs/db';
 import { CreateJobInputSchema } from '../src/jobs/types';
 
@@ -107,7 +107,7 @@ function main(): void {
 
   const input = result.data;
 
-  const db = openSeenDb();
+  const db = openCoreDb();
 
   try {
     const job = createJob(db, input);

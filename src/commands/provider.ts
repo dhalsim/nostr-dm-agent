@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 
-import type { SeenDb } from '../db';
+import type { CoreDb } from '../db';
 import {
   ProviderNameSchema,
   getModelOverride,
@@ -22,7 +22,7 @@ import type { Msats } from '../types';
 import type { WalletDb } from '../wallets/db';
 
 export type HandleProviderSetProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   name: string | null;
 };
 
@@ -73,7 +73,7 @@ export function handleProviderSet({ seenDb, name }: HandleProviderSetProps): str
 }
 
 export type HandleProviderDepositProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   walletDb: WalletDb;
   mnemonic: string;
   mintUrl: string;
@@ -112,7 +112,7 @@ export async function handleProviderDeposit({
 }
 
 type HandleProviderRefundProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   mnemonic: string;
   mintUrl: string;
   providerDb: ProviderDb;
@@ -143,7 +143,7 @@ export async function handleProviderRefund({
     : `Refunded ${sats} sats to local wallet. Session key kept for future use.`;
 }
 
-export async function handleProviderBalance(seenDb: SeenDb): Promise<string> {
+export async function handleProviderBalance(seenDb: CoreDb): Promise<string> {
   const balance = await getRoutstrBalance(seenDb);
   const currentBudget = getRoutstrBudget(seenDb);
 
@@ -158,14 +158,14 @@ export async function handleProviderBalance(seenDb: SeenDb): Promise<string> {
   return `Routstr session balance: ${formatMsats(balance)}${suffix}`;
 }
 
-export function handleProviderBudget(seenDb: SeenDb, budgetMsats: Msats): string {
+export function handleProviderBudget(seenDb: CoreDb, budgetMsats: Msats): string {
   setRoutstrBudget(seenDb, budgetMsats);
 
   return `Budget set to: ${formatMsats(budgetMsats)}`;
 }
 
 export type HandleProviderStatusProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   mintUrl: string;
 };
 
@@ -189,7 +189,7 @@ export function handleProviderStatus({ seenDb, mintUrl }: HandleProviderStatusPr
   ].join('\n');
 }
 
-export async function handleProviderSyncModels(db: SeenDb): Promise<string> {
+export async function handleProviderSyncModels(db: CoreDb): Promise<string> {
   const result = getCachedRoutstrModels(db);
 
   if (!result) {
@@ -205,7 +205,7 @@ export async function handleProviderSyncModels(db: SeenDb): Promise<string> {
 }
 
 export type HandleProviderModelsProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   filter?: string;
 };
 
@@ -250,7 +250,7 @@ export async function handleProviderModels({
 }
 
 export type HandleProviderAddModelProps = {
-  seenDb: SeenDb;
+  seenDb: CoreDb;
   modelId: string;
   openCodeJsonPath: string;
 };

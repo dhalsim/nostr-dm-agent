@@ -26,10 +26,20 @@ import { SimplePool } from 'nostr-tools';
 import { z } from 'zod';
 
 import { connectBunker, bunkerSignEvent } from '../src/nostr/bunker';
+import {
+  createConnectionsTable,
+  listConnections,
+  saveConnection,
+  getConnection,
+  type BunkerSignerData,
+} from '../src/nostr/connections';
+import { dmBotRoot } from '../src/paths';
+import { CoreDb, openCoreDb } from '@src/db';
 
 const PLUGIN_KIND = 32107;
 const ROOT = join(import.meta.dir, '..');
 const PLUGINS_JSON = join(ROOT, 'plugins.json');
+const CORE_DB_PATH = join(dmBotRoot, 'core.sqlite');
 
 const PROFILE_RELAYS = [
   'wss://purplepag.es',
@@ -93,6 +103,76 @@ function getCoreApiVersion(pkg: PackageJson): string {
   return pkg.dmBot.coreApiVersion;
 }
 
+async function connectAndMaybeSave(db: CoreDb, pool: SimplePool): Promise<BunkerSignerData> {
+  console.log('\nNIP-46 Bunker sign-in.');
+
+  console.log(
+    'Your key never leaves your signer. The bunker URL is not stored unless you save it.\n',
+  );
+
+  const bunkerUrl = await ask('Bunker URL (bunker://...): ');
+
+  if (!bunkerUrl) {
+    throw new Error('No bunker URL provided.');
+  }
+
+  console.log('\nConnecting to bunker...');
+  const data = await connectBunker(pool, bunkerUrl);
+  console.log(`✓ Connected. Pubkey: ${data.userPubkey}`);
+
+  const saveName = await ask(
+    '\nSave this connection for future use? Enter a name or leave blank to skip: ',
+  );
+
+  if (saveName) {
+    const existing = getConnection(db, saveName);
+
+    if (existing) {
+      const overwrite = await ask(`Connection "${saveName}" already exists. Overwrite? (y/N): `);
+
+      if (overwrite.toLowerCase() === 'y') {
+        saveConnection(db, saveName, 'bunker', data);
+        console.log(`✓ Saved as "${saveName}".`);
+      } else {
+        console.log('Connection not saved.');
+      }
+    } else {
+      saveConnection(db, saveName, 'bunker', data);
+      console.log(`✓ Saved as "${saveName}".`);
+    }
+  }
+
+  return data;
+}
+
+async function resolveConnection(db: CoreDb, pool: SimplePool): Promise<BunkerSignerData> {
+  const saved = listConnections(db);
+
+  if (saved.length === 0) {
+    return connectAndMaybeSave(db, pool);
+  }
+
+  console.log('\nSaved connections:');
+
+  saved.forEach((c, i) => {
+    console.log(`  ${i + 1}. ${c.name} (${c.data.userPubkey.slice(0, 16)}...)`);
+  });
+
+  console.log(`  ${saved.length + 1}. Connect with a new bunker URL`);
+
+  const choice = await ask(`\nChoose (1-${saved.length + 1}): `);
+  const idx = parseInt(choice, 10) - 1;
+
+  if (idx >= 0 && idx < saved.length) {
+    const conn = saved[idx];
+    console.log(`✓ Using saved connection: ${conn.name}`);
+
+    return conn.data;
+  }
+
+  return connectAndMaybeSave(db, pool);
+}
+
 async function fetchExistingRefs(
   pluginName: string,
   authorPubkey: string,
@@ -148,6 +228,11 @@ async function fetchNip65WriteRelays(pubkey: string): Promise<string[]> {
 async function main(): Promise<void> {
   console.log('\n── Bot Plugin Publisher ──\n');
 
+  // Open core DB for connection persistence
+  const db = openCoreDb();
+  db.run('PRAGMA foreign_keys = ON');
+  createConnectionsTable(db);
+
   // Step 1: resolve plugin alias
   let alias = process.argv[2]?.trim() ?? '';
 
@@ -163,10 +248,7 @@ async function main(): Promise<void> {
 
   if (!alias) {
     const aliases = pluginsData.plugins.map((p) => p.alias).join(', ');
-
-    alias = await ask(
-      `Choose a plugin alias to publish (available from plugins.json: ${aliases}): `,
-    );
+    alias = await ask(`Choose a plugin alias to publish (available: ${aliases}): `);
   }
 
   if (!alias) {
@@ -210,14 +292,13 @@ async function main(): Promise<void> {
   }
 
   const pkg = pkgParsed.data;
-
   const coreApiVersion = getCoreApiVersion(pkg);
   const coreMajor = coreApiVersion.replace(/[^0-9]/g, '').slice(0, 1);
 
   if (!coreMajor) {
     console.error(
       'No coreApiVersion found in package.json.\n' +
-        'Add "coreApiVersion": "5" to the plugin\'s package.json.',
+        "Add dmBot.coreApiVersion to the plugin's package.json.",
     );
 
     process.exit(1);
@@ -231,29 +312,15 @@ async function main(): Promise<void> {
 
   console.log(`Core API major: ${coreMajor}`);
 
-  // Step 3: bunker sign-in (needed to know author pubkey for fetching existing event)
-  console.log('\nNIP-46 Bunker sign-in required.');
-  console.log('Your key never leaves your signer. The bunker URL is not stored.\n');
-
-  const bunkerUrl = await ask('Bunker URL (bunker://...): ');
-
-  if (!bunkerUrl) {
-    console.error('No bunker URL provided.');
-    process.exit(1);
-  }
-
+  // Step 3: resolve bunker connection
   const pool = new SimplePool();
-
-  console.log('\nConnecting to bunker...');
-  let bunkerData;
+  let bunkerData: BunkerSignerData;
   try {
-    bunkerData = await connectBunker(pool, bunkerUrl);
+    bunkerData = await resolveConnection(db, pool);
   } catch (err) {
     console.error(`Bunker connection failed: ${String(err)}`);
     process.exit(1);
   }
-
-  console.log(`✓ Connected. Publisher pubkey: ${bunkerData.userPubkey}`);
 
   // Step 4: fetch existing ref history from relays
   console.log('\nFetching existing event from relays...');
@@ -301,6 +368,37 @@ async function main(): Promise<void> {
     console.log(`  ["ref", "${ref.tag}", "${ref.coreMajor}", "${ref.changelog}"]`);
   }
 
+  // Verify all refs exist as git tags on the remote
+  console.log('\nVerifying git tags on remote...');
+  const lsRemote = Bun.spawnSync(['git', 'ls-remote', '--tags', pluginEntry.repo]);
+
+  if (lsRemote.exitCode !== 0) {
+    console.error(`Failed to fetch remote tags: ${lsRemote.stderr.toString()}`);
+    process.exit(1);
+  }
+
+  const remoteTags = new Set(
+    lsRemote.stdout
+      .toString()
+      .split('\n')
+      .filter((line) => line.includes('refs/tags/') && !line.includes('^{}'))
+      .map((line) => line.split('refs/tags/')[1]?.trim())
+      .filter(Boolean),
+  );
+
+  const missingTags = updatedRefs.filter((r) => !remoteTags.has(r.tag));
+
+  if (missingTags.length > 0) {
+    console.error('\n✗ The following refs are missing from the remote:');
+    for (const r of missingTags) {
+      console.error(`  ${r.tag} (core ${r.coreMajor}) — push with: git push origin ${r.tag}`);
+    }
+
+    process.exit(1);
+  }
+
+  console.log(`✓ All ${updatedRefs.length} ref(s) verified on remote.`);
+
   const confirm = await ask('\nLook correct? Proceed to sign and publish? (Y/n): ');
 
   if (confirm.toLowerCase() === 'n') {
@@ -346,9 +444,7 @@ async function main(): Promise<void> {
 
   // Step 10: publish
   console.log('\nPublishing...');
-
   const results = await Promise.allSettled(pool.publish(writeRelays, signedEvent));
-
   pool.destroy();
 
   for (const [i, result] of results.entries()) {
@@ -366,9 +462,10 @@ async function main(): Promise<void> {
 
   if (succeeded > 0) {
     console.log(`  Event ID: ${signedEvent.id}`);
-    console.log(`  Discoverable via: kind:${PLUGIN_KIND} #d:${pkg.name}\n`);
+    console.log(`  Discoverable via: kind:${PLUGIN_KIND} #d:${pkg.name} pubkey:${bunkerData.userPubkey}\n`);
   }
 
+  db.close();
   process.exit(succeeded > 0 ? 0 : 1);
 }
 
