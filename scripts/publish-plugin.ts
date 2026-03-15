@@ -312,6 +312,17 @@ async function main(): Promise<void> {
 
   console.log(`Core API major: ${coreMajor}`);
 
+  // Read repo URL from git remote
+  const gitRemote = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { cwd: pluginDir });
+
+  if (gitRemote.exitCode !== 0) {
+    console.error('Failed to read git remote origin. Make sure the plugin folder is a git repo with an origin remote.');
+    process.exit(1);
+  }
+
+  const repoUrl = gitRemote.stdout.toString().trim();
+  console.log(`Repo URL:       ${repoUrl}`);
+
   // Step 3: resolve bunker connection
   const pool = new SimplePool();
   let bunkerData: BunkerSignerData;
@@ -423,6 +434,7 @@ async function main(): Promise<void> {
     tags: [
       ['d', pkg.name],
       ...(pkg.description ? [['description', pkg.description]] : []),
+      ['repo', repoUrl],
       ['version', gitTag],
       ['coreApiVersion', coreMajor],
       ['t', 'dm-bot-plugin'],
