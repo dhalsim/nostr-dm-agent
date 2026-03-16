@@ -9,8 +9,8 @@
 // into the parent project root.
 // ---------------------------------------------------------------------------
 
-import { existsSync, mkdirSync, symlinkSync, unlinkSync, lstatSync } from 'fs';
-import { join, resolve } from 'path';
+import { existsSync, mkdirSync, symlinkSync, unlinkSync, lstatSync, readFileSync, writeFileSync } from 'fs';
+import { basename, join, resolve } from 'path';
 import * as readline from 'readline';
 
 import { dmBotRoot } from '../src/paths';
@@ -32,6 +32,7 @@ import {
 import { setEnvInFile } from '../src/env-file';
 
 const PARENT_ROOT = resolve(join(dmBotRoot, '..'));
+const BOT_DIR_NAME = basename(dmBotRoot);
 
 const SYMLINK_TARGETS = [
   {
@@ -49,6 +50,13 @@ const SYMLINK_TARGETS = [
     src: join(dmBotRoot, 'AGENTS.md'),
     dest: join(PARENT_ROOT, 'AGENTS.md'),
   },
+];
+
+const PARENT_GITIGNORE_ENTRIES = [
+  `${BOT_DIR_NAME}/`,
+  'opencode.json',
+  '.opencode/',
+  'AGENTS.md',
 ];
 
 // ---------------------------------------------------------------------------
@@ -95,6 +103,81 @@ function fileOrDirExists(path: string): boolean {
   try { lstatSync(path); return true; } catch { return false; }
 }
 
+function updateParentGitignore(): void {
+  const gitignorePath = join(PARENT_ROOT, '.gitignore');
+  let existing = '';
+
+  if (existsSync(gitignorePath)) {
+    existing = readFileSync(gitignorePath, 'utf-8').replace(/\r\n/g, '\n');
+  }
+
+  const lines = existing === '' ? [] : existing.split('\n');
+  const lineSet = new Set(lines.filter((l) => l !== ''));
+  const added: string[] = [];
+
+  for (const entry of PARENT_GITIGNORE_ENTRIES) {
+    if (!lineSet.has(entry)) {
+      lines.push(entry);
+      lineSet.add(entry);
+      added.push(entry);
+    }
+  }
+
+  writeFileSync(gitignorePath, lines.join('\n') + (lines.length > 0 ? '\n' : ''), 'utf-8');
+
+  if (added.length > 0) {
+    console.log('  Updated parent .gitignore with:');
+    for (const entry of added) {
+      console.log(`    - ${entry}`);
+    }
+  } else {
+    console.log('  Parent .gitignore already contains required entries.');
+  }
+}
+
+function removeParentGitignoreEntries(): void {
+  const gitignorePath = join(PARENT_ROOT, '.gitignore');
+
+  if (!existsSync(gitignorePath)) {
+    return;
+  }
+
+  const existing = readFileSync(gitignorePath, 'utf-8').replace(/\r\n/g, '\n');
+  const lines = existing.split('\n');
+  const entries = new Set(PARENT_GITIGNORE_ENTRIES);
+
+  const kept: string[] = [];
+  const removed: string[] = [];
+
+  for (const line of lines) {
+    if (entries.has(line)) {
+      if (line !== '') {
+        removed.push(line);
+      }
+    } else {
+      kept.push(line);
+    }
+  }
+
+  writeFileSync(gitignorePath, kept.join('\n') + (kept.length > 0 ? '\n' : ''), 'utf-8');
+
+  if (removed.length > 0) {
+    console.log('  Removed entries from parent .gitignore:');
+    for (const entry of removed) {
+      console.log(`    - ${entry}`);
+    }
+  }
+}
+
+async function removeSymlinks(): Promise<void> {
+  for (const target of SYMLINK_TARGETS) {
+    if (isSymlink(target.dest)) {
+      unlinkSync(target.dest);
+      console.log(`  ✓ Removed symlink: ${target.label}`);
+    }
+  }
+}
+
 async function createSymlinks(): Promise<void> {
   console.log(`\nParent project root: ${PARENT_ROOT}\n`);
 
@@ -128,15 +211,8 @@ async function createSymlinks(): Promise<void> {
     console.log(`  ✓ Symlinked: ${target.label}`);
     console.log(`    ${target.dest} → ${target.src}`);
   }
-}
 
-async function removeSymlinks(): Promise<void> {
-  for (const target of SYMLINK_TARGETS) {
-    if (isSymlink(target.dest)) {
-      unlinkSync(target.dest);
-      console.log(`  ✓ Removed symlink: ${target.label}`);
-    }
-  }
+  updateParentGitignore();
 }
 
 // ---------------------------------------------------------------------------
@@ -180,10 +256,19 @@ async function main(): Promise<void> {
     console.log('\nSetting up symlinks for parent workspace...');
     await createSymlinks();
   } else if (wasParent && !isParent) {
-    // Switched away from parent — offer to remove symlinks
-    const remove = await ask('\nWorkspace changed from parent to bot. Remove symlinks from parent project? (y/N): ');
+    const remove = await ask(
+      '\nWorkspace changed from parent to bot. Remove symlinks from parent project? (y/N): ',
+    );
+    
     if (remove.toLowerCase() === 'y') {
       await removeSymlinks();
+
+      const removeGitignore = await ask(
+        'Also remove dm-bot entries from parent .gitignore? (y/N): ',
+      );
+      if (removeGitignore.toLowerCase() === 'y') {
+        removeParentGitignoreEntries();
+      }
     }
   }
 
@@ -209,8 +294,8 @@ async function main(): Promise<void> {
   // ---------------------------------------------------------------------------
 
   console.log('\n── Provider ──');
-  console.log('  local   — use your own API keys / subscriptions');
-  console.log('  routstr — pay per request with sats via Cashu\n');
+  console.log('  local   — use models local to the backend selected');
+  console.log('  routstr — (opencode / opencode-sdk only) routstr models, pay per request with sats via Cashu\n');
 
   const provider = await askWithDefault(
     'Provider',

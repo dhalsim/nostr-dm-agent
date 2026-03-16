@@ -54,14 +54,6 @@ You have an existing project — we call it the **parent** in workspace terms.
    git clone https://github.com/YOUR_USERNAME/nostr-dm-bot.git dm-bot
    ```
 
-   Add `dm-bot/` to your project’s `.gitignore` so the bot can have its own git repo.
-
-   In order opencode-sdk backend works with your project properly (when workspace is set to `parent` which is the default), you need to copy `dm-bot/opencode.json` to your project root.
-   
-   ```bash
-   cp dm-bot/opencode.json .
-   ```
-
 2. **Quick start (from the bot directory)**
 
 ```bash
@@ -70,6 +62,10 @@ bun install
 
 # Setup Nostr identity, relays, and publish kind 10050
 bun run nostr:setup
+
+# Run interactive bot setup (workspace, backend, provider, mode, lint, ready)
+# If you plan to use the parent workspace, this script will automatically create the necessary symlinks from the bot into your project.
+bun run bot:setup
 
 # Optional: setup Cashu wallet for paid AI (Routstr)
 bun run wallet:setup
