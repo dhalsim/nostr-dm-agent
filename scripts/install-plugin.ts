@@ -1,25 +1,17 @@
 // ---------------------------------------------------------------------------
-// scripts/install-plugin.ts — Discover and install a bot plugin
+// scripts/install-plugin.ts — Discover, install, or update a bot plugin
 //
-// Usage: bun run scripts/install-plugin.ts
-//
-// Flow:
-//   1. Query PLUGIN_KIND events from well-known relays
-//   2. List available plugins
-//   3. User picks one
-//   4. Validate version compatibility with bot core
-//   5. Ask for alias
-//   6. Check alias collision
-//   7. Clone the right ref into plugins/{alias}
-//   8. Update plugins.json
-//   9. Run generate-tools script
+// Usage:
+//   bun run scripts/install-plugin.ts           — discover and install
+//   bun run scripts/install-plugin.ts <alias>   — update if installed, install if not
 // ---------------------------------------------------------------------------
 
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as readline from 'readline';
 
-import { SimplePool } from 'nostr-tools';
+import type { NostrEvent } from 'nostr-tools';
+import { nip19, SimplePool } from 'nostr-tools';
 import { z } from 'zod';
 
 const PLUGIN_KIND = 32107;
@@ -52,6 +44,7 @@ const PluginsJsonSchema = z.object({
 // Types
 // ---------------------------------------------------------------------------
 
+type PluginEntry = z.infer<typeof PluginEntrySchema>;
 type PluginsJson = z.infer<typeof PluginsJsonSchema>;
 
 type RefEntry = {
@@ -62,6 +55,7 @@ type RefEntry = {
 
 type PluginEvent = {
   id: string;
+  created_at: number;
   pubkey: string;
   name: string;
   description: string;
@@ -116,11 +110,7 @@ function tagValue(tags: string[][], name: string): string {
   return tags.find((t) => t[0] === name)?.[1] ?? '';
 }
 
-function parsePluginEvent(event: {
-  id: string;
-  pubkey: string;
-  tags: string[][];
-}): PluginEvent | null {
+function parsePluginEvent(event: NostrEvent): PluginEvent | null {
   const name = tagValue(event.tags, 'd');
   const repo = tagValue(event.tags, 'repo');
 
@@ -134,6 +124,7 @@ function parsePluginEvent(event: {
 
   return {
     id: event.id,
+    created_at: event.created_at,
     pubkey: event.pubkey,
     name,
     description: tagValue(event.tags, 'description'),
@@ -144,78 +135,258 @@ function parsePluginEvent(event: {
   };
 }
 
-/** Find the latest compatible ref for the given core major. */
 function findCompatibleRef(refs: RefEntry[], coreMajor: string): RefEntry | null {
-  const compatible = refs.filter((r) => r.coreMajor === coreMajor);
-
-  return compatible.at(-1) ?? null;
+  return refs.filter((r) => r.coreMajor === coreMajor).at(-1) ?? null;
 }
 
-/** Find the latest ref across all core majors. */
 function latestRef(refs: RefEntry[]): RefEntry | null {
   return refs.at(-1) ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
+/** Resolve a nostr:// repo URL to { pubkeyHex, repoName }.
+ *  Supports both npub and NIP-05 (_@domain) identity formats. */
+async function resolveRepoIdentity(
+  url: string,
+): Promise<{ pubkeyHex: string; repoName: string } | null> {
+  try {
+    const withoutProtocol = url.replace('nostr://', '');
+    const parts = withoutProtocol.split('/');
+    const identity = parts[0];
+    const repoName = parts.at(-1) ?? '';
 
-async function main(): Promise<void> {
-  console.log('\n── Bot Plugin Installer ──\n');
+    let pubkeyHex: string;
 
-  const coreMajor = botCoreMajor();
-  console.log(`Bot core major: ${coreMajor}`);
+    if (identity.startsWith('npub1')) {
+      const decoded = nip19.decode(identity);
 
-  // Step 1: query available plugins
-  console.log('\nQuerying plugins from relays...');
-  const pool = new SimplePool();
+      if (decoded.type !== 'npub') {
+        return null;
+      }
 
-  const events = await new Promise<PluginEvent[]>((resolve) => {
-    const found: PluginEvent[] = [];
-    const seen = new Set<string>();
+      pubkeyHex = decoded.data as string;
+    } else if (identity.includes('@')) {
+      const [name, domain] = identity.split('@');
+
+      const res = await fetch(
+        `https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name)}`,
+      );
+
+      if (!res.ok) {
+        return null;
+      }
+
+      const json = (await res.json()) as { names: Record<string, string> };
+      pubkeyHex = json.names[name] ?? '';
+
+      if (!pubkeyHex) {
+        return null;
+      }
+    } else {
+      return null;
+    }
+
+    return { pubkeyHex, repoName };
+  } catch {
+    return null;
+  }
+}
+
+/** Returns true if a plugin event matches a repo URL (npub or NIP-05 format). */
+async function samePlugin(repoUrl: string, event: PluginEvent): Promise<boolean> {
+  const resolved = await resolveRepoIdentity(repoUrl);
+
+  if (!resolved) {
+    return false;
+  }
+
+  return event.pubkey === resolved.pubkeyHex && event.name === resolved.repoName;
+}
+
+async function queryPluginEvents(pool: SimplePool): Promise<PluginEvent[]> {
+  return new Promise((resolve) => {
+    const found = new Map<string, PluginEvent>();
 
     const sub = pool.subscribe(
       PLUGIN_QUERY_RELAYS,
       { kinds: [PLUGIN_KIND], limit: 50 },
       {
         onevent: (event) => {
-          // Deduplicate by d tag + pubkey — keep first seen (relays return newest first)
           const key = `${event.pubkey}:${tagValue(event.tags, 'd')}`;
+          const foundEvent = found.get(key);
 
-          if (seen.has(key)) {
+          if (foundEvent && foundEvent.created_at > event.created_at) {
             return;
           }
 
-          seen.add(key);
+          const parsedPlugin = parsePluginEvent(event);
 
-          const plugin = parsePluginEvent(event);
-
-          if (plugin) {
-            found.push(plugin);
+          if (parsedPlugin) {
+            found.set(key, parsedPlugin);
           }
         },
         oneose: () => {
           sub.close();
-          resolve(found);
+          resolve(Array.from(found.values()));
         },
       },
     );
 
-    // Timeout after 10s in case oneose never fires
     setTimeout(() => {
       sub.close();
-      resolve(found);
+      resolve(Array.from(found.values()));
     }, 10_000);
   });
+}
 
-  pool.destroy();
+async function selectCompatibleRef(
+  plugin: PluginEvent,
+  coreMajor: string,
+): Promise<RefEntry | null> {
+  const compatible = findCompatibleRef(plugin.refs, coreMajor);
+
+  if (compatible) {
+    console.log(`✓ Compatible ref: ${compatible.tag} (core ${compatible.coreMajor})`);
+    console.log(`  ${compatible.changelog}`);
+
+    return compatible;
+  }
+
+  const latest = latestRef(plugin.refs);
+
+  if (!latest) {
+    console.error('No refs found in plugin event.');
+
+    return null;
+  }
+
+  console.log(`\n⚠ No compatible ref for your bot core (${coreMajor}).`);
+  console.log(`  Latest available: ${latest.tag} requires core ${latest.coreMajor}`);
+  console.log(`  → Upgrade your bot to core ${latest.coreMajor} to use the latest version.`);
+
+  const older = [...plugin.refs].reverse().find((r) => parseInt(r.coreMajor) < parseInt(coreMajor));
+
+  if (older) {
+    console.log(`\n  Older ref available: ${older.tag} (core ${older.coreMajor})`);
+    console.log(`  ${older.changelog}`);
+    const useOlder = await ask('  Install this older version? (y/N): ');
+
+    if (useOlder.toLowerCase() === 'y') {
+      return older;
+    }
+  } else {
+    console.error('  No compatible version found.');
+  }
+
+  return null;
+}
+
+function runGenerator(): void {
+  console.log('\nRunning code generators...');
+
+  const result = Bun.spawnSync(['bun', 'run', 'scripts/generate-tools.ts'], {
+    cwd: ROOT,
+    stdio: ['inherit', 'inherit', 'inherit'],
+  });
+
+  if (result.exitCode !== 0) {
+    console.error('✗ Generator failed.');
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Update flow
+// ---------------------------------------------------------------------------
+
+async function updatePlugin(
+  pool: SimplePool,
+  entry: PluginEntry,
+  coreMajor: string,
+  pluginsData: PluginsJson,
+): Promise<void> {
+  console.log(`\nChecking for updates to "${entry.alias}"...`);
+  console.log(`  Current version: ${entry.version}`);
+
+  const events = await queryPluginEvents(pool);
+
+  // Match by pubkey + repo name — supports both npub and NIP-05 URL formats
+  let plugin: PluginEvent | undefined;
+  for (const e of events) {
+    if (await samePlugin(entry.repo, e)) {
+      plugin = e;
+      break;
+    }
+  }
+
+  if (!plugin) {
+    console.error(`Could not find plugin event for repo: ${entry.repo}`);
+    process.exit(1);
+  }
+
+  const selectedRef = await selectCompatibleRef(plugin, coreMajor);
+
+  if (!selectedRef) {
+    process.exit(1);
+  }
+
+  if (selectedRef.tag === entry.version) {
+    console.log(`✓ Already up to date (${entry.version}).`);
+    process.exit(0);
+  }
+
+  console.log(`\nUpdating ${entry.alias}: ${entry.version} → ${selectedRef.tag}`);
+
+  const pluginDir = join(ROOT, 'plugins', entry.alias);
+
+  const fetchResult = Bun.spawnSync(['git', 'fetch', '--tags'], {
+    cwd: pluginDir,
+    stdio: ['inherit', 'inherit', 'inherit'],
+  });
+
+  if (fetchResult.exitCode !== 0) {
+    console.error('✗ git fetch failed.');
+    process.exit(1);
+  }
+
+  const checkoutResult = Bun.spawnSync(['git', 'checkout', selectedRef.tag], {
+    cwd: pluginDir,
+    stdio: ['inherit', 'inherit', 'inherit'],
+  });
+
+  if (checkoutResult.exitCode !== 0) {
+    console.error('✗ git checkout failed.');
+    process.exit(1);
+  }
+
+  console.log(`✓ Checked out ${selectedRef.tag}.`);
+
+  const idx = pluginsData.plugins.findIndex((p) => p.alias === entry.alias);
+  pluginsData.plugins[idx] = { ...entry, version: selectedRef.tag };
+  writePluginsJson(pluginsData);
+  console.log('✓ plugins.json updated.');
+
+  runGenerator();
+
+  console.log(`\n✓ Plugin "${entry.alias}" updated to ${selectedRef.tag}.\n`);
+}
+
+// ---------------------------------------------------------------------------
+// Install flow
+// ---------------------------------------------------------------------------
+
+async function installPlugin(
+  pool: SimplePool,
+  coreMajor: string,
+  pluginsData: PluginsJson,
+): Promise<void> {
+  console.log('\nQuerying plugins from relays...');
+  const events = await queryPluginEvents(pool);
 
   if (events.length === 0) {
     console.log('No plugins found on the queried relays.');
     process.exit(0);
   }
 
-  // Step 2: list available plugins
   console.log(`\nFound ${events.length} plugin(s):\n`);
 
   events.forEach((p, i) => {
@@ -236,7 +407,6 @@ async function main(): Promise<void> {
     console.log();
   });
 
-  // Step 3: user picks one
   const choice = await ask(`Choose a plugin to install (1-${events.length}) or q to quit: `);
 
   if (choice.toLowerCase() === 'q') {
@@ -253,48 +423,12 @@ async function main(): Promise<void> {
   const plugin = events[idx];
   console.log(`\nSelected: ${plugin.name}`);
 
-  // Step 4: version validation
-  const compatible = findCompatibleRef(plugin.refs, coreMajor);
-  let selectedRef: RefEntry;
+  const selectedRef = await selectCompatibleRef(plugin, coreMajor);
 
-  if (compatible) {
-    console.log(`✓ Compatible ref: ${compatible.tag} (core ${compatible.coreMajor})`);
-    console.log(`  ${compatible.changelog}`);
-    selectedRef = compatible;
-  } else {
-    const latest = latestRef(plugin.refs);
-
-    if (!latest) {
-      console.error('No refs found in plugin event. Cannot install.');
-      process.exit(1);
-    }
-
-    console.log(`\n⚠ No compatible ref for your bot core (${coreMajor}).`);
-    console.log(`  Latest available: ${latest.tag} requires core ${latest.coreMajor}`);
-    console.log(`  → Upgrade your bot to core ${latest.coreMajor} to use the latest version.`);
-
-    // Check for an older ref that might work with a lower core major
-    const older = [...plugin.refs]
-      .reverse()
-      .find((r) => parseInt(r.coreMajor) < parseInt(coreMajor));
-
-    if (older) {
-      console.log(`\n  Older ref available: ${older.tag} (core ${older.coreMajor})`);
-      console.log(`  ${older.changelog}`);
-      const useOlder = await ask('  Install this older version? (y/N): ');
-
-      if (useOlder.toLowerCase() !== 'y') {
-        process.exit(0);
-      }
-
-      selectedRef = older;
-    } else {
-      console.error('  No compatible version found. Exiting.');
-      process.exit(1);
-    }
+  if (!selectedRef) {
+    process.exit(1);
   }
 
-  // Step 5: ask for alias
   console.log('\nThe alias is used for:');
   console.log('  • Plugin folder:   plugins/<alias>/');
   console.log('  • Bot commands:    !<alias> list, !<alias> add, etc.');
@@ -303,15 +437,12 @@ async function main(): Promise<void> {
   console.log('\nChoose a short, memorable name (e.g. "todo", "jobs").');
 
   const suggestedAlias = plugin.name.replace(/^dm-bot-/, '').replace(/-plugin$/, '');
-
   let alias = await ask(`Alias (default: ${suggestedAlias}): `);
 
   if (!alias) {
     alias = suggestedAlias;
   }
 
-  // Step 6: check alias collision
-  const pluginsData = readPluginsJson();
   const existingAliases = new Set(pluginsData.plugins.map((p) => p.alias));
 
   if (existingAliases.has(alias)) {
@@ -331,7 +462,6 @@ async function main(): Promise<void> {
     alias = newAlias;
   }
 
-  // Step 7: clone into plugins/{alias}
   const destDir = join(ROOT, 'plugins', alias);
 
   if (existsSync(destDir)) {
@@ -353,31 +483,46 @@ async function main(): Promise<void> {
 
   console.log('✓ Plugin cloned.');
 
-  // Step 8: update plugins.json
-  pluginsData.plugins.push({
-    alias,
-    repo: plugin.repo,
-    version: selectedRef.tag,
-  });
-
+  pluginsData.plugins.push({ alias, repo: plugin.repo, version: selectedRef.tag });
   writePluginsJson(pluginsData);
   console.log('✓ plugins.json updated.');
 
-  // Step 9: run generate-tools script
-  console.log('\nRunning code generators...');
-
-  const genResult = Bun.spawnSync(['bun', 'run', 'scripts/generate-tools.ts'], {
-    cwd: ROOT,
-    stdio: ['inherit', 'inherit', 'inherit'],
-  });
-
-  if (genResult.exitCode !== 0) {
-    console.error('✗ Generator failed.');
-    process.exit(1);
-  }
+  runGenerator();
 
   console.log(`\n✓ Plugin "${alias}" installed successfully.`);
-  console.log(`  Commands: !${alias} help`);
+  console.log(`  Run !${alias} help to see available commands.\n`);
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main(): Promise<void> {
+  console.log('\n── Bot Plugin Manager ──\n');
+
+  const coreMajor = botCoreMajor();
+  console.log(`Bot core major: ${coreMajor}`);
+
+  const pluginsData = readPluginsJson();
+  const pool = new SimplePool();
+  const aliasArg = process.argv[2]?.trim();
+
+  try {
+    if (aliasArg) {
+      const existing = pluginsData.plugins.find((p) => p.alias === aliasArg);
+
+      if (existing) {
+        await updatePlugin(pool, existing, coreMajor, pluginsData);
+      } else {
+        console.log(`Alias "${aliasArg}" not found in plugins.json — running install flow.`);
+        await installPlugin(pool, coreMajor, pluginsData);
+      }
+    } else {
+      await installPlugin(pool, coreMajor, pluginsData);
+    }
+  } finally {
+    pool.destroy();
+  }
 
   process.exit(0);
 }

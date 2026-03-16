@@ -39,13 +39,19 @@ import { CoreDb, openCoreDb } from '@src/db';
 const PLUGIN_KIND = 32107;
 const ROOT = join(import.meta.dir, '..');
 const PLUGINS_JSON = join(ROOT, 'plugins.json');
-const CORE_DB_PATH = join(dmBotRoot, 'core.sqlite');
 
 const PROFILE_RELAYS = [
   'wss://purplepag.es',
   'wss://relay.nos.social',
   'wss://user.kindpag.es',
   'wss://relay.nostr.band',
+];
+
+const PLUGIN_PUBLISH_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://nos.lol',
+  'wss://nostr.mom',
 ];
 
 // ---------------------------------------------------------------------------
@@ -335,7 +341,7 @@ async function main(): Promise<void> {
 
   // Step 4: fetch existing ref history from relays
   console.log('\nFetching existing event from relays...');
-  const existingRefs = await fetchExistingRefs(pkg.name, bunkerData.userPubkey, PROFILE_RELAYS);
+  const existingRefs = await fetchExistingRefs(pkg.name, bunkerData.userPubkey, PLUGIN_PUBLISH_RELAYS);
 
   if (existingRefs.length > 0) {
     console.log(`Found ${existingRefs.length} existing ref(s).`);
