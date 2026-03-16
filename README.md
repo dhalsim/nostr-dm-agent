@@ -1,4 +1,4 @@
-Main repo: https://gitworkshop.dev/dhalsim@dhalsim.github.io/nostr-dm-agent
+Main repo: https://gitworkshop.dev/_@dhalsim.github.io/nostr-dm-agent
 
 # Nostr DM Bot
 
@@ -19,10 +19,29 @@ Control AI agents remotely via Nostr DMs. A bridge between encrypted messaging a
 - **Bitcoin payments** — Pay-per-use AI with sats via Cashu using Routstr
 - **Dual interface** — Nostr DMs + local terminal chat
 - **Granular permissions** — Control what the agent can do
+- **Plugin system** — Extend the bot with community plugins for todos, jobs, and more
 
 Built with Bun, nostr-tools, and TypeScript.
 
 **Links:** [Nostr](https://nostr.com/) · [NIP-17 (encrypted DMs)](https://github.com/nostr-protocol/nips/blob/master/17.md) · [Cursor](https://cursor.com) · [OpenCode](https://opencode.ai) · [Cashu](https://cashu.space) · [Routstr](https://routstr.com)
+
+## Plugins
+
+The bot supports community plugins that add new commands and AI tools. Install one in seconds:
+
+```bash
+bun run plugin:install
+```
+
+This opens an interactive discovery flow — browse available plugins, check version compatibility with your bot, choose an alias, and the plugin is cloned and wired up automatically. Installed plugins register commands under your chosen alias (e.g. `!todo list`, `!todo ai add a high priority task`) and expose AI tools to the OpenCode backend.
+
+To update an installed plugin:
+
+```bash
+bun run plugin:install todo
+```
+
+See [PLUGINS.md](PLUGINS.md) for full documentation — installing, updating, and authoring your own plugins.
 
 ## How to use the bot (practical workflow)
 
@@ -452,4 +471,3 @@ Before running a package script, the agent should:
 With this setup, commands such as `bun run build` and `bun run lint` are available to the agent without extra per-command approvals, while still keeping execution bounded to your script definitions.
 
 Full codebase context and extension points are in **.cursor/rules/dm-bot-context.mdc** in this directory.
-test

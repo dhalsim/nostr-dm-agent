@@ -1,6 +1,6 @@
 {
   "name": "nostr-dm-bot",
-  "version": "5.2.11",
+  "version": "5.2.12",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
@@ -9,6 +9,7 @@
     "job:create": "bun run scripts/create-job.ts",
     "wallet:setup": "bun run scripts/setup-wallet.ts",
     "nostr:setup": "bun run scripts/nostr-setup.ts",
+    "bot:setup": "bun run scripts/bot-setup.ts",
     "contrib:setup": "chmod +x scripts/commit-msg scripts/post-commit scripts/ngit-helper.sh && git config include.path ../.gitconfig",
     "plugin:publish": "bun run scripts/publish-plugin.ts",
     "plugin:install": "bun run scripts/install-plugin.ts",
