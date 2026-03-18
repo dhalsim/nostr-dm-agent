@@ -98,40 +98,49 @@ my-plugin/
   "version": "1.0.1",
   "description": "Todo management plugin for dm-bot",
   "dmBot": {
-    "coreApiVersion": "5"
+    "coreApiVersion": "5",
+    "description": "Todo management plugin for dm-bot"
   }
 }
 ```
 
-The `dmBot.coreApiVersion` field declares the bot core major version this release supports. This is used by the installer for compatibility checking.
+- `dmBot.coreApiVersion` — bot core major version (or range) this release supports; used by the installer for compatibility.
+- `dmBot.description` — short description used in plugin help and when publishing to Nostr; required for registration.
 
 ### `init.ts` — the plugin object
 
 Every plugin exports a `BotPlugin` object:
 
 ```typescript
+export let PluginDb: Database | null = null;
+export let PluginContext: PluginContext | null = null;
+
 export const TodoPlugin: BotPlugin = {
   identity: {
     name: 'dm-bot-todo-plugin',
     alias: 'todo',           // default alias (user can override at install time)
     version: '1.0.1',
+    description: 'Todo management plugin for dm-bot',  // optional, from package.json
   },
-  onInit(db: Database): void {
-    // Run migrations, set up tables
-    createTodoTable(db);
-    createTodoDraftsTable(db);
+  onInit(ctx: PluginContext): void {
+    PluginContext = ctx;
+    PluginDb = new Database(join(pluginDir, 'db.sqlite'), { strict: true });
+    createTodoTable(PluginDb);
+    createTodoDraftsTable(PluginDb);
   },
-  async handler(args: string[], ctx: PluginContext): Promise<string> {
-    // Dispatch subcommands: args[0] is the subcommand
-    return handleTodo({ args, db: ctx.pluginDb, runAgent: ctx.runAgent, identity: this.identity });
+  handler(args: string[]): Promise<string> {
+    if (!PluginContext || !PluginDb) throw new Error('Plugin not initialized');
+    return handleTodo({ args, db: PluginDb, runAgent: PluginContext.runAgent, identity: TodoPlugin.identity });
   },
-  helpText(alias: string): string {
-    return `${alias}:\n!${alias} list — list todos\n!${alias} ai <prompt> — natural language`;
+  helpText(alias: string): string[] {
+    return [`!${alias} list — list todos`, `!${alias} ai <prompt> — natural language`];
   },
 };
 ```
 
-The plugin receives a dedicated SQLite database (`ctx.pluginDb`) scoped to its alias, and a `runAgent` function for making AI calls.
+- **onInit(ctx)** — called once at bot startup. Store `ctx` in a module-level variable; open your plugin DB (e.g. `plugins/<alias>/db.sqlite`) and run migrations. The core does not pass a database — you create and own it.
+- **handler(args)** — called for each `!<alias> ...` command. Only `args` are passed; use the context and DB stored in onInit.
+- **helpText(alias)** — returns an array of help lines shown under the plugin in `!help`. Identity `description` is used in the plugin list.
 
 ### `opencode.ts` — AI tool definitions
 
@@ -177,9 +186,9 @@ Note: `args` must use `tool.schema.*` (OpenCode's Zod v3 DSL), not your own Zod 
 
 Plugins that mutate data should use a draft/confirm pattern — the AI proposes a change, the user reviews and accepts it via a bot command. This prevents unintended modifications:
 
-1. Tool `execute` calls `storeDraft(db, { kind, input, originalPrompt })` and returns a formatted preview with a Draft ID
-2. User runs `!<alias> accept <id>` to apply, `!<alias> revise <id> <corrections>` to revise, or `!<alias> decline <id>` to cancel
-3. The `handler` in `init.ts` dispatches these subcommands
+1. Tool `execute` calls `storeDraft(db, { kind, input, originalPrompt })` and returns a formatted preview with a Draft ID.
+2. User runs a confirm subcommand (e.g. `!<alias> confirm <id>` to apply, `!<alias> revise <id> <corrections>`, or `!<alias> discard <id>` to cancel).
+3. The `handler` in `init.ts` dispatches these subcommands.
 
 ### Publishing a plugin
 
@@ -260,10 +269,11 @@ export const _delete = tool(defs[3]);
 ```typescript
 // AUTO-GENERATED
 import { registerPlugin } from '../src/core/registry';
+import type { PluginContext } from '../src/core/plugin';
 import { TodoPlugin } from '../plugins/todo/init';
 
-export function registerPlugins(dataDir: string): void {
-  registerPlugin(TodoPlugin, dataDir);
+export function registerPlugins(ctx: PluginContext): void {
+  registerPlugin({ plugin: TodoPlugin, ctx });
 }
 ```
 
