@@ -6,7 +6,8 @@ import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44';
 import { hexToBytes } from 'nostr-tools/utils';
 import { z } from 'zod';
 
-import { assertUnreachable, log } from './logger';
+import { log } from './logger';
+import { assertUnreachable } from './utils';
 import { CORE_DB_PATH, RESTART_REQUESTED_PATH } from './paths';
 import type { Brand } from './types';
 import type { Msats } from './types';

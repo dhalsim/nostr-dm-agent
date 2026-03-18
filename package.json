@@ -1,6 +1,6 @@
 {
   "name": "nostr-dm-bot",
-  "version": "6.0.3",
+  "version": "6.0.4",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",

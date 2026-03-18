@@ -3,8 +3,8 @@
 // ---------------------------------------------------------------------------
 
 import type { AgentBackendName, AgentMode } from '../db';
-import { assertUnreachable } from '../logger';
 import type { ProviderName } from '../providers/types';
+import { assertUnreachable } from '../utils';
 
 import { createCursorBackend } from './cursor';
 import { createOpenCodeBackend } from './opencode';

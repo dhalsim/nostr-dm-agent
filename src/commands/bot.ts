@@ -33,7 +33,8 @@ import {
   STATE_CURRENT_SESSION,
 } from '../db';
 import { formatLintSummary, runPostAgentLint } from '../lint';
-import { C, assertUnreachable, debug } from '../logger';
+import { C, debug } from '../logger';
+import { assertUnreachable } from '../utils';
 import { createNewSession } from '../session';
 import { formatMsats } from '../types';
 
