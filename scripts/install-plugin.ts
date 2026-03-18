@@ -393,7 +393,7 @@ async function installPlugin(
     const compatible = findCompatibleRef(p.refs, coreMajor);
 
     const status = compatible
-      ? `✓ compatible (${compatible.tag})`
+      ? `✓ compatible`
       : `✗ incompatible (needs core ${latestRef(p.refs)?.coreMajor ?? '?'})`;
 
     console.log(`  ${i + 1}. ${p.name}`);
