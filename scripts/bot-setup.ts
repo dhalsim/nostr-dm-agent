@@ -35,7 +35,7 @@ import {
   getProviderName,
   setProviderName,
 } from '../src/db';
-import { setEnvInFile } from '../src/env-file';
+import { getEnvFromFile, setEnvInFile } from '../src/env-file';
 import { dmBotRoot } from '../src/paths';
 
 const PARENT_ROOT = resolve(join(dmBotRoot, '..'));
@@ -349,6 +349,34 @@ async function main(): Promise<void> {
   );
 
   setAgentBackend(db, backend);
+
+  if (backend === 'cursor') {
+    const envPath = join(dmBotRoot, '.env');
+    const currentCursorKey = getEnvFromFile(envPath, 'CURSOR_API_KEY');
+
+    const cursorKeyUrl =
+      'https://cursor.com/dashboard/cloud-agents#my-user-api-keys';
+
+    console.log('\n  Cursor backend requires CURSOR_API_KEY in .env.');
+    console.log('  Open this URL to create or copy your API key:\n');
+    console.log(`  ${cursorKeyUrl}\n`);
+
+    const keyPrompt = currentCursorKey
+      ? `Paste your Cursor API key (Enter to keep current): `
+      : 'Paste your Cursor API key: ';
+
+    const pasted = await ask(keyPrompt);
+    const cursorKey = (pasted.trim() || currentCursorKey) ?? '';
+
+    if (cursorKey) {
+      setEnvInFile(envPath, 'CURSOR_API_KEY', cursorKey);
+      console.log('  ✓ CURSOR_API_KEY saved to .env');
+    } else {
+      console.log(
+        '  ⚠ No key provided. Set CURSOR_API_KEY in .env before using the Cursor backend.',
+      );
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // 3. Provider
