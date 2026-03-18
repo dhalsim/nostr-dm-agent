@@ -83,13 +83,17 @@ export type CashuMintResult = {
 
 export function getCashuMints(db: WalletDb): CashuMintResult[] {
   return db
-    .prepare('SELECT SUM(amount) as total_amount, mint FROM proofs GROUP BY mint')
+    .prepare(
+      'SELECT SUM(amount) as total_amount, mint FROM proofs GROUP BY mint',
+    )
     .all() as CashuMintResult[];
 }
 
 export function loadProofs(db: WalletDb, mintUrl: string): Proof[] {
   const rows = db
-    .prepare('SELECT keyset_id, amount, secret, C, mint, updatedAt FROM proofs WHERE mint = ?')
+    .prepare(
+      'SELECT keyset_id, amount, secret, C, mint, updatedAt FROM proofs WHERE mint = ?',
+    )
     .all(mintUrl) as {
     keyset_id: string;
     amount: number;
@@ -109,7 +113,10 @@ export function loadProofs(db: WalletDb, mintUrl: string): Proof[] {
   }));
 }
 
-export async function getBalanceByMint(walletDb: WalletDb, mintUrl: string): Promise<WalletInfo> {
+export async function getBalanceByMint(
+  walletDb: WalletDb,
+  mintUrl: string,
+): Promise<WalletInfo> {
   const proofs = loadProofs(walletDb, mintUrl);
 
   log.info(`Total balance on mint ${mintUrl}: ${totalBalance(proofs)} sats`);
@@ -131,7 +138,11 @@ export async function getBalanceByMint(walletDb: WalletDb, mintUrl: string): Pro
   return { balanceSats: totalBalance(proofs) };
 }
 
-export function saveProofs(db: WalletDb, mintUrl: string, proofs: Proof[]): void {
+export function saveProofs(
+  db: WalletDb,
+  mintUrl: string,
+  proofs: Proof[],
+): void {
   const now = Date.now();
 
   const insert = db.prepare(`
@@ -195,7 +206,10 @@ export function persistCounter(db: WalletDb, op: OperationCounters): void {
     `  countersReserved: keyset=${op.keysetId} start=${op.start} count=${op.count} next=${op.next}`,
   );
 
-  db.run('INSERT OR REPLACE INTO counters (keyset_id, next) VALUES (?, ?)', [op.keysetId, op.next]);
+  db.run('INSERT OR REPLACE INTO counters (keyset_id, next) VALUES (?, ?)', [
+    op.keysetId,
+    op.next,
+  ]);
 
   log.ok(`  Counter for ${op.keysetId} persisted → next=${op.next}`);
 }
@@ -204,7 +218,11 @@ export function bumpCounters(db: WalletDb): void {
   const counters = loadCounters(db);
   for (const keysetId of Object.keys(counters)) {
     const next = counters[keysetId] + 1;
-    db.run('INSERT OR REPLACE INTO counters (keyset_id, next) VALUES (?, ?)', [keysetId, next]);
+
+    db.run('INSERT OR REPLACE INTO counters (keyset_id, next) VALUES (?, ?)', [
+      keysetId,
+      next,
+    ]);
   }
 }
 
@@ -217,9 +235,14 @@ export type WalletHistoryRow = {
   token: string;
 };
 
-type LogWalletOperationProps = Omit<WalletHistoryRow, 'ts'> & { ts: number | null };
+type LogWalletOperationProps = Omit<WalletHistoryRow, 'ts'> & {
+  ts: number | null;
+};
 
-export function logWalletOperation(db: WalletDb, props: LogWalletOperationProps): void {
+export function logWalletOperation(
+  db: WalletDb,
+  props: LogWalletOperationProps,
+): void {
   const { ts, mint_url, operation, amount, fee, token } = props;
 
   db.run(

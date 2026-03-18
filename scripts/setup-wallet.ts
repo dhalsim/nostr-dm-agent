@@ -8,10 +8,15 @@ import { getEnvFromFile, setEnvInFile } from '../src/env-file';
 const ENV_PATH = '.env';
 
 function question(prompt: string, defaultValue?: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
   return new Promise((resolve) => {
-    const defaultPrompt = defaultValue ? ` (leave empty for ${defaultValue})` : '';
+    const defaultPrompt = defaultValue
+      ? ` (leave empty for ${defaultValue})`
+      : '';
 
     rl.question(`${prompt}${defaultPrompt}: \n > `, (answer) => {
       rl.close();
@@ -74,7 +79,9 @@ async function main() {
 
     console.clear();
 
-    const word = await question(`Enter the word at position ${randomNumber + 1} (1-12)`);
+    const word = await question(
+      `Enter the word at position ${randomNumber + 1} (1-12)`,
+    );
 
     if (word !== mnemonic.split(' ')[randomNumber]) {
       console.error('Incorrect word. Try again.');
@@ -86,7 +93,10 @@ async function main() {
 
   console.log('✓ Written to .env');
 
-  console.log('✓ Wallet setup complete. Mnemonic is only in .env and your backup');
+  console.log(
+    '✓ Wallet setup complete. Mnemonic is only in .env and your backup',
+  );
+
   console.log('  Start the bot normally: bun run start');
 
   process.exit(0);

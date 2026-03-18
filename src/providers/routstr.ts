@@ -1,7 +1,12 @@
 import * as z from 'zod';
 
 import type { CoreDb } from '../db';
-import { getRoutstrBudget, getRoutstrSkKey, setRoutstrBudget, setRoutstrSkKey } from '../db';
+import {
+  getRoutstrBudget,
+  getRoutstrSkKey,
+  setRoutstrBudget,
+  setRoutstrSkKey,
+} from '../db';
 import type { BotConfig } from '../env';
 import { debug, debugAsync, log } from '../logger';
 import type { Msats } from '../types';
@@ -42,7 +47,9 @@ export class ZeroRoutstrBalanceError extends Error {
   }
 }
 
-export function createRoutstrProvider(props: CreateRoutstrProviderProps): AnyProvider {
+export function createRoutstrProvider(
+  props: CreateRoutstrProviderProps,
+): AnyProvider {
   return {
     name: 'routstr',
 
@@ -73,7 +80,9 @@ export function createRoutstrProvider(props: CreateRoutstrProviderProps): AnyPro
         try {
           newBalance = await getRoutstrBalance(props.seenDb);
         } catch (e) {
-          debug(`finalizeRun: could not fetch balance (${e instanceof Error ? e.message : e})`);
+          debug(
+            `finalizeRun: could not fetch balance (${e instanceof Error ? e.message : e})`,
+          );
 
           newBalance = oldBudget;
         }
@@ -126,7 +135,15 @@ type DepositOrTopupProps = {
 export async function depositOrTopup(
   props: DepositOrTopupProps,
 ): Promise<{ skKey: string | null; wasNew: boolean }> {
-  const { mnemonic, seenDb, walletDb, providerDb, mintUrl, amountSats, forceNew } = props;
+  const {
+    mnemonic,
+    seenDb,
+    walletDb,
+    providerDb,
+    mintUrl,
+    amountSats,
+    forceNew,
+  } = props;
 
   const wallet = new CashuWallet({ mnemonic, mintUrl });
 
@@ -202,21 +219,28 @@ export async function depositOrTopup(
       const parsed = TopupResponseSchema.safeParse(json);
 
       if (!parsed.success) {
-        throw new Error(`routstr topup response was not expected: ${parsed.error}`);
+        throw new Error(
+          `routstr topup response was not expected: ${parsed.error}`,
+        );
       }
 
       const balanceMSats = msats(parsed.data.msats);
 
-      log.info(`Routstr topup successful. Balance: ${formatMsats(balanceMSats)}`);
+      log.info(
+        `Routstr topup successful. Balance: ${formatMsats(balanceMSats)}`,
+      );
+
       setRoutstrBudget(seenDb, balanceMSats);
     }
   } catch (err) {
     try {
-      const errorMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+      const errorMessage =
+        err instanceof Error ? err.message : typeof err === 'string' ? err : '';
 
       log.error(`deposit or top up routstr failed: ${errorMessage}`);
 
-      const { actuallyReceived, fee: receivedFee } = await wallet.receiveToken(token);
+      const { actuallyReceived, fee: receivedFee } =
+        await wallet.receiveToken(token);
 
       logWalletOperation(walletDb, {
         ts: null,
@@ -231,9 +255,12 @@ export async function depositOrTopup(
 
       log.info(`refunded ${actuallyReceived} sats from routstr`);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+      const errorMessage =
+        err instanceof Error ? err.message : typeof err === 'string' ? err : '';
 
-      log.error(`failure in deposit or top up routstr and couln't refund: ${errorMessage}`);
+      log.error(
+        `failure in deposit or top up routstr and couln't refund: ${errorMessage}`,
+      );
     }
 
     throw err;
@@ -267,7 +294,9 @@ export type RefundRoutstrProps = {
   skKey: string;
 };
 
-export async function refundRoutstr(props: RefundRoutstrProps): Promise<number> {
+export async function refundRoutstr(
+  props: RefundRoutstrProps,
+): Promise<number> {
   const { mnemonic, seenDb, mintUrl, skKey, providerDb } = props;
 
   const res = await fetch(`${ROUTSTR_BASE_URL}/balance/refund`, {
@@ -306,7 +335,9 @@ export async function refundRoutstr(props: RefundRoutstrProps): Promise<number> 
 
   const wallet = new CashuWallet({ mnemonic, mintUrl });
 
-  const { actuallyReceived, fee: receivedFee } = await wallet.receiveToken(data.token);
+  const { actuallyReceived, fee: receivedFee } = await wallet.receiveToken(
+    data.token,
+  );
 
   // TODO: make sure we provider correct arguments
   logSpend(providerDb, {
@@ -338,7 +369,9 @@ export async function getRoutstrBalance(seenDb: CoreDb): Promise<Msats> {
   const skKey = getRoutstrSkKey(seenDb);
 
   if (!skKey) {
-    throw new Error('No Routstr session key. Use !provider deposit <sats> first.');
+    throw new Error(
+      'No Routstr session key. Use !provider deposit <sats> first.',
+    );
   }
 
   const res = await fetch(`${ROUTSTR_BASE_URL}/balance/info`, {

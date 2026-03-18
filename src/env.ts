@@ -92,7 +92,9 @@ export function loadBotConfig(): BotConfig {
   const relayUrls = parseRelayUrls(requireEnv('BOT_RELAYS'));
 
   if (relayUrls.length === 0) {
-    log.error('BOT_RELAYS must contain at least one relay URL (comma-separated)');
+    log.error(
+      'BOT_RELAYS must contain at least one relay URL (comma-separated)',
+    );
 
     process.exit(1);
   }
@@ -106,6 +108,7 @@ export function loadBotConfig(): BotConfig {
     opencodeServeUrl: process.env.BOT_OPENCODE_SERVE_URL ?? null,
     cashuMnemonic: process.env.CASHU_MNEMONIC ?? null,
     cashuDefaultMintUrl: process.env.CASHU_DEFAULT_MINT_URL ?? null,
-    routstrBaseUrl: process.env.ROUTSTR_BASE_URL ?? 'https://api.routstr.com/v1',
+    routstrBaseUrl:
+      process.env.ROUTSTR_BASE_URL ?? 'https://api.routstr.com/v1',
   };
 }

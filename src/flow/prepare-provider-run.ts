@@ -2,7 +2,10 @@
 // src/flow/prepare-provider-run.ts — Prepare provider before agent run
 // ---------------------------------------------------------------------------
 
-import { NoRoutstrSessionError, ZeroRoutstrBalanceError } from '../providers/routstr';
+import {
+  NoRoutstrSessionError,
+  ZeroRoutstrBalanceError,
+} from '../providers/routstr';
 import type { AnyProvider } from '../providers/types';
 import { InsufficientFundsError } from '../wallets/types';
 
@@ -20,7 +23,10 @@ export async function prepareProviderRun({
 
     return null;
   } catch (e) {
-    if (e instanceof NoRoutstrSessionError || e instanceof ZeroRoutstrBalanceError) {
+    if (
+      e instanceof NoRoutstrSessionError ||
+      e instanceof ZeroRoutstrBalanceError
+    ) {
       return e.message;
     }
 

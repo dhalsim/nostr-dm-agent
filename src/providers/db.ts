@@ -59,7 +59,10 @@ export function logSpend(db: ProviderDb, props: SpendHistoryRow): void {
   );
 }
 
-export function getRecentSpendHistory(db: ProviderDb, limit = 10): SpendHistoryRow[] {
+export function getRecentSpendHistory(
+  db: ProviderDb,
+  limit = 10,
+): SpendHistoryRow[] {
   return db
     .prepare(
       `SELECT ts, provider, mint_url, budget_msats, refund_msats, spent_msats, fee_msats,

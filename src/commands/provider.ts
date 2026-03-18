@@ -15,8 +15,15 @@ import {
 } from '../db';
 import { log } from '../logger';
 import type { ProviderDb } from '../providers/db';
-import { depositOrTopup, refundRoutstr, getRoutstrBalance } from '../providers/routstr';
-import { buildOpenCodeModelEntry, fetchRoutstrModels } from '../providers/routstr-models';
+import {
+  depositOrTopup,
+  refundRoutstr,
+  getRoutstrBalance,
+} from '../providers/routstr';
+import {
+  buildOpenCodeModelEntry,
+  fetchRoutstrModels,
+} from '../providers/routstr-models';
 import type { Msats } from '../types';
 import { formatMsats, msatsRaw } from '../types';
 import type { WalletDb } from '../wallets/db';
@@ -26,7 +33,10 @@ export type HandleProviderSetProps = {
   name: string | null;
 };
 
-export function handleProviderSet({ seenDb, name }: HandleProviderSetProps): string {
+export function handleProviderSet({
+  seenDb,
+  name,
+}: HandleProviderSetProps): string {
   if (!name) {
     return `Usage: !provider set [${ProviderNameSchema.options.join('|')}]`;
   }
@@ -158,7 +168,10 @@ export async function handleProviderBalance(seenDb: CoreDb): Promise<string> {
   return `Routstr session balance: ${formatMsats(balance)}${suffix}`;
 }
 
-export function handleProviderBudget(seenDb: CoreDb, budgetMsats: Msats): string {
+export function handleProviderBudget(
+  seenDb: CoreDb,
+  budgetMsats: Msats,
+): string {
   setRoutstrBudget(seenDb, budgetMsats);
 
   return `Budget set to: ${formatMsats(budgetMsats)}`;
@@ -169,7 +182,10 @@ export type HandleProviderStatusProps = {
   mintUrl: string;
 };
 
-export function handleProviderStatus({ seenDb, mintUrl }: HandleProviderStatusProps): string {
+export function handleProviderStatus({
+  seenDb,
+  mintUrl,
+}: HandleProviderStatusProps): string {
   const name = getProviderName(seenDb);
 
   if (name !== 'routstr') {
@@ -299,7 +315,11 @@ export async function handleProviderAddModel({
 
   models[modelId] = entry;
 
-  await writeFile(openCodeJsonPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  await writeFile(
+    openCodeJsonPath,
+    JSON.stringify(config, null, 2) + '\n',
+    'utf-8',
+  );
 
   const action = isUpdate ? 'Updated' : 'Added';
 

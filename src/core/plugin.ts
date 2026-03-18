@@ -3,10 +3,16 @@
 
 import { readFileSync } from 'fs';
 import { basename, join } from 'path';
+
 import { z } from 'zod';
 
 import type { AgentRunResult } from '@src/backends/types';
-import type { AgentBackendName, AgentMode, ProviderName, WorkspaceTarget } from '@src/db';
+import type {
+  AgentBackendName,
+  AgentMode,
+  ProviderName,
+  WorkspaceTarget,
+} from '@src/db';
 import { log } from '@src/logger';
 
 // ---------------------------------------------------------------------------
@@ -65,7 +71,10 @@ export function parsePluginPackageJson({
   try {
     raw = readFileSync(path, 'utf8');
   } catch (err) {
-    log.error(`Plugin ${alias}: failed to read package.json at ${path}: ${String(err)}`);
+    log.error(
+      `Plugin ${alias}: failed to read package.json at ${path}: ${String(err)}`,
+    );
+
     return null;
   }
 
@@ -75,13 +84,17 @@ export function parsePluginPackageJson({
     data = JSON.parse(raw);
   } catch (err) {
     log.error(`Plugin ${alias}: invalid JSON in package.json: ${String(err)}`);
+
     return null;
   }
 
   const result = PluginPackageJsonSchema.safeParse(data);
 
   if (!result.success) {
-    log.error(`Plugin ${alias}: invalid package.json: ${result.error.toString()}`);
+    log.error(
+      `Plugin ${alias}: invalid package.json: ${result.error.toString()}`,
+    );
+
     return null;
   }
 

@@ -9,15 +9,20 @@ import { debug, debugAsync, log } from '../logger';
 import type { ProviderName } from '../providers/types';
 
 import type { ParseModelProps } from './opencode-common';
-import { normalizeModelForProvider, readModelFromOpencodeConfig } from './opencode-common';
+import {
+  normalizeModelForProvider,
+  readModelFromOpencodeConfig,
+} from './opencode-common';
 import type {
   AgentBackend,
   AgentErrorResult,
   AgentRunResult,
   AgentSuccessResult,
   CreateSessionProps,
+  OutputSegment,
   RunMessageProps,
 } from './types';
+import { getMessageOutput } from './types';
 
 const baseEventSchema = z
   .object({
@@ -50,6 +55,15 @@ const textEventSchema = baseEventSchema.extend({
       text: z.string(),
     })
     .passthrough(),
+});
+
+const reasoningEventSchema = baseEventSchema.extend({
+  type: z.enum(['reasoning', 'thinking']),
+  part: z
+    .object({
+      text: z.string(),
+    })
+    .loose(),
 });
 
 const stepFinishEventSchema = baseEventSchema.extend({
@@ -91,7 +105,9 @@ const toolUseEventSchema = baseEventSchema
 const MAX_DEBUG_TEXT_LEN = 300;
 
 function truncate(s: string): string {
-  return s.length > MAX_DEBUG_TEXT_LEN ? s.slice(0, MAX_DEBUG_TEXT_LEN) + '...' : s;
+  return s.length > MAX_DEBUG_TEXT_LEN
+    ? s.slice(0, MAX_DEBUG_TEXT_LEN) + '...'
+    : s;
 }
 
 function truncateTextInParsedLine(line: string): string {
@@ -120,10 +136,12 @@ function truncateTextInParsedLine(line: string): string {
 export function parseOpenCodeJsonl(raw: string): AgentRunResult {
   const lines = raw.trim().split('\n').filter(Boolean);
 
-  debug(`opencode raw JSONL:\n${lines.map(truncateTextInParsedLine).join('\n')}`);
+  debug(
+    `opencode raw JSONL:\n${lines.map(truncateTextInParsedLine).join('\n')}`,
+  );
 
   let sessionId = '';
-  const textParts: string[] = [];
+  const outputs: OutputSegment[] = [];
   let tokens: AgentSuccessResult['tokens'];
   let cost: number | undefined;
   let errorResult: AgentErrorResult | null = null;
@@ -166,7 +184,9 @@ export function parseOpenCodeJsonl(raw: string): AgentRunResult {
             statusCode: err.data.error.data.statusCode,
           };
         } else {
-          log.warn(`opencode: error event with unexpected shape: ${err.error.message}`);
+          log.warn(
+            `opencode: error event with unexpected shape: ${err.error.message}`,
+          );
         }
 
         break;
@@ -176,9 +196,26 @@ export function parseOpenCodeJsonl(raw: string): AgentRunResult {
         const txt = textEventSchema.safeParse(parsed);
 
         if (txt.success) {
-          textParts.push(txt.data.part.text);
+          outputs.push({ type: 'text', value: txt.data.part.text });
         } else {
-          log.warn(`opencode: text event with unexpected shape: ${txt.error.message}`);
+          log.warn(
+            `opencode: text event with unexpected shape: ${txt.error.message}`,
+          );
+        }
+
+        break;
+      }
+
+      case 'reasoning':
+      case 'thinking': {
+        const re = reasoningEventSchema.safeParse(parsed);
+
+        if (re.success) {
+          outputs.push({ type: 'reasoning', value: re.data.part.text });
+        } else {
+          log.warn(
+            `opencode: ${base.data.type} event with unexpected shape (skipped): ${re.error.message}`,
+          );
         }
 
         break;
@@ -204,7 +241,9 @@ export function parseOpenCodeJsonl(raw: string): AgentRunResult {
             cost = (cost ?? 0) + sf.data.part.cost;
           }
         } else if (!sf.success) {
-          log.warn(`opencode: step_finish event with unexpected shape: ${sf.error.message}`);
+          log.warn(
+            `opencode: step_finish event with unexpected shape: ${sf.error.message}`,
+          );
         }
 
         break;
@@ -219,7 +258,11 @@ export function parseOpenCodeJsonl(raw: string): AgentRunResult {
 
         if (tu.success) {
           const toolName =
-            tu.data.name ?? tu.data.tool ?? tu.data.part?.name ?? tu.data.part?.tool ?? 'unknown';
+            tu.data.name ??
+            tu.data.tool ??
+            tu.data.part?.name ??
+            tu.data.part?.tool ??
+            'unknown';
 
           log.info(`tool used: ${toolName}`);
         }
@@ -242,14 +285,20 @@ export function parseOpenCodeJsonl(raw: string): AgentRunResult {
 
   return {
     type: 'success',
-    output: textParts.join('') || '(no output)',
+    outputs:
+      outputs.length > 0 ? outputs : [{ type: 'text', value: '(no output)' }],
     sessionId,
     tokens,
     cost,
   };
 }
 
-function parseModel({ dmBotRoot, mode, modelOverride, providerName }: ParseModelProps): string {
+function parseModel({
+  dmBotRoot,
+  mode,
+  modelOverride,
+  providerName,
+}: ParseModelProps): string {
   const fromConfig = readModelFromOpencodeConfig(dmBotRoot, mode);
   let modelName = modelOverride ?? fromConfig;
 
@@ -289,7 +338,12 @@ export function createOpenCodeBackend({
   modelOverride,
   providerName,
 }: CreateOpenCodeBackendProps): AgentBackend {
-  const modelName = parseModel({ dmBotRoot, mode, modelOverride, providerName });
+  const modelName = parseModel({
+    dmBotRoot,
+    mode,
+    modelOverride,
+    providerName,
+  });
 
   return {
     name: 'opencode',
@@ -308,7 +362,13 @@ export function createOpenCodeBackend({
         args.push('--attach', attachUrl);
       }
 
-      const proc = spawnSync(args, { cwd, stdout: 'pipe', stderr: 'pipe', env });
+      const proc = spawnSync(args, {
+        cwd,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env,
+      });
+
       const out = proc.stdout?.toString().trim() ?? '';
       const parsed = parseOpenCodeJsonl(out);
 
@@ -349,7 +409,10 @@ export function createOpenCodeBackend({
         args.push('--attach', attachUrl);
       }
 
-      const effectiveModel = normalizeModelForProvider(modelOverride, providerName);
+      const effectiveModel = normalizeModelForProvider(
+        modelOverride,
+        providerName,
+      );
 
       if (effectiveModel) {
         args.push('--model', effectiveModel);
@@ -359,7 +422,8 @@ export function createOpenCodeBackend({
         const prev = arr[i - 1];
 
         const isContent =
-          prev === 'run' || (i > 0 && !prev?.startsWith('--') && arr[i - 2] === 'run');
+          prev === 'run' ||
+          (i > 0 && !prev?.startsWith('--') && arr[i - 2] === 'run');
 
         acc.push(isContent ? `"${arg}"` : arg);
 
@@ -368,7 +432,15 @@ export function createOpenCodeBackend({
 
       debugAsync(async () => `opencode args: ${argsDisplay.join(' ')}`);
 
-      const proc = spawn({ cmd: args, cwd, stdout: 'pipe', stderr: 'pipe', stdin: 'ignore', env });
+      const proc = spawn({
+        cmd: args,
+        cwd,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        stdin: 'ignore',
+        env,
+      });
+
       await proc.exited;
       const out = await new Response(proc.stdout).text();
       const err = await new Response(proc.stderr).text();
@@ -383,8 +455,8 @@ export function createOpenCodeBackend({
         return result;
       }
 
-      if (result.output === '(no output)' && err.trim()) {
-        result.output = err.trim();
+      if (getMessageOutput(result.outputs) === '(no output)' && err.trim()) {
+        result.outputs = [{ type: 'text', value: err.trim() }];
       }
 
       if (!result.sessionId) {

@@ -2,7 +2,11 @@ import readline from 'readline';
 
 import { nip19 } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
-import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
+import {
+  generateSecretKey,
+  getPublicKey,
+  finalizeEvent,
+} from 'nostr-tools/pure';
 
 import { getOrSetEnvVar } from '../src/env-file';
 
@@ -25,8 +29,14 @@ type Nip65Relays = {
 
 function toReadWriteRelays(tags: string[][]): Nip65Relays {
   const relayTags = tags.filter((tag) => tag[0] === 'r');
-  const readRelays = relayTags.filter((tag) => tag[2] === 'read' || !tag[2]).map((tag) => tag[1]);
-  const writeRelays = relayTags.filter((tag) => tag[2] === 'write' || !tag[2]).map((tag) => tag[1]);
+
+  const readRelays = relayTags
+    .filter((tag) => tag[2] === 'read' || !tag[2])
+    .map((tag) => tag[1]);
+
+  const writeRelays = relayTags
+    .filter((tag) => tag[2] === 'write' || !tag[2])
+    .map((tag) => tag[1]);
 
   const flatRelays = relayTags.map((tag) => ({
     relay: tag[1],
@@ -38,7 +48,10 @@ function toReadWriteRelays(tags: string[][]): Nip65Relays {
 }
 
 function question(prompt: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
   return new Promise((resolve) => {
     rl.question(prompt, (answer) => {
@@ -73,28 +86,36 @@ async function main() {
 
   const picture = `https://robohash.org/${botPubkey}.png?set=set5`;
 
-  const masterPubkey = await getOrSetEnvVar(ENV_PATH, 'BOT_MASTER_PUBKEY', async () => {
-    let value = '';
-    while (!value) {
-      const raw = await question('Your master (bot is going to reply to) pubkey (hex|npub): ');
+  const masterPubkey = await getOrSetEnvVar(
+    ENV_PATH,
+    'BOT_MASTER_PUBKEY',
+    async () => {
+      let value = '';
+      while (!value) {
+        const raw = await question(
+          'Your master (bot is going to reply to) pubkey (hex|npub): ',
+        );
 
-      if (raw.startsWith('npub1')) {
-        const decoded = nip19.decode(raw);
+        if (raw.startsWith('npub1')) {
+          const decoded = nip19.decode(raw);
 
-        if (decoded.type !== 'npub') {
-          console.error('  Invalid npub format. Please provide a valid npub.');
+          if (decoded.type !== 'npub') {
+            console.error(
+              '  Invalid npub format. Please provide a valid npub.',
+            );
 
-          continue;
+            continue;
+          }
+
+          value = decoded.data as string;
+        } else {
+          value = raw;
         }
-
-        value = decoded.data as string;
-      } else {
-        value = raw;
       }
-    }
 
-    return value;
-  });
+      return value;
+    },
+  );
 
   const relays = await getOrSetEnvVar(ENV_PATH, 'BOT_RELAYS', async () => {
     const raw = await question(
@@ -130,7 +151,9 @@ async function main() {
 
   const signedKind0 = finalizeEvent(kind0Event, secretKey);
 
-  const kind0Results = await Promise.allSettled(pool.publish(PROFILE_PUBLISH_RELAYS, signedKind0));
+  const kind0Results = await Promise.allSettled(
+    pool.publish(PROFILE_PUBLISH_RELAYS, signedKind0),
+  );
 
   for (const [idx, result] of kind0Results.entries()) {
     const url = PROFILE_PUBLISH_RELAYS[idx];
@@ -171,7 +194,9 @@ async function main() {
 
   const signed = finalizeEvent(event, secretKey);
 
-  const results = await Promise.allSettled(pool.publish(masterReadRelays, signed));
+  const results = await Promise.allSettled(
+    pool.publish(masterReadRelays, signed),
+  );
 
   for (const [idx, result] of results.entries()) {
     const url = masterReadRelays[idx];

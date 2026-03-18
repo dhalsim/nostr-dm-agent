@@ -17,11 +17,17 @@ export type HandleWalletMintProps = {
   url: string | null;
 };
 
-export function handleWalletMint({ seenDb, defaultMintUrl, url }: HandleWalletMintProps): string {
+export function handleWalletMint({
+  seenDb,
+  defaultMintUrl,
+  url,
+}: HandleWalletMintProps): string {
   if (!url) {
     const current = getWalletDefaultMintUrl(seenDb, defaultMintUrl);
 
-    return current ? `Current mint: ${current}` : 'No mint configured. Use: !wallet mint <url>';
+    return current
+      ? `Current mint: ${current}`
+      : 'No mint configured. Use: !wallet mint <url>';
   }
 
   setWalletDefaultMintUrl(seenDb, url);
@@ -29,7 +35,11 @@ export function handleWalletMint({ seenDb, defaultMintUrl, url }: HandleWalletMi
   return `Mint set to: ${url}`;
 }
 
-export function handleWalletMints({ walletDb }: { walletDb: WalletDb }): string {
+export function handleWalletMints({
+  walletDb,
+}: {
+  walletDb: WalletDb;
+}): string {
   const result = getCashuMints(walletDb);
   const mints = result.map((r) => `${r.mint}: ${r.total_amount} sats`);
 
@@ -87,7 +97,8 @@ export async function handleWalletReceive({
       const msg = err instanceof Error ? err.message : String(err);
 
       const isSignedError =
-        msg.includes('outputs have already been signed') || msg.includes('already signed');
+        msg.includes('outputs have already been signed') ||
+        msg.includes('already signed');
 
       if (isSignedError && attempt < maxRetries - 1) {
         bumpCounters(walletDb);
@@ -137,7 +148,8 @@ export async function handleWalletSend({
       const msg = err instanceof Error ? err.message : String(err);
 
       const isSignedError =
-        msg.includes('outputs have already been signed') || msg.includes('already signed');
+        msg.includes('outputs have already been signed') ||
+        msg.includes('already signed');
 
       if (isSignedError && attempt < maxRetries - 1) {
         bumpCounters(walletDb);
@@ -156,7 +168,10 @@ export type HandleWalletHistoryProps = {
   showToken: boolean;
 };
 
-export function handleWalletHistory({ walletDb, showToken }: HandleWalletHistoryProps): string {
+export function handleWalletHistory({
+  walletDb,
+  showToken,
+}: HandleWalletHistoryProps): string {
   const history = getWalletHistory(walletDb, 10);
 
   if (history.length === 0) {
@@ -166,7 +181,10 @@ export function handleWalletHistory({ walletDb, showToken }: HandleWalletHistory
   return history
     .map((h) => {
       const date = new Date(h.ts).toISOString().slice(0, 16).replace('T', ' ');
-      const shortMint = h.mint_url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+      const shortMint = h.mint_url
+        .replace(/^https?:\/\//, '')
+        .replace(/\/$/, '');
 
       let message = `${date} | ${h.operation} | ${shortMint} | ${h.amount} sats | ${h.fee} sats fee`;
 

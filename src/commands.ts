@@ -67,7 +67,10 @@ import { getBalanceByMint, type WalletDb } from './wallets/db';
 
 export const EXIT_COMMAND_SENTINEL = '__DM_BOT_EXIT__';
 
-export async function handleError(fn: () => Promise<string>, errorPrefix: string): Promise<string> {
+export async function handleError(
+  fn: () => Promise<string>,
+  errorPrefix: string,
+): Promise<string> {
   try {
     return await fn();
   } catch (err) {
@@ -117,7 +120,8 @@ export async function handleBangCommand({
   const cmd = (parts[0] ?? '').toLowerCase();
   const args = parts.slice(1);
 
-  const cwd = getWorkspaceTarget(seenDb) === 'bot' ? dmBotRoot : parentOfBotRoot;
+  const cwd =
+    getWorkspaceTarget(seenDb) === 'bot' ? dmBotRoot : parentOfBotRoot;
 
   switch (cmd) {
     case 'new-session': {
@@ -129,7 +133,13 @@ export async function handleBangCommand({
           agentEnv,
         });
 
-        const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+        const status = getStatusLines({
+          relayUrls,
+          seenDb,
+          version,
+          dmBotRoot,
+          attachUrl,
+        });
 
         return `${out}\n\n${status}`;
       }, 'Failed to create new session');
@@ -137,7 +147,8 @@ export async function handleBangCommand({
 
     case 'resume-last-session': {
       return handleError(
-        async () => handleResumeLastSession({ db: seenDb, backendName: backend.name }),
+        async () =>
+          handleResumeLastSession({ db: seenDb, backendName: backend.name }),
         'Failed to resume last session',
       );
     }
@@ -150,21 +161,32 @@ export async function handleBangCommand({
     }
 
     case 'list-sessions': {
-      return handleError(async () => handleListSessions({ db: seenDb }), 'Failed to list sessions');
+      return handleError(
+        async () => handleListSessions({ db: seenDb }),
+        'Failed to list sessions',
+      );
     }
 
     case 'show-last-messages': {
       const n = Math.min(50, Math.max(1, parseInt(args[1] ?? '5', 10) || 5));
 
       return handleError(
-        async () => handleShowLastMessages({ db: seenDb, sessionId: args[0], n }),
+        async () =>
+          handleShowLastMessages({ db: seenDb, sessionId: args[0], n }),
         'Failed to show last messages',
       );
     }
 
     case 'status': {
       return handleError(
-        async () => getStatusLines({ relayUrls, seenDb: seenDb, version, dmBotRoot, attachUrl }),
+        async () =>
+          getStatusLines({
+            relayUrls,
+            seenDb: seenDb,
+            version,
+            dmBotRoot,
+            attachUrl,
+          }),
         'Failed to get status',
       );
     }
@@ -180,7 +202,10 @@ export async function handleBangCommand({
           return 'Bot pubkey not available.';
         }
 
-        return handleError(async () => nip19.npubEncode(botPubkey), 'Failed to encode bot pubkey');
+        return handleError(
+          async () => nip19.npubEncode(botPubkey),
+          'Failed to encode bot pubkey',
+        );
       }
 
       if (sub === 'restart') {
@@ -222,7 +247,13 @@ export async function handleBangCommand({
           selected: args[0],
         });
 
-        const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+        const status = getStatusLines({
+          relayUrls,
+          seenDb,
+          version,
+          dmBotRoot,
+          attachUrl,
+        });
 
         return `${out}\n\n${status}`;
       }, 'Failed to switch workspace');
@@ -239,7 +270,13 @@ export async function handleBangCommand({
           selected: args[0],
         });
 
-        const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+        const status = getStatusLines({
+          relayUrls,
+          seenDb,
+          version,
+          dmBotRoot,
+          attachUrl,
+        });
 
         return `${out}\n\n${status}`;
       }, 'Failed to switch backend');
@@ -254,7 +291,13 @@ export async function handleBangCommand({
       return handleError(async () => {
         const out = handleMode({ db: seenDb, modeArg });
 
-        const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+        const status = getStatusLines({
+          relayUrls,
+          seenDb,
+          version,
+          dmBotRoot,
+          attachUrl,
+        });
 
         return `${out}\n\n${status}`;
       }, 'Failed to set mode');
@@ -276,7 +319,13 @@ export async function handleBangCommand({
       return handleError(async () => {
         const out = handleModel({ db: seenDb, selected: args[0] });
 
-        const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+        const status = getStatusLines({
+          relayUrls,
+          seenDb,
+          version,
+          dmBotRoot,
+          attachUrl,
+        });
 
         return `${out}\n\n${status}`;
       }, 'Failed to set model');
@@ -314,7 +363,10 @@ export async function handleBangCommand({
           return 'Wallet DB not available.';
         }
 
-        return handleError(async () => handleWalletMints({ walletDb }), 'Failed to list mints');
+        return handleError(
+          async () => handleWalletMints({ walletDb }),
+          'Failed to list mints',
+        );
       }
 
       const mint = getWalletDefaultMintUrl(seenDb, defaultMintUrl);
@@ -342,7 +394,10 @@ export async function handleBangCommand({
             return 'Usage: !wallet decode <cashu-token>';
           }
 
-          return handleError(async () => decodeToken(token), 'Failed to decode token');
+          return handleError(
+            async () => decodeToken(token),
+            'Failed to decode token',
+          );
         }
 
         case 'receive': {
@@ -365,7 +420,8 @@ export async function handleBangCommand({
           }
 
           return handleError(
-            async () => handleWalletReceive({ mnemonic, walletDb, mintUrl: mint, token }),
+            async () =>
+              handleWalletReceive({ mnemonic, walletDb, mintUrl: mint, token }),
             'Failed to receive token',
           );
         }
@@ -390,7 +446,8 @@ export async function handleBangCommand({
           }
 
           return handleError(
-            async () => handleWalletSend({ mnemonic, walletDb, amount, mintUrl: mint }),
+            async () =>
+              handleWalletSend({ mnemonic, walletDb, amount, mintUrl: mint }),
             'Failed to send token',
           );
         }
@@ -434,7 +491,13 @@ export async function handleBangCommand({
           const name = args[1]?.toLowerCase();
           const out = handleProviderSet({ seenDb, name });
 
-          const status = getStatusLines({ relayUrls, seenDb, version, dmBotRoot, attachUrl });
+          const status = getStatusLines({
+            relayUrls,
+            seenDb,
+            version,
+            dmBotRoot,
+            attachUrl,
+          });
 
           return `${out}\n\n${status}`;
         }
@@ -449,7 +512,10 @@ export async function handleBangCommand({
             return 'Usage: !provider deposit <sats> [--new]';
           }
 
-          const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
+          const mintUrl = getWalletDefaultMintUrl(
+            seenDb,
+            config.cashuDefaultMintUrl,
+          );
 
           if (!mintUrl) {
             return 'No mint configured. Use !wallet mint <url> first.';
@@ -491,7 +557,10 @@ export async function handleBangCommand({
         }
 
         case 'refund': {
-          const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
+          const mintUrl = getWalletDefaultMintUrl(
+            seenDb,
+            config.cashuDefaultMintUrl,
+          );
 
           if (!mintUrl) {
             return 'No mint configured.';
@@ -508,13 +577,17 @@ export async function handleBangCommand({
           }
 
           return handleError(
-            async () => handleProviderRefund({ seenDb, mnemonic, mintUrl, providerDb }),
+            async () =>
+              handleProviderRefund({ seenDb, mnemonic, mintUrl, providerDb }),
             'Failed to refund',
           );
         }
 
         case 'balance': {
-          return handleError(async () => handleProviderBalance(seenDb), 'Failed to get balance');
+          return handleError(
+            async () => handleProviderBalance(seenDb),
+            'Failed to get balance',
+          );
         }
 
         case 'budget': {
@@ -531,7 +604,10 @@ export async function handleBangCommand({
         }
 
         case 'status': {
-          const mintUrl = getWalletDefaultMintUrl(seenDb, config.cashuDefaultMintUrl);
+          const mintUrl = getWalletDefaultMintUrl(
+            seenDb,
+            config.cashuDefaultMintUrl,
+          );
 
           if (!mintUrl) {
             return 'No mint configured. Use !wallet mint <url> first.';
@@ -551,7 +627,10 @@ export async function handleBangCommand({
         }
 
         case 'sync-models': {
-          return handleError(async () => handleProviderSyncModels(seenDb), 'Failed to sync models');
+          return handleError(
+            async () => handleProviderSyncModels(seenDb),
+            'Failed to sync models',
+          );
         }
 
         case 'add-model': {
@@ -564,7 +643,8 @@ export async function handleBangCommand({
           const openCodeJsonPath = join(dmBotRoot, 'opencode.json');
 
           return handleError(
-            async () => handleProviderAddModel({ seenDb, modelId, openCodeJsonPath }),
+            async () =>
+              handleProviderAddModel({ seenDb, modelId, openCodeJsonPath }),
             'Failed to add model',
           );
         }
@@ -604,8 +684,9 @@ export async function handleBangCommand({
       const envPathForReady = join(dmBotRoot, '.env');
 
       const readyCurrent =
-        (getEnvFromFile(envPathForReady, 'READY_ENABLED') ?? process.env.READY_ENABLED ?? '1') !==
-        '0'
+        (getEnvFromFile(envPathForReady, 'READY_ENABLED') ??
+          process.env.READY_ENABLED ??
+          '1') !== '0'
           ? 'on'
           : 'off';
 
@@ -613,7 +694,11 @@ export async function handleBangCommand({
         return `Ready DM on startup: ${readyCurrent}. Usage: !ready [on|off]`;
       }
 
-      setEnvInFile(envPathForReady, 'READY_ENABLED', readyArg === 'on' ? '1' : '0');
+      setEnvInFile(
+        envPathForReady,
+        'READY_ENABLED',
+        readyArg === 'on' ? '1' : '0',
+      );
 
       return `Ready DM on startup: ${readyArg}. Written to .env. Takes effect on next restart.`;
     }

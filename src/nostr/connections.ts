@@ -70,9 +70,9 @@ export function saveConnection(
 }
 
 export function getConnection(db: CoreDb, name: string): ConnectionRow | null {
-  const row = db.prepare('SELECT * FROM connections WHERE name = ?').get(name) as
-    | Record<string, unknown>
-    | undefined;
+  const row = db
+    .prepare('SELECT * FROM connections WHERE name = ?')
+    .get(name) as Record<string, unknown> | undefined;
 
   if (!row) {
     return null;
@@ -82,16 +82,17 @@ export function getConnection(db: CoreDb, name: string): ConnectionRow | null {
 }
 
 export function listConnections(db: CoreDb): ConnectionRow[] {
-  const rows = db.prepare('SELECT * FROM connections ORDER BY created_at DESC').all() as Record<
-    string,
-    unknown
-  >[];
+  const rows = db
+    .prepare('SELECT * FROM connections ORDER BY created_at DESC')
+    .all() as Record<string, unknown>[];
 
   return rows.map(rowToConnection);
 }
 
 export function deleteConnection(db: CoreDb, name: string): boolean {
-  return db.prepare('DELETE FROM connections WHERE name = ?').run(name).changes > 0;
+  return (
+    db.prepare('DELETE FROM connections WHERE name = ?').run(name).changes > 0
+  );
 }
 
 // ---------------------------------------------------------------------------

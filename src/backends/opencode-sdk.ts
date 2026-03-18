@@ -9,13 +9,17 @@ import { debug, log } from '../logger';
 import type { ProviderName } from '../providers/types';
 
 import type { ParseModelProps } from './opencode-common';
-import { normalizeModelForProvider, readModelFromOpencodeConfig } from './opencode-common';
+import {
+  normalizeModelForProvider,
+  readModelFromOpencodeConfig,
+} from './opencode-common';
 import type {
   AgentBackend,
   AgentErrorResult,
   AgentRunResult,
   AgentSuccessResult,
   CreateSessionProps,
+  OutputSegment,
   RunMessageProps,
 } from './types';
 
@@ -32,7 +36,9 @@ function getPortsToTry(): number[] {
     const n = parseInt(envPort, 10);
 
     if (Number.isNaN(n) || n < 1 || n > 65535) {
-      log.warn(`opencode-sdk: invalid OPENCODE_SDK_PORT "${envPort}", using default ports`);
+      log.warn(
+        `opencode-sdk: invalid OPENCODE_SDK_PORT "${envPort}", using default ports`,
+      );
 
       return DEFAULT_PORTS;
     }
@@ -51,7 +57,9 @@ function applyEnvToProcess(env: Record<string, string | undefined>): void {
   }
 }
 
-async function getOrInitSdk(env?: Record<string, string | undefined>): Promise<SdkInstance> {
+async function getOrInitSdk(
+  env?: Record<string, string | undefined>,
+): Promise<SdkInstance> {
   if (env) {
     applyEnvToProcess(env);
   }
@@ -76,7 +84,9 @@ async function getOrInitSdk(env?: Record<string, string | undefined>): Promise<S
         break;
       }
 
-      debug(`opencode-sdk: port ${port} failed, trying next: ${lastError.message}`);
+      debug(
+        `opencode-sdk: port ${port} failed, trying next: ${lastError.message}`,
+      );
     }
   }
 
@@ -90,7 +100,12 @@ async function getOrInitSdk(env?: Record<string, string | undefined>): Promise<S
   );
 }
 
-function parseModel({ dmBotRoot, mode, modelOverride, providerName }: ParseModelProps): string {
+function parseModel({
+  dmBotRoot,
+  mode,
+  modelOverride,
+  providerName,
+}: ParseModelProps): string {
   const fromConfig = readModelFromOpencodeConfig(dmBotRoot, mode);
   let modelName = modelOverride ?? fromConfig;
 
@@ -109,7 +124,10 @@ function parseModel({ dmBotRoot, mode, modelOverride, providerName }: ParseModel
   return modelName;
 }
 
-function modelToProviderAndId(modelStr: string): { providerID: string; modelID: string } {
+function modelToProviderAndId(modelStr: string): {
+  providerID: string;
+  modelID: string;
+} {
   const slash = modelStr.indexOf('/');
 
   if (slash === -1) {
@@ -135,7 +153,12 @@ export function createOpencodeSDKBackend({
   modelOverride,
   providerName,
 }: CreateOpencodeSDKBackendProps): AgentBackend {
-  const modelName = parseModel({ dmBotRoot, mode, modelOverride, providerName });
+  const modelName = parseModel({
+    dmBotRoot,
+    mode,
+    modelOverride,
+    providerName,
+  });
 
   return {
     name: 'opencode-sdk',
@@ -151,9 +174,12 @@ export function createOpencodeSDKBackend({
 
       if (result.error) {
         const msg =
-          typeof result.error === 'object' && result.error !== null && 'data' in result.error
+          typeof result.error === 'object' &&
+          result.error !== null &&
+          'data' in result.error
             ? String(
-                (result.error as { data?: { message?: string } }).data?.message ?? result.error,
+                (result.error as { data?: { message?: string } }).data
+                  ?.message ?? result.error,
               )
             : String(result.error);
 
@@ -163,7 +189,9 @@ export function createOpencodeSDKBackend({
       const session = result.data as { id: string };
 
       if (!session?.id) {
-        throw new Error('opencode-sdk session create: no session id in response');
+        throw new Error(
+          'opencode-sdk session create: no session id in response',
+        );
       }
 
       return session.id;
@@ -179,13 +207,18 @@ export function createOpencodeSDKBackend({
     }: RunMessageProps): Promise<AgentRunResult> {
       const { client } = await getOrInitSdk(env);
 
-      const normalizedOverride = normalizeModelForProvider(runModelOverride, providerName);
+      const normalizedOverride = normalizeModelForProvider(
+        runModelOverride,
+        providerName,
+      );
 
       const effectiveModel = normalizedOverride ?? modelName;
       const model = modelToProviderAndId(effectiveModel);
 
       if (runModelOverride) {
-        debug(`opencode-sdk: runMessage using model override: ${runModelOverride}`);
+        debug(
+          `opencode-sdk: runMessage using model override: ${runModelOverride}`,
+        );
       }
 
       // Send model in both nested (body.model) and flat (body.providerID/modelID) form
@@ -201,11 +234,17 @@ export function createOpencodeSDKBackend({
         url: '/session/{id}/message',
       };
 
-      debug('opencode-sdk session.prompt input', JSON.stringify(input, null, 2));
+      debug(
+        'opencode-sdk session.prompt input',
+        JSON.stringify(input, null, 2),
+      );
 
       const result = await client.session.prompt(input);
 
-      debug('opencode-sdk session.prompt result', JSON.stringify(result, null, 2));
+      debug(
+        'opencode-sdk session.prompt result',
+        JSON.stringify(result, null, 2),
+      );
 
       // Debug: response metadata (body already consumed by SDK into result.data)
       const res = result.response as Response | undefined;
@@ -255,7 +294,9 @@ export function createOpencodeSDKBackend({
               tokens?: { input: number; output: number };
               structured_output?: unknown;
             };
-            parts?: Array<{ type?: string; text?: string; content?: string } | string>;
+            parts?: Array<
+              { type?: string; text?: string; content?: string } | string
+            >;
             output?: string;
             content?: string;
             text?: string;
@@ -263,78 +304,89 @@ export function createOpencodeSDKBackend({
         | undefined;
 
       if (!data) {
-        debug('opencode-sdk prompt: result.data missing, raw result:', JSON.stringify(result));
+        debug(
+          'opencode-sdk prompt: result.data missing, raw result:',
+          JSON.stringify(result),
+        );
 
         return {
           type: 'success',
-          output: '(no output)',
+          outputs: [{ type: 'text', value: '(no output)' }],
           sessionId,
           model: effectiveModel,
         };
       }
 
-      let output = '';
-
       const parts = data.parts ?? [];
+      const outputs: OutputSegment[] = [];
 
       if (parts.length > 0) {
-        const textParts = parts
-          .map((p) => {
-            if (p && typeof p === 'object' && typeof (p as { text?: string }).text === 'string') {
-              return (p as { text: string }).text;
-            }
+        for (const p of parts) {
+          const partType =
+            p &&
+            typeof p === 'object' &&
+            typeof (p as { type?: string }).type === 'string'
+              ? (p as { type: string }).type
+              : '';
 
-            if (
-              p &&
-              typeof p === 'object' &&
-              typeof (p as { content?: string }).content === 'string'
-            ) {
-              return (p as { content: string }).content;
-            }
+          const text =
+            p &&
+            typeof p === 'object' &&
+            typeof (p as { text?: string }).text === 'string'
+              ? (p as { text: string }).text
+              : p &&
+                  typeof p === 'object' &&
+                  typeof (p as { content?: string }).content === 'string'
+                ? (p as { content: string }).content
+                : typeof p === 'string'
+                  ? p
+                  : '';
 
-            if (typeof p === 'string') {
-              return p;
-            }
+          if (text.length === 0) {
+            continue;
+          }
 
-            return '';
-          })
-          .filter((s) => s.length > 0);
-
-        output = textParts.join('');
+          if (partType === 'reasoning' || partType === 'thinking') {
+            outputs.push({ type: 'reasoning', value: text });
+          } else {
+            outputs.push({ type: 'text', value: text });
+          }
+        }
       }
 
-      if (!output && typeof data.output === 'string' && data.output.length > 0) {
-        output = data.output;
-      }
+      if (outputs.length === 0) {
+        const fallback =
+          (typeof data.output === 'string' &&
+            data.output.length > 0 &&
+            data.output) ||
+          (typeof data.content === 'string' &&
+            data.content.length > 0 &&
+            data.content) ||
+          (typeof data.text === 'string' &&
+            data.text.length > 0 &&
+            data.text) ||
+          (data.info?.structured_output != null
+            ? typeof data.info.structured_output === 'string'
+              ? data.info.structured_output
+              : JSON.stringify(data.info.structured_output)
+            : null);
 
-      if (!output && typeof data.content === 'string' && data.content.length > 0) {
-        output = data.content;
-      }
+        if (fallback) {
+          outputs.push({ type: 'text', value: fallback });
+        } else {
+          const res = result.response as Response | undefined;
 
-      if (!output && typeof data.text === 'string' && data.text.length > 0) {
-        output = data.text;
-      }
+          debug('opencode-sdk prompt: no text in parts', {
+            responseStatus: res?.status ?? null,
+            partsLength: parts.length,
+            parts: data.parts,
+            info: data.info,
+            dataKeys: data ? Object.keys(data) : [],
+            dataSample: data ? JSON.stringify(data).slice(0, 500) : 'null',
+          });
 
-      if (!output && data.info?.structured_output != null) {
-        output =
-          typeof data.info.structured_output === 'string'
-            ? data.info.structured_output
-            : JSON.stringify(data.info.structured_output);
-      }
-
-      if (!output) {
-        output = '(no output)';
-
-        const res = result.response as Response | undefined;
-
-        debug('opencode-sdk prompt: no text in parts', {
-          responseStatus: res?.status ?? null,
-          partsLength: parts.length,
-          parts: data.parts,
-          info: data.info,
-          dataKeys: data ? Object.keys(data) : [],
-          dataSample: data ? JSON.stringify(data).slice(0, 500) : 'null',
-        });
+          outputs.push({ type: 'text', value: '(no output)' });
+        }
       }
 
       const info = data.info;
@@ -351,7 +403,7 @@ export function createOpencodeSDKBackend({
 
       return {
         type: 'success',
-        output,
+        outputs,
         sessionId,
         model: effectiveModel,
         tokens,

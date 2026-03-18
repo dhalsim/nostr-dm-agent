@@ -18,19 +18,31 @@ type RegisterPluginProps = {
 
 export function registerPlugin({ plugin, ctx }: RegisterPluginProps) {
   if (byAlias.has(plugin.identity.alias)) {
-    throw new Error(`Plugin alias collision: "${plugin.identity.alias}" already registered`);
+    throw new Error(
+      `Plugin alias collision: "${plugin.identity.alias}" already registered`,
+    );
   }
 
-  const databasePath = join(dmBotRoot, 'plugins', plugin.identity.alias, 'db.sqlite');
+  const databasePath = join(
+    dmBotRoot,
+    'plugins',
+    plugin.identity.alias,
+    'db.sqlite',
+  );
 
-  log.info(`Registering plugin: ${plugin.identity.alias} creating database at ${databasePath}`);
+  log.info(
+    `Registering plugin: ${plugin.identity.alias} creating database at ${databasePath}`,
+  );
 
   plugin.onInit(ctx);
 
   byAlias.set(plugin.identity.alias, plugin);
 }
 
-export async function dispatchPluginCommand(cmd: string, args: string[]): Promise<string | null> {
+export async function dispatchPluginCommand(
+  cmd: string,
+  args: string[],
+): Promise<string | null> {
   const plugin = byAlias.get(cmd);
 
   if (!plugin) {

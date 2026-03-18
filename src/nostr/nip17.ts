@@ -2,7 +2,11 @@
 // src/nostr/nip17.ts — NIP-17 DM subscribe, send, and auth (kind 1059, rumor wrap/unwrap)
 // ---------------------------------------------------------------------------
 
-import type { NostrEvent, EventTemplate, VerifiedEvent } from 'nostr-tools/core';
+import type {
+  NostrEvent,
+  EventTemplate,
+  VerifiedEvent,
+} from 'nostr-tools/core';
 import { unwrapEvent, wrapEvent } from 'nostr-tools/nip17';
 import type { SimplePool } from 'nostr-tools/pool';
 import { finalizeEvent } from 'nostr-tools/pure';
@@ -26,7 +30,9 @@ export type CreateSignAuthEventProps = {
 
 export function createSignAuthEvent({
   botSecretKey,
-}: CreateSignAuthEventProps): (authTemplate: EventTemplate) => Promise<VerifiedEvent> {
+}: CreateSignAuthEventProps): (
+  authTemplate: EventTemplate,
+) => Promise<VerifiedEvent> {
   return async (authTemplate: EventTemplate): Promise<VerifiedEvent> => {
     debug('Signing AUTH challenge event:', authTemplate);
 
@@ -49,7 +55,9 @@ export async function getMasterDmRelays(
     });
 
     if (event) {
-      const urls = event.tags.filter((t) => t[0] === 'relay' && t[1]).map((t) => ensureWss(t[1]));
+      const urls = event.tags
+        .filter((t) => t[0] === 'relay' && t[1])
+        .map((t) => ensureWss(t[1]));
 
       if (urls.length > 0) {
         debug('Master kind:10050 relays:', urls);
@@ -86,7 +94,13 @@ export async function sendDm({
   redrawPrompt,
 }: SendDmProps): Promise<void> {
   const plain = stripAnsi(message);
-  const targetRelays = await getMasterDmRelays(pool, botRelayUrl, recipientPubkey);
+
+  const targetRelays = await getMasterDmRelays(
+    pool,
+    botRelayUrl,
+    recipientPubkey,
+  );
+
   const recipientRelayHint = targetRelays[0] ?? botRelayUrl;
 
   const giftWrap = wrapEvent(
@@ -101,7 +115,9 @@ export async function sendDm({
     pool.publish(targetRelays, giftWrap, { onauth: signAuthEvent }),
   );
 
-  const successCount = publishResults.filter((r) => r.status === 'fulfilled').length;
+  const successCount = publishResults.filter(
+    (r) => r.status === 'fulfilled',
+  ).length;
 
   const failed = publishResults
     .map((r, idx) => ({ r, relay: targetRelays[idx] ?? 'unknown-relay' }))
@@ -129,12 +145,17 @@ export async function sendDm({
       )
       .join(' | ');
 
-    throw new Error(`DM publish failed on all relays: ${reasons || 'unknown error'}`);
+    throw new Error(
+      `DM publish failed on all relays: ${reasons || 'unknown error'}`,
+    );
   }
 
   const lines = plain.split('\n');
   const lastLine = lines[lines.length - 1] ?? '';
-  const lastIsTokens = lines.length > 0 && /^\[tokens:/.test(lastLine.trimStart());
+
+  const lastIsTokens =
+    lines.length > 0 && /^\[tokens:/.test(lastLine.trimStart());
+
   const body = lastIsTokens ? lines.slice(0, -1).join('\n') : plain;
   const tokensLine = lastIsTokens ? lastLine : null;
   const bodyStyled = `${C.greenBright}${body}${C.reset}`;
@@ -165,7 +186,10 @@ export function createSendReplyForSource({
   senderSecretKey,
   recipientPubkey,
   signAuthEvent,
-}: CreateSendReplyForSourceProps): (source: MessageSource, message: string) => Promise<void> {
+}: CreateSendReplyForSourceProps): (
+  source: MessageSource,
+  message: string,
+) => Promise<void> {
   return async (source: MessageSource, message: string): Promise<void> => {
     const replyTransport = getReplyTransport(seenDb);
     const sourceIsLocal = source === 'local';
@@ -283,7 +307,9 @@ export function createDmSubscription({
           reconnectMaxMs,
         );
 
-        debug(`Reconnecting DM subscription in ${backoffMs}ms (attempt ${reconnectAttempt})…`);
+        debug(
+          `Reconnecting DM subscription in ${backoffMs}ms (attempt ${reconnectAttempt})…`,
+        );
 
         setTimeout(() => {
           debug('Reconnecting DM subscription now.');

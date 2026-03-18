@@ -12,7 +12,10 @@ const DEFAULT_MODEL = 'opencode/big-pickle';
 /**
  * Read model from opencode.json for the given mode, or return the default.
  */
-export function readModelFromOpencodeConfig(dmBotRoot: string, mode: AgentMode): string {
+export function readModelFromOpencodeConfig(
+  dmBotRoot: string,
+  mode: AgentMode,
+): string {
   try {
     const cfgPath = join(dmBotRoot, 'opencode.json');
 

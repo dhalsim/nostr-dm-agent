@@ -30,7 +30,8 @@ export async function sendChunkedReply({
   for (let i = 0; i < chunks.length; i++) {
     const hasNextChunk = i < chunks.length - 1;
 
-    const maybeNextPrompt = hasNextChunk && source === 'nostr' ? '\n<CHECK NEXT MESSAGE>' : '';
+    const maybeNextPrompt =
+      hasNextChunk && source === 'nostr' ? '\n<CHECK NEXT MESSAGE>' : '';
 
     const chunkBody = `${chunks[i]}${maybeNextPrompt}`;
     const chunk = total > 1 ? `(${i + 1}/${total}) ${chunkBody}` : chunkBody;
@@ -91,7 +92,11 @@ export function modePrefix(mode: AgentMode, local: boolean): string {
   return `${colors[mode]}<${mode}>${C.reset} `;
 }
 
-export function tokenFooter(result: AgentRunResult, local: boolean, spentMsats = 0): string {
+export function tokenFooter(
+  result: AgentRunResult,
+  local: boolean,
+  spentMsats = 0,
+): string {
   if (result.type !== 'success' || !result.tokens) {
     return '';
   }

@@ -43,13 +43,17 @@ export async function finalizeAutoFlowRefund({
   const skKey = getRoutstrSkKey(seenDb);
 
   if (!skKey) {
-    await sendReply('No Routstr session key. Use !provider deposit <sats> first.');
+    await sendReply(
+      'No Routstr session key. Use !provider deposit <sats> first.',
+    );
 
     return;
   }
 
   if (!cashuMnemonic) {
-    await sendReply('No mnemonic configured. Run `bun run wallet:setup` to configure your wallet.');
+    await sendReply(
+      'No mnemonic configured. Run `bun run wallet:setup` to configure your wallet.',
+    );
 
     return;
   }

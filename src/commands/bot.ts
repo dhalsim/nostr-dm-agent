@@ -34,16 +34,17 @@ import {
 } from '../db';
 import { formatLintSummary, runPostAgentLint } from '../lint';
 import { C, debug } from '../logger';
-import { assertUnreachable } from '../utils';
 import { createNewSession } from '../session';
 import { formatMsats } from '../types';
+import { assertUnreachable } from '../utils';
 
 /** Display-only emoji + value for status lines (not stored in DB). */
 const STATUS_EMOJI = {
   backend: (v: AgentBackendName) =>
     v === 'cursor' ? '🖱️' : v === 'opencode-sdk' ? '📦 (SDK)' : '📦',
   provider: (v: ProviderName) => (v === 'local' ? '💻' : '🌐'),
-  mode: (v: AgentMode) => ({ free: '🆓', ask: '💬', plan: '📋', agent: '🤖' })[v],
+  mode: (v: AgentMode) =>
+    ({ free: '🆓', ask: '💬', plan: '📋', agent: '🤖' })[v],
   linting: (v: Linting) => (v === 'on' ? '✅' : '❌'),
   workspace: (v: WorkspaceTarget) => (v === 'bot' ? '🤖' : '📁'),
   transport: (v: ReplyTransport) => (v === 'remote' ? '📡' : '💻'),
@@ -84,7 +85,9 @@ export function getStatusLines({
   });
 
   const col = 14;
-  const lbl = (name: string) => `${C.bold}${(name + ':').padEnd(col)}${C.reset}`;
+
+  const lbl = (name: string) =>
+    `${C.bold}${(name + ':').padEnd(col)}${C.reset}`;
 
   const modelDisplay = modelOverride
     ? `${modelOverride} ${C.gray}(override)${C.reset}`
@@ -147,7 +150,9 @@ export async function handleWorkspace({
   const usageOpts = WorkspaceTargetSchema.options.join('|');
 
   const currentTarget = getWorkspaceTarget(db);
-  const pwdFor = (target: WorkspaceTarget) => (target === 'bot' ? dmBotRoot : parentOfBotRoot);
+
+  const pwdFor = (target: WorkspaceTarget) =>
+    target === 'bot' ? dmBotRoot : parentOfBotRoot;
 
   if (!selected) {
     const cwd = pwdFor(currentTarget);
@@ -253,7 +258,13 @@ export async function handleBackend({
   }
 }
 
-export function handleMode({ db, modeArg }: { db: CoreDb; modeArg: string }): string {
+export function handleMode({
+  db,
+  modeArg,
+}: {
+  db: CoreDb;
+  modeArg: string;
+}): string {
   const parsed = AgentModeSchema.safeParse(modeArg);
 
   if (!parsed.success) {
@@ -274,7 +285,13 @@ export function handleMode({ db, modeArg }: { db: CoreDb; modeArg: string }): st
   }
 }
 
-export function handleModel({ db, selected }: { db: CoreDb; selected?: string }): string {
+export function handleModel({
+  db,
+  selected,
+}: {
+  db: CoreDb;
+  selected?: string;
+}): string {
   if (!selected) {
     const current = getModelOverride(db);
 
@@ -326,7 +343,10 @@ export async function handleModels({
   }
 
   const lines = models.map((m) => {
-    const marker = m === backend.modelName ? ` ${C.green}*[current (override)]${C.reset}` : '';
+    const marker =
+      m === backend.modelName
+        ? ` ${C.green}*[current (override)]${C.reset}`
+        : '';
 
     return `  ${m}${marker}`;
   });

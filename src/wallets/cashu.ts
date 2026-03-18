@@ -76,10 +76,16 @@ export class CashuWallet {
       persistCounter(this.db, op);
     });
 
-    const { keep, send } = await wallet.ops.send(amountSats, proofs).asDeterministic().run();
+    const { keep, send } = await wallet.ops
+      .send(amountSats, proofs)
+      .asDeterministic()
+      .run();
 
     log.info(`keep: ${keep.length}, send: ${send.length}`);
-    log.info(`keep total: ${totalBalance(keep)} sats, send total: ${totalBalance(send)} sats`);
+
+    log.info(
+      `keep total: ${totalBalance(keep)} sats, send total: ${totalBalance(send)} sats`,
+    );
 
     deleteProofs(this.db, proofs);
 
@@ -96,7 +102,9 @@ export class CashuWallet {
     return { token: encoded, fee: totalBalance(send) - amountSats };
   }
 
-  async receiveToken(encodedToken: string): Promise<{ actuallyReceived: number; fee: number }> {
+  async receiveToken(
+    encodedToken: string,
+  ): Promise<{ actuallyReceived: number; fee: number }> {
     const decoded = getDecodedToken(encodedToken);
 
     if (!decoded) {
@@ -126,7 +134,12 @@ export class CashuWallet {
     });
 
     const wouldReceive = totalBalance(decoded.proofs);
-    const newProofs = await wallet.ops.receive(encodedToken).asDeterministic().run();
+
+    const newProofs = await wallet.ops
+      .receive(encodedToken)
+      .asDeterministic()
+      .run();
+
     const actuallyReceived = totalBalance(newProofs);
 
     log.info(`newProofs: ${newProofs.length}`);

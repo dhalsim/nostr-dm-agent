@@ -21,20 +21,24 @@ export async function createNewSession({
   const id = await backend.createSession({ cwd, env });
   const now = Math.floor(Date.now() / 1000);
 
-  db.run('INSERT OR IGNORE INTO sessions (id, created_at, backend) VALUES (?, ?, ?)', [
-    id,
-    now,
-    backend.name,
-  ]);
+  db.run(
+    'INSERT OR IGNORE INTO sessions (id, created_at, backend) VALUES (?, ?, ?)',
+    [id, now, backend.name],
+  );
 
   setState(db, STATE_CURRENT_SESSION, id);
 
   return id;
 }
 
-export function getLatestSession(db: CoreDb, backendName: AgentBackendName): string | null {
+export function getLatestSession(
+  db: CoreDb,
+  backendName: AgentBackendName,
+): string | null {
   const row = db
-    .prepare('SELECT id FROM sessions WHERE backend = ? ORDER BY created_at DESC LIMIT 1')
+    .prepare(
+      'SELECT id FROM sessions WHERE backend = ? ORDER BY created_at DESC LIMIT 1',
+    )
     .get(backendName) as { id: string } | undefined;
 
   return row?.id ?? null;
@@ -53,9 +57,9 @@ export async function getOrCreateCurrentSession({
   cwd,
   env,
 }: GetOrCreateSessionProps): Promise<string> {
-  const cur = db.prepare('SELECT value FROM state WHERE key = ?').get(STATE_CURRENT_SESSION) as
-    | { value: string }
-    | undefined;
+  const cur = db
+    .prepare('SELECT value FROM state WHERE key = ?')
+    .get(STATE_CURRENT_SESSION) as { value: string } | undefined;
 
   if (cur?.value) {
     const exists = db
@@ -71,7 +75,9 @@ export async function getOrCreateCurrentSession({
 }
 
 export function setCurrentSession(db: CoreDb, sessionId: string): boolean {
-  const exists = db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(sessionId);
+  const exists = db
+    .prepare('SELECT 1 FROM sessions WHERE id = ?')
+    .get(sessionId);
 
   if (!exists) {
     return false;

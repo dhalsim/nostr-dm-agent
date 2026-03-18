@@ -7,18 +7,22 @@ import { hexToBytes } from 'nostr-tools/utils';
 import { z } from 'zod';
 
 import { log } from './logger';
-import { assertUnreachable } from './utils';
 import { CORE_DB_PATH, RESTART_REQUESTED_PATH } from './paths';
 import type { Brand } from './types';
 import type { Msats } from './types';
 import { msats, msatsRaw } from './types';
+import { assertUnreachable } from './utils';
 
 export { CORE_DB_PATH as SEEN_DB_PATH, RESTART_REQUESTED_PATH };
 
 export const AgentModeSchema = z.enum(['free', 'ask', 'plan', 'agent']);
 export type AgentMode = z.infer<typeof AgentModeSchema>;
 
-export const AgentBackendNameSchema = z.enum(['cursor', 'opencode', 'opencode-sdk']);
+export const AgentBackendNameSchema = z.enum([
+  'cursor',
+  'opencode',
+  'opencode-sdk',
+]);
 export type AgentBackendName = z.infer<typeof AgentBackendNameSchema>;
 
 export const ProviderNameSchema = z.enum(['local', 'routstr']);
@@ -57,7 +61,10 @@ export const DEFAULT_LINTING: Linting = 'off';
 
 let skKeyConversationKey: Uint8Array | null = null;
 
-export function initSkKeyEncryption(botKeyHex: string, botPubkey: string): void {
+export function initSkKeyEncryption(
+  botKeyHex: string,
+  botPubkey: string,
+): void {
   skKeyConversationKey = getConversationKey(hexToBytes(botKeyHex), botPubkey);
 }
 
@@ -77,7 +84,9 @@ export function openCoreDb(): CoreDb {
   `);
 
   try {
-    db.run("ALTER TABLE sessions ADD COLUMN backend TEXT NOT NULL DEFAULT 'cursor'");
+    db.run(
+      "ALTER TABLE sessions ADD COLUMN backend TEXT NOT NULL DEFAULT 'cursor'",
+    );
   } catch {
     /* Column already exists */
   }
@@ -134,7 +143,10 @@ export function getState(db: CoreDb, key: string): string | null {
 }
 
 export function setState(db: CoreDb, key: string, value: string): void {
-  db.run('INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)', [key, value]);
+  db.run('INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)', [
+    key,
+    value,
+  ]);
 }
 
 export function getCurrentOrDefaultMode(db: CoreDb): AgentMode {
@@ -267,7 +279,10 @@ export function setRoutstrSkKey(db: CoreDb, key: string): void {
   setState(db, STATE_ROUTSTR_SK_KEY, encrypt(key, skKeyConversationKey));
 }
 
-export function getWalletDefaultMintUrl(db: CoreDb, defaultMintUrl: string | null): string | null {
+export function getWalletDefaultMintUrl(
+  db: CoreDb,
+  defaultMintUrl: string | null,
+): string | null {
   return getState(db, STATE_CASHU_DEFAULT_MINT_URL) ?? defaultMintUrl;
 }
 
@@ -309,7 +324,10 @@ export function getCachedRoutstrModels(db: CoreDb): {
   return models ? { models, ts } : null;
 }
 
-export function setCachedRoutstrModels(db: CoreDb, models: RoutstrModelCache): void {
+export function setCachedRoutstrModels(
+  db: CoreDb,
+  models: RoutstrModelCache,
+): void {
   setState(db, STATE_ROUTSTR_MODELS_CACHE, JSON.stringify(models));
   setState(db, STATE_ROUTSTR_MODELS_CACHE_TS, String(Date.now()));
 }

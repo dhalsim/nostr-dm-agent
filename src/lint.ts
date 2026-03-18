@@ -16,8 +16,16 @@ type RunPostAgentLintProps = {
   label: string;
 };
 
-export function runPostAgentLint({ cwd, label }: RunPostAgentLintProps): LintResult {
-  const proc = spawnSync(['bun', 'run', 'lint'], { cwd, stdout: 'pipe', stderr: 'pipe' });
+export function runPostAgentLint({
+  cwd,
+  label,
+}: RunPostAgentLintProps): LintResult {
+  const proc = spawnSync(['bun', 'run', 'lint'], {
+    cwd,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+
   const stdout = proc.stdout?.toString().trim() ?? '';
   const stderr = proc.stderr?.toString().trim() ?? '';
   const exitCode = proc.exitCode ?? -1;

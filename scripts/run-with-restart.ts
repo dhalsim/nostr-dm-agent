@@ -57,7 +57,9 @@ function start(): void {
       rapidCrashCount++;
 
       if (rapidCrashCount >= MAX_RAPID_CRASHES) {
-        console.error(`[run-with-restart] ${MAX_RAPID_CRASHES} rapid crashes in a row. Stopping.`);
+        console.error(
+          `[run-with-restart] ${MAX_RAPID_CRASHES} rapid crashes in a row. Stopping.`,
+        );
 
         process.exit(1);
       }
@@ -74,7 +76,11 @@ function start(): void {
     }
 
     rapidCrashCount = 0;
-    console.error(`[run-with-restart] Bot exited with code ${code}, respawning...`);
+
+    console.error(
+      `[run-with-restart] Bot exited with code ${code}, respawning...`,
+    );
+
     start();
   });
 }

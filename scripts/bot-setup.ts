@@ -59,14 +59,22 @@ const SYMLINK_TARGETS = [
   },
 ];
 
-const PARENT_GITIGNORE_ENTRIES = [`${BOT_DIR_NAME}/`, 'opencode.json', '.opencode/', 'AGENTS.md'];
+const PARENT_GITIGNORE_ENTRIES = [
+  `${BOT_DIR_NAME}/`,
+  'opencode.json',
+  '.opencode/',
+  'AGENTS.md',
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function ask(question: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
   return new Promise((resolve) => {
     rl.question(question, (answer) => {
@@ -76,8 +84,14 @@ function ask(question: string): Promise<string> {
   });
 }
 
-function askWithDefault<T extends string>(question: string, current: T, options: T[]): Promise<T> {
-  const optionStr = options.map((o) => (o === current ? `[${o}]` : o)).join(' | ');
+function askWithDefault<T extends string>(
+  question: string,
+  current: T,
+  options: T[],
+): Promise<T> {
+  const optionStr = options
+    .map((o) => (o === current ? `[${o}]` : o))
+    .join(' | ');
 
   return ask(`${question} (${optionStr}): `).then((ans) => {
     if (!ans) {
@@ -154,7 +168,11 @@ function updateParentGitignore(): void {
     }
   }
 
-  writeFileSync(gitignorePath, lines.join('\n') + (lines.length > 0 ? '\n' : ''), 'utf-8');
+  writeFileSync(
+    gitignorePath,
+    lines.join('\n') + (lines.length > 0 ? '\n' : ''),
+    'utf-8',
+  );
 
   if (added.length > 0) {
     console.log('  Updated parent .gitignore with:');
@@ -190,7 +208,11 @@ function removeParentGitignoreEntries(): void {
     }
   }
 
-  writeFileSync(gitignorePath, kept.join('\n') + (kept.length > 0 ? '\n' : ''), 'utf-8');
+  writeFileSync(
+    gitignorePath,
+    kept.join('\n') + (kept.length > 0 ? '\n' : ''),
+    'utf-8',
+  );
 
   if (removed.length > 0) {
     console.log('  Removed entries from parent .gitignore:');
@@ -279,10 +301,11 @@ async function main(): Promise<void> {
   console.log('  parent — agent works on your project (bot is a subfolder)');
   console.log('  bot    — agent works only on the bot itself (standalone)\n');
 
-  const workspace = await askWithDefault('Workspace', currentWorkspace as 'parent' | 'bot', [
-    'parent',
-    'bot',
-  ]);
+  const workspace = await askWithDefault(
+    'Workspace',
+    currentWorkspace as 'parent' | 'bot',
+    ['parent', 'bot'],
+  );
 
   setWorkspaceTarget(db, workspace);
 
@@ -338,10 +361,11 @@ async function main(): Promise<void> {
     '  routstr — (opencode / opencode-sdk only) routstr models, pay per request with sats via Cashu\n',
   );
 
-  const provider = await askWithDefault('Provider', currentProvider as 'local' | 'routstr', [
-    'local',
-    'routstr',
-  ]);
+  const provider = await askWithDefault(
+    'Provider',
+    currentProvider as 'local' | 'routstr',
+    ['local', 'routstr'],
+  );
 
   setProviderName(db, provider);
 
@@ -354,11 +378,11 @@ async function main(): Promise<void> {
   console.log('  plan  — proposes changes without applying them');
   console.log('  agent — applies changes, commits, pushes\n');
 
-  const mode = await askWithDefault('Mode', currentMode as 'ask' | 'plan' | 'agent', [
-    'ask',
-    'plan',
-    'agent',
-  ]);
+  const mode = await askWithDefault(
+    'Mode',
+    currentMode as 'ask' | 'plan' | 'agent',
+    ['ask', 'plan', 'agent'],
+  );
 
   setDefaultMode(db, mode);
 
@@ -370,7 +394,11 @@ async function main(): Promise<void> {
   console.log('  off    — never run lint automatically');
   console.log('  on     — run lint after agent responses in agent mode\n');
 
-  const lintAuto = await askWithDefault('Lint auto', currentLintAuto as Linting, ['off', 'on']);
+  const lintAuto = await askWithDefault(
+    'Lint auto',
+    currentLintAuto as Linting,
+    ['off', 'on'],
+  );
 
   setLinting(db, lintAuto);
 
@@ -381,7 +409,10 @@ async function main(): Promise<void> {
   console.log('\n── Ready Notification ──');
   console.log('  Send "Agent is ready" DM when the bot starts up.\n');
 
-  const ready = await askYesNo('Send ready notification on startup', currentReady);
+  const ready = await askYesNo(
+    'Send ready notification on startup',
+    currentReady,
+  );
 
   const envPathForReady = join(dmBotRoot, '.env');
 
@@ -403,7 +434,10 @@ async function main(): Promise<void> {
 
   if (isParent) {
     console.log(`\n  Parent root:       ${PARENT_ROOT}`);
-    console.log('  Symlinks created for opencode.json, .opencode/tools, AGENTS.md');
+
+    console.log(
+      '  Symlinks created for opencode.json, .opencode/tools, AGENTS.md',
+    );
   }
 
   console.log('\n✓ Setup complete. Run `bun run start` to start the bot.\n');

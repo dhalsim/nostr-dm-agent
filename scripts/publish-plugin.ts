@@ -97,7 +97,10 @@ type RefEntry = {
 // ---------------------------------------------------------------------------
 
 function ask(question: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
   return new Promise((resolve) => {
     rl.question(question, (answer) => {
@@ -111,7 +114,10 @@ function getCoreApiVersion(pkg: PackageJson): string {
   return pkg.dmBot.coreApiVersion;
 }
 
-async function connectAndMaybeSave(db: CoreDb, pool: SimplePool): Promise<BunkerSignerData> {
+async function connectAndMaybeSave(
+  db: CoreDb,
+  pool: SimplePool,
+): Promise<BunkerSignerData> {
   console.log('\nNIP-46 Bunker sign-in.');
 
   console.log(
@@ -136,7 +142,9 @@ async function connectAndMaybeSave(db: CoreDb, pool: SimplePool): Promise<Bunker
     const existing = getConnection(db, saveName);
 
     if (existing) {
-      const overwrite = await ask(`Connection "${saveName}" already exists. Overwrite? (y/N): `);
+      const overwrite = await ask(
+        `Connection "${saveName}" already exists. Overwrite? (y/N): `,
+      );
 
       if (overwrite.toLowerCase() === 'y') {
         saveConnection(db, saveName, 'bunker', data);
@@ -153,7 +161,10 @@ async function connectAndMaybeSave(db: CoreDb, pool: SimplePool): Promise<Bunker
   return data;
 }
 
-async function resolveConnection(db: CoreDb, pool: SimplePool): Promise<BunkerSignerData> {
+async function resolveConnection(
+  db: CoreDb,
+  pool: SimplePool,
+): Promise<BunkerSignerData> {
   const saved = listConnections(db);
 
   if (saved.length === 0) {
@@ -256,7 +267,10 @@ async function main(): Promise<void> {
 
   if (!alias) {
     const aliases = pluginsData.plugins.map((p) => p.alias).join(', ');
-    alias = await ask(`Choose a plugin alias to publish (available: ${aliases}): `);
+
+    alias = await ask(
+      `Choose a plugin alias to publish (available: ${aliases}): `,
+    );
   }
 
   if (!alias) {
@@ -323,7 +337,9 @@ async function main(): Promise<void> {
   console.log(`Core API major: ${coreMajor}`);
 
   // Read repo URL from git remote
-  const gitRemote = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { cwd: pluginDir });
+  const gitRemote = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], {
+    cwd: pluginDir,
+  });
 
   if (gitRemote.exitCode !== 0) {
     console.error(
@@ -384,7 +400,9 @@ async function main(): Promise<void> {
       changelog = `Release ${gitTag}`;
     }
   } else {
-    changelog = existingRefs.find((r) => r.tag === gitTag)?.changelog ?? `Release ${gitTag}`;
+    changelog =
+      existingRefs.find((r) => r.tag === gitTag)?.changelog ??
+      `Release ${gitTag}`;
   }
 
   // Step 7: build updated ref list
@@ -394,12 +412,20 @@ async function main(): Promise<void> {
 
   console.log('\nFull ref history to publish:');
   for (const ref of updatedRefs) {
-    console.log(`  ["ref", "${ref.tag}", "${ref.coreMajor}", "${ref.changelog}"]`);
+    console.log(
+      `  ["ref", "${ref.tag}", "${ref.coreMajor}", "${ref.changelog}"]`,
+    );
   }
 
   // Verify all refs exist as git tags on the remote
   console.log('\nVerifying git tags on remote...');
-  const lsRemote = Bun.spawnSync(['git', 'ls-remote', '--tags', pluginEntry.repo]);
+
+  const lsRemote = Bun.spawnSync([
+    'git',
+    'ls-remote',
+    '--tags',
+    pluginEntry.repo,
+  ]);
 
   if (lsRemote.exitCode !== 0) {
     console.error(`Failed to fetch remote tags: ${lsRemote.stderr.toString()}`);
@@ -420,7 +446,9 @@ async function main(): Promise<void> {
   if (missingTags.length > 0) {
     console.error('\n✗ The following refs are missing from the remote:');
     for (const r of missingTags) {
-      console.error(`  ${r.tag} (core ${r.coreMajor}) — push with: git push origin ${r.tag}`);
+      console.error(
+        `  ${r.tag} (core ${r.coreMajor}) — push with: git push origin ${r.tag}`,
+      );
     }
 
     process.exit(1);
@@ -428,7 +456,9 @@ async function main(): Promise<void> {
 
   console.log(`✓ All ${updatedRefs.length} ref(s) verified on remote.`);
 
-  const confirm = await ask('\nLook correct? Proceed to sign and publish? (Y/n): ');
+  const confirm = await ask(
+    '\nLook correct? Proceed to sign and publish? (Y/n): ',
+  );
 
   if (confirm.toLowerCase() === 'n') {
     process.exit(0);
@@ -440,7 +470,12 @@ async function main(): Promise<void> {
 
   if (writeRelays.length === 0) {
     console.log('No NIP-65 write relays found, using defaults.');
-    writeRelays = ['wss://relay.damus.io', 'wss://relay.primal.net', 'wss://relay.nostr.band'];
+
+    writeRelays = [
+      'wss://relay.damus.io',
+      'wss://relay.primal.net',
+      'wss://relay.nostr.band',
+    ];
   }
 
   console.log(`Publishing to: ${writeRelays.join(', ')}`);
@@ -489,7 +524,11 @@ async function main(): Promise<void> {
 
   // Step 11: publish
   console.log('\nPublishing...');
-  const results = await Promise.allSettled(pool.publish(writeRelays, signedEvent));
+
+  const results = await Promise.allSettled(
+    pool.publish(writeRelays, signedEvent),
+  );
+
   pool.destroy();
 
   for (const [i, result] of results.entries()) {
@@ -503,7 +542,10 @@ async function main(): Promise<void> {
   }
 
   const succeeded = results.filter((r) => r.status === 'fulfilled').length;
-  console.log(`\n${succeeded > 0 ? '✓' : '✗'} Published to ${succeeded}/${results.length} relays.`);
+
+  console.log(
+    `\n${succeeded > 0 ? '✓' : '✗'} Published to ${succeeded}/${results.length} relays.`,
+  );
 
   if (succeeded > 0) {
     console.log(`  Event ID: ${signedEvent.id}`);

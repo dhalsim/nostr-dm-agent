@@ -6,7 +6,13 @@
 // ---------------------------------------------------------------------------
 
 import type { EventTemplate, NostrEvent, SimplePool } from 'nostr-tools';
-import { finalizeEvent, generateSecretKey, getPublicKey, nip04, nip44 } from 'nostr-tools';
+import {
+  finalizeEvent,
+  generateSecretKey,
+  getPublicKey,
+  nip04,
+  nip44,
+} from 'nostr-tools';
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils';
 
 // ---------------------------------------------------------------------------
@@ -56,9 +62,16 @@ function encryptRequest(
   remoteSignerPubkey: string,
 ): { encrypted: string; id: string } {
   const id = generateRandomHexString(16);
-  const conversationKey = nip44.v2.utils.getConversationKey(clientSecret, remoteSignerPubkey);
 
-  const encrypted = nip44.encrypt(JSON.stringify({ id, method, params }), conversationKey);
+  const conversationKey = nip44.v2.utils.getConversationKey(
+    clientSecret,
+    remoteSignerPubkey,
+  );
+
+  const encrypted = nip44.encrypt(
+    JSON.stringify({ id, method, params }),
+    conversationKey,
+  );
 
   return { encrypted, id };
 }
@@ -73,7 +86,10 @@ function decryptContent(
       return nip04.decrypt(ephemeralSecret, senderPubkey, content);
     }
 
-    const conversationKey = nip44.v2.utils.getConversationKey(ephemeralSecret, senderPubkey);
+    const conversationKey = nip44.v2.utils.getConversationKey(
+      ephemeralSecret,
+      senderPubkey,
+    );
 
     return nip44.decrypt(content, conversationKey);
   } catch {
@@ -90,7 +106,14 @@ function sendNip46Request(params: {
   method: string;
   params: string[];
 }): Promise<Nip46ResponsePayload> {
-  const { pool, relays, ephemeralSecret, ephemeralPubkey, remoteSignerPubkey, method } = params;
+  const {
+    pool,
+    relays,
+    ephemeralSecret,
+    ephemeralPubkey,
+    remoteSignerPubkey,
+    method,
+  } = params;
 
   const { encrypted, id } = encryptRequest(
     method,
@@ -124,11 +147,18 @@ function sendNip46Request(params: {
       },
       {
         onevent: (event) => {
-          if (event.kind !== NIP46_KIND || event.pubkey !== remoteSignerPubkey) {
+          if (
+            event.kind !== NIP46_KIND ||
+            event.pubkey !== remoteSignerPubkey
+          ) {
             return;
           }
 
-          const decrypted = decryptContent(event.content, event.pubkey, ephemeralSecret);
+          const decrypted = decryptContent(
+            event.content,
+            event.pubkey,
+            ephemeralSecret,
+          );
 
           if (!decrypted) {
             clearTimeout(timer);
@@ -208,7 +238,9 @@ export function parseBunkerUrl(bunkerUrl: string): ParsedBunkerUrl {
   const relays = url.searchParams.getAll('relay').filter((r) => r.length > 0);
 
   if (relays.length === 0) {
-    throw new Error('Invalid bunker URL: at least one relay= param is required');
+    throw new Error(
+      'Invalid bunker URL: at least one relay= param is required',
+    );
   }
 
   const secret = url.searchParams.get('secret') ?? undefined;
@@ -220,7 +252,10 @@ export function parseBunkerUrl(bunkerUrl: string): ParsedBunkerUrl {
 // Connect
 // ---------------------------------------------------------------------------
 
-export function connectBunker(pool: SimplePool, bunkerUrl: string): Promise<BunkerSignerData> {
+export function connectBunker(
+  pool: SimplePool,
+  bunkerUrl: string,
+): Promise<BunkerSignerData> {
   const { remoteSignerPubkey, relays, secret } = parseBunkerUrl(bunkerUrl);
 
   const clientSecret = generateSecretKey();
@@ -249,11 +284,18 @@ export function connectBunker(pool: SimplePool, bunkerUrl: string): Promise<Bunk
       },
       {
         onevent: async (event) => {
-          if (event.kind !== NIP46_KIND || event.pubkey !== remoteSignerPubkey) {
+          if (
+            event.kind !== NIP46_KIND ||
+            event.pubkey !== remoteSignerPubkey
+          ) {
             return;
           }
 
-          const decrypted = decryptContent(event.content, event.pubkey, clientSecret);
+          const decrypted = decryptContent(
+            event.content,
+            event.pubkey,
+            clientSecret,
+          );
 
           if (!decrypted) {
             return;

@@ -39,7 +39,10 @@ export function debug(msg: string, ...args: unknown[]): void {
   }
 }
 
-export async function debugAsync(fn: () => Promise<string>, ...args: unknown[]): Promise<void> {
+export async function debugAsync(
+  fn: () => Promise<string>,
+  ...args: unknown[]
+): Promise<void> {
   if (DEBUG) {
     const result = await fn();
     debug(result, ...args);

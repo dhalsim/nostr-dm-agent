@@ -56,7 +56,9 @@ export async function prepareAutoFlowDeposit({
       forceNew: false,
     });
 
-    log.warn(`Auto-flow: ${wasNew ? 'created session' : 'topped up'} with ${amountSats} sats`);
+    log.warn(
+      `Auto-flow: ${wasNew ? 'created session' : 'topped up'} with ${amountSats} sats`,
+    );
 
     return null;
   } catch (err) {

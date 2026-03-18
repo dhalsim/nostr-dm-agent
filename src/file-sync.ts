@@ -9,7 +9,13 @@ import { gcm } from '@noble/ciphers/aes.js';
 import { randomBytes } from '@noble/ciphers/utils.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
-import { finalizeEvent, getPublicKey, nip19, nip44, SimplePool } from 'nostr-tools';
+import {
+  finalizeEvent,
+  getPublicKey,
+  nip19,
+  nip44,
+  SimplePool,
+} from 'nostr-tools';
 
 import type { BotConfig } from './env';
 
@@ -75,7 +81,10 @@ async function blossomUpload(
   return { url: descriptor.url, sha256: descriptor.sha256 };
 }
 
-async function blossomDownload(privkey: Uint8Array, url: string): Promise<Uint8Array> {
+async function blossomDownload(
+  privkey: Uint8Array,
+  url: string,
+): Promise<Uint8Array> {
   const sha256Hash = url.split('/').pop()!.split('.')[0];
   const auth = buildBlossomAuth(privkey, 'get', sha256Hash);
 
@@ -100,9 +109,17 @@ type FileUploadProps = {
   config: BotConfig;
 };
 
-export type FileUploadResult = { filename: string; naddr: string; skipped: boolean };
+export type FileUploadResult = {
+  filename: string;
+  naddr: string;
+  skipped: boolean;
+};
 
-function buildFileNaddr(pubkey: string, filename: string, relays: string[]): string {
+function buildFileNaddr(
+  pubkey: string,
+  filename: string,
+  relays: string[],
+): string {
   return nip19.naddrEncode({
     kind: FILE_KIND,
     pubkey,
@@ -152,7 +169,10 @@ export async function fileUpload({
       const remoteHash = existing.tags.find((t) => t[0] === 'hash')?.[1];
 
       if (remoteHash === plaintextHash) {
-        console.log(`[file-sync] File unchanged (hash matches remote). Nothing to upload.`);
+        console.log(
+          `[file-sync] File unchanged (hash matches remote). Nothing to upload.`,
+        );
+
         pool.close(relays);
 
         const naddr = buildFileNaddr(botPubkey, filename, relays);
@@ -171,7 +191,9 @@ export async function fileUpload({
       }
     }
   } catch (err) {
-    console.warn(`[file-sync] Could not fetch existing event (proceeding): ${String(err)}`);
+    console.warn(
+      `[file-sync] Could not fetch existing event (proceeding): ${String(err)}`,
+    );
   }
 
   // 5-8. Encrypt file with AES-256-GCM
@@ -193,7 +215,11 @@ export async function fileUpload({
   const { url: blossomUrl } = await blossomUpload(privkeyBytes, blob);
 
   // 10-11. Encrypt AES key with NIP-44
-  const conversationKey = nip44.v2.utils.getConversationKey(privkeyBytes, recipientPubkeyHex);
+  const conversationKey = nip44.v2.utils.getConversationKey(
+    privkeyBytes,
+    recipientPubkeyHex,
+  );
+
   const aesKeyHex = bytesToHex(aesKey);
   const encryptedKey = nip44.v2.encrypt(aesKeyHex, conversationKey);
 
@@ -238,9 +264,15 @@ type FileDownloadProps = {
   filePath: string;
 };
 
-export type FileDownloadResult = { filename: string; path: string; skipped: boolean };
+export type FileDownloadResult = {
+  filename: string;
+  path: string;
+  skipped: boolean;
+};
 
-export async function fileDownload(opts: FileDownloadProps): Promise<FileDownloadResult> {
+export async function fileDownload(
+  opts: FileDownloadProps,
+): Promise<FileDownloadResult> {
   const { naddr, config, filePath } = opts;
 
   // 1. Decode naddr
@@ -250,7 +282,12 @@ export async function fileDownload(opts: FileDownloadProps): Promise<FileDownloa
     throw new Error(`Expected naddr, got: ${decoded.type}`);
   }
 
-  const { kind, pubkey: senderPubkeyHex, identifier: filename, relays: hintRelays } = decoded.data;
+  const {
+    kind,
+    pubkey: senderPubkeyHex,
+    identifier: filename,
+    relays: hintRelays,
+  } = decoded.data;
 
   if (kind !== FILE_KIND) {
     throw new Error(`Expected kind ${FILE_KIND}, got: ${kind}`);
@@ -311,7 +348,9 @@ export async function fileDownload(opts: FileDownloadProps): Promise<FileDownloa
       skipWrite = true;
     } else if (!prevTag) {
       // First upload of this file — overwrite safely
-      console.log(`[file-sync] First upload of ${filename}, overwriting local copy.`);
+      console.log(
+        `[file-sync] First upload of ${filename}, overwriting local copy.`,
+      );
     } else if (localFileHash === prevTag) {
       // Clean fast-forward
       console.log(`[file-sync] Clean fast-forward, overwriting: ${filename}`);
@@ -347,7 +386,11 @@ export async function fileDownload(opts: FileDownloadProps): Promise<FileDownloa
   }
 
   // 7-9. Decrypt AES key with NIP-44
-  const conversationKey = nip44.v2.utils.getConversationKey(privkeyBytes, senderPubkeyHex);
+  const conversationKey = nip44.v2.utils.getConversationKey(
+    privkeyBytes,
+    senderPubkeyHex,
+  );
+
   const aesKeyHex = nip44.v2.decrypt(event.content, conversationKey);
   const aesKey = hexToBytes(aesKeyHex);
 

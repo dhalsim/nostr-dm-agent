@@ -31,7 +31,9 @@ type PluginsJson = {
   plugins: PluginEntry[];
 };
 
-const pluginsJson = JSON.parse(readFileSync(PLUGINS_JSON, 'utf8')) as PluginsJson;
+const pluginsJson = JSON.parse(
+  readFileSync(PLUGINS_JSON, 'utf8'),
+) as PluginsJson;
 
 if (!existsSync(TOOLS_DIR)) {
   mkdirSync(TOOLS_DIR, { recursive: true });
@@ -51,7 +53,10 @@ for (const entry of pluginsJson.plugins) {
     : join(ROOT, 'plugins', alias, 'opencode.ts');
 
   if (!existsSync(opencodePath)) {
-    console.warn(`[generate-tools] Skipping ${alias}: no opencode.ts found at ${opencodePath}`);
+    console.warn(
+      `[generate-tools] Skipping ${alias}: no opencode.ts found at ${opencodePath}`,
+    );
+
     continue;
   }
 
@@ -62,7 +67,10 @@ for (const entry of pluginsJson.plugins) {
   };
 
   if (!mod.createToolDefinitions) {
-    console.warn(`[generate-tools] Skipping ${alias}: no createToolDefinitions export`);
+    console.warn(
+      `[generate-tools] Skipping ${alias}: no createToolDefinitions export`,
+    );
+
     continue;
   }
 
@@ -70,7 +78,9 @@ for (const entry of pluginsJson.plugins) {
   const relPath = `../../plugins/${alias}/opencode`;
 
   // Generate named exports — just def.name, opencode prefixes filename automatically
-  const exports = defs.map((def, i) => `export const _${def.name} = tool(defs[${i}]);`).join('\n');
+  const exports = defs
+    .map((def, i) => `export const _${def.name} = tool(defs[${i}]);`)
+    .join('\n');
 
   const toolFile = `\
 // ---------------------------------------------------------------------------
@@ -92,7 +102,10 @@ ${exports}
   console.log(`[generate-tools] Generated ${toolPath.replace(ROOT + '/', '')}`);
 
   if (mod.agentInstructions) {
-    pluginInstructions.push({ alias, instructions: mod.agentInstructions(alias) });
+    pluginInstructions.push({
+      alias,
+      instructions: mod.agentInstructions(alias),
+    });
   }
 }
 
@@ -101,7 +114,10 @@ ${exports}
 // ---------------------------------------------------------------------------
 
 const toolsMdSections = pluginInstructions
-  .map(({ alias, instructions }) => `## Plugin: ${alias}\n\n${instructions.trim()}\n`)
+  .map(
+    ({ alias, instructions }) =>
+      `## Plugin: ${alias}\n\n${instructions.trim()}\n`,
+  )
   .join('\n');
 
 writeFileSync(

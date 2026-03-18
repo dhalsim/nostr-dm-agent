@@ -17,7 +17,9 @@ export type OpenCodeModelEntry = {
   modalities?: { input?: string[]; output?: string[] };
 };
 
-export function buildOpenCodeModelEntry(model: RoutstrModel): OpenCodeModelEntry {
+export function buildOpenCodeModelEntry(
+  model: RoutstrModel,
+): OpenCodeModelEntry {
   const entry: OpenCodeModelEntry = {
     name: model.name ?? model.id,
   };

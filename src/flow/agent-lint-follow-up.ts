@@ -4,8 +4,14 @@
 
 import { createBackend } from '../backends/factory';
 import type { AgentRunResult } from '../backends/types';
+import { getOutputString } from '../backends/types';
 import type { AgentMode, CoreDb } from '../db';
-import { getAgentBackend, getLinting, getModelOverride, getRoutstrModel } from '../db';
+import {
+  getAgentBackend,
+  getLinting,
+  getModelOverride,
+  getRoutstrModel,
+} from '../db';
 import { runPostAgentLint, formatLintSummary } from '../lint';
 import { C, log } from '../logger';
 import type { ProviderName } from '../providers/types';
@@ -39,8 +45,14 @@ export async function runAgentWithLintFollowUp({
   effectiveContent,
   currentWorkspace,
   backendName,
-}: RunAgentWithLintFollowUpProps): Promise<{ output: string; result: AgentRunResult }> {
-  const runAgentRound = async (roundContent: string, startLog: string): Promise<AgentRunResult> => {
+}: RunAgentWithLintFollowUpProps): Promise<{
+  output: string;
+  result: AgentRunResult;
+}> {
+  const runAgentRound = async (
+    roundContent: string,
+    startLog: string,
+  ): Promise<AgentRunResult> => {
     log.info(startLog);
 
     const modelOverride = getModelOverride(seenDb);
@@ -48,7 +60,9 @@ export async function runAgentWithLintFollowUp({
     const routstrModel = getRoutstrModel(seenDb);
 
     const effectiveModelOverride =
-      configuredProviderName === 'routstr' && routstrModel ? routstrModel : (modelOverride ?? null);
+      configuredProviderName === 'routstr' && routstrModel
+        ? routstrModel
+        : (modelOverride ?? null);
 
     log.info(`effectiveModelOverride: ${effectiveModelOverride}`);
 
@@ -76,7 +90,7 @@ export async function runAgentWithLintFollowUp({
     `${C.dim}Starting ${backendName} agent (${mode})…${C.reset}\n`,
   );
 
-  let finalOutput = initialResult.output;
+  let finalOutput = getOutputString(initialResult);
   let finalResult = initialResult;
 
   if (initialResult.type === 'error') {
@@ -101,7 +115,7 @@ export async function runAgentWithLintFollowUp({
   }
 
   const lintSummary = formatLintSummary(lintResult);
-  finalOutput = `${initialResult.output}\n\n${lintSummary}`;
+  finalOutput = `${getOutputString(initialResult)}\n\n${lintSummary}`;
   const lintFailed = lintResult.exitCode !== 0;
 
   if (!lintFailed) {
@@ -117,7 +131,7 @@ export async function runAgentWithLintFollowUp({
       `${C.dim}Starting ${backendName} agent (lint feedback)…${C.reset}\n`,
     );
 
-    finalOutput = `${finalOutput}\n\n${fixResult.output}`;
+    finalOutput = `${finalOutput}\n\n${getOutputString(fixResult)}`;
     finalResult = fixResult;
   } catch (lintFollowupErr) {
     log.error(`Lint follow-up agent process error: ${String(lintFollowupErr)}`);

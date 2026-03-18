@@ -3,9 +3,16 @@
 // ---------------------------------------------------------------------------
 import { spawn, spawnSync } from 'bun';
 
-import type { AgentBackend, AgentRunResult, CreateSessionProps, RunMessageProps } from './types';
+import type {
+  AgentBackend,
+  AgentRunResult,
+  CreateSessionProps,
+  RunMessageProps,
+} from './types';
 
-export function createCursorBackend(modelOverride?: string | null): AgentBackend {
+export function createCursorBackend(
+  modelOverride?: string | null,
+): AgentBackend {
   const effectiveModel = modelOverride ?? 'auto';
 
   return {
@@ -22,7 +29,9 @@ export function createCursorBackend(modelOverride?: string | null): AgentBackend
 
       const out = proc.stdout?.toString().trim() ?? '';
 
-      const id = out.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)?.[0];
+      const id = out.match(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      )?.[0];
 
       if (!id) {
         throw new Error(
@@ -76,7 +85,12 @@ export function createCursorBackend(modelOverride?: string | null): AgentBackend
 
       return {
         type: 'success',
-        output: (out + (err ? '\n' + err : '')).trim() || '(no output)',
+        outputs: [
+          {
+            type: 'text',
+            value: (out + (err ? '\n' + err : '')).trim() || '(no output)',
+          },
+        ],
         sessionId,
       };
     },

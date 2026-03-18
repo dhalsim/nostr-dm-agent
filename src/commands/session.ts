@@ -1,7 +1,11 @@
 import type { AgentBackend } from '../backends/types';
 import type { AgentBackendName, CoreDb } from '../db';
 import { getState, STATE_CURRENT_SESSION } from '../db';
-import { createNewSession, getLatestSession, setCurrentSession } from '../session';
+import {
+  createNewSession,
+  getLatestSession,
+  setCurrentSession,
+} from '../session';
 
 export type HandleNewSessionProps = {
   seenDb: CoreDb;
@@ -31,7 +35,10 @@ export type HandleResumeLastSessionProps = {
   backendName: AgentBackendName;
 };
 
-export function handleResumeLastSession({ db, backendName }: HandleResumeLastSessionProps): string {
+export function handleResumeLastSession({
+  db,
+  backendName,
+}: HandleResumeLastSessionProps): string {
   const id = getLatestSession(db, backendName);
 
   if (!id) {
@@ -43,7 +50,13 @@ export function handleResumeLastSession({ db, backendName }: HandleResumeLastSes
   return `Resumed session ${id}.`;
 }
 
-export function handleResumeSession({ db, sessionId }: { db: CoreDb; sessionId: string }): string {
+export function handleResumeSession({
+  db,
+  sessionId,
+}: {
+  db: CoreDb;
+  sessionId: string;
+}): string {
   if (!sessionId) {
     return 'Usage: !resume-session <SESSION-ID>';
   }
@@ -57,7 +70,9 @@ export function handleResumeSession({ db, sessionId }: { db: CoreDb; sessionId: 
 
 export function handleListSessions({ db }: { db: CoreDb }): string {
   const rows = db
-    .prepare('SELECT id, created_at, backend FROM sessions ORDER BY created_at DESC')
+    .prepare(
+      'SELECT id, created_at, backend FROM sessions ORDER BY created_at DESC',
+    )
     .all() as { id: string; created_at: number; backend: string }[];
 
   if (rows.length === 0) {
@@ -101,6 +116,9 @@ export function handleShowLastMessages({
 
   return rows
     .reverse()
-    .map((r) => `${r.role}: ${r.content.slice(0, 500)}${r.content.length > 500 ? '…' : ''}`)
+    .map(
+      (r) =>
+        `${r.role}: ${r.content.slice(0, 500)}${r.content.length > 500 ? '…' : ''}`,
+    )
     .join('\n\n');
 }

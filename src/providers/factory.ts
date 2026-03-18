@@ -22,8 +22,15 @@ export function createProvider(props: CreateProviderProps): AnyProvider {
   }
 
   if (props.name === 'routstr') {
-    if (!props.walletDb || !props.seenDb || !props.providerDb || !props.routstrBaseUrl) {
-      throw new Error('Routstr provider requires walletDb, seenDb, providerDb, and routstrBaseUrl');
+    if (
+      !props.walletDb ||
+      !props.seenDb ||
+      !props.providerDb ||
+      !props.routstrBaseUrl
+    ) {
+      throw new Error(
+        'Routstr provider requires walletDb, seenDb, providerDb, and routstrBaseUrl',
+      );
     }
 
     return createRoutstrProvider({

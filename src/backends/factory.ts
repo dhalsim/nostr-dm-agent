@@ -32,9 +32,20 @@ export function createBackend({
     case 'cursor':
       return createCursorBackend(modelOverride);
     case 'opencode':
-      return createOpenCodeBackend({ dmBotRoot, mode, attachUrl, modelOverride, providerName });
+      return createOpenCodeBackend({
+        dmBotRoot,
+        mode,
+        attachUrl,
+        modelOverride,
+        providerName,
+      });
     case 'opencode-sdk':
-      return createOpencodeSDKBackend({ dmBotRoot, mode, modelOverride, providerName });
+      return createOpencodeSDKBackend({
+        dmBotRoot,
+        mode,
+        modelOverride,
+        providerName,
+      });
     default:
       return assertUnreachable(backendName);
   }

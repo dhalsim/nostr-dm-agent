@@ -8,7 +8,10 @@ const ASSIGNMENT_REGEX = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
 function parseValue(raw: string): string {
   const s = raw.trim();
 
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
     return s.slice(1, -1).replace(/\\"/g, '"');
   }
 
@@ -52,7 +55,11 @@ function formatValue(value: string): string {
  * Set or update a key in an env file. Replaces existing line if key exists, otherwise appends.
  * Pass null to remove the key. Creates the file if it does not exist and value is not null.
  */
-export function setEnvInFile(filePath: string, key: string, value: string | null): void {
+export function setEnvInFile(
+  filePath: string,
+  key: string,
+  value: string | null,
+): void {
   if (!existsSync(filePath)) {
     if (value === null) {
       return;
@@ -86,7 +93,11 @@ export function setEnvInFile(filePath: string, key: string, value: string | null
     newLines.push(`${key}=${formatValue(value)}`);
   }
 
-  writeFileSync(filePath, newLines.join('\n') + (newLines.length > 0 ? '\n' : ''), 'utf-8');
+  writeFileSync(
+    filePath,
+    newLines.join('\n') + (newLines.length > 0 ? '\n' : ''),
+    'utf-8',
+  );
 }
 
 /**

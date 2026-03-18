@@ -89,7 +89,9 @@ async function main() {
   const botPubkey = botPubkeyFromEnv ?? getPublicKey(botSecretKey);
 
   if (botPubkeyFromEnv && botPubkey !== botPubkeyFromEnv) {
-    log.error(`Bot pubkey mismatch. Expected: ${botPubkeyFromEnv}, Got: ${botPubkey}`);
+    log.error(
+      `Bot pubkey mismatch. Expected: ${botPubkeyFromEnv}, Got: ${botPubkey}`,
+    );
 
     process.exit(1);
   }
@@ -136,7 +138,9 @@ async function main() {
   log.sep();
 
   const pwdOutput =
-    spawnSync(['pwd'], { stdout: 'pipe', stderr: 'pipe' }).stdout.toString().trim() ?? '(failed)';
+    spawnSync(['pwd'], { stdout: 'pipe', stderr: 'pipe' })
+      .stdout.toString()
+      .trim() ?? '(failed)';
 
   debug('PWD:', pwdOutput);
 
@@ -198,7 +202,10 @@ async function main() {
   }
 
   // --- Message handler: commands, session, agent run, reply ---
-  async function handleUserMessage(content: string, source: MessageSource): Promise<void> {
+  async function handleUserMessage(
+    content: string,
+    source: MessageSource,
+  ): Promise<void> {
     process.stdout.write(`${C.dim}${C.magenta} > ${content}${C.reset}\n`);
 
     const mode = getCurrentOrDefaultMode(seenDb);
@@ -217,7 +224,8 @@ async function main() {
 
     const agentEnv = getAgentEnv();
 
-    const cwd = getWorkspaceTarget(seenDb) === 'bot' ? dmBotRoot : parentOfBotRoot;
+    const cwd =
+      getWorkspaceTarget(seenDb) === 'bot' ? dmBotRoot : parentOfBotRoot;
 
     const sessionId = await getOrCreateCurrentSession({
       db: seenDb,

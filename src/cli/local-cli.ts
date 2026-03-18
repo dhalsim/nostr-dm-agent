@@ -11,7 +11,10 @@ export type StartLocalCliProps = {
   setRedrawPrompt: (fn: (() => void) | null) => void;
 };
 
-export function startLocalCli({ onMessage, setRedrawPrompt }: StartLocalCliProps): void {
+export function startLocalCli({
+  onMessage,
+  setRedrawPrompt,
+}: StartLocalCliProps): void {
   console.log(
     `${C.dim}Type a prompt or ${C.reset}${C.white}!help${C.reset}${C.dim} to list commands.${C.reset}\n`,
   );
@@ -37,7 +40,9 @@ export function startLocalCli({ onMessage, setRedrawPrompt }: StartLocalCliProps
 
     localQueue = localQueue
       .then(() => onMessage(input))
-      .catch((err) => log.error(`Local CLI message processing failed: ${String(err)}`))
+      .catch((err) =>
+        log.error(`Local CLI message processing failed: ${String(err)}`),
+      )
       .finally(() => localCli.prompt());
   });
 

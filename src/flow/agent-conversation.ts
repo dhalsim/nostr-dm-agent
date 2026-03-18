@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AgentBackend } from '../backends/types';
+import { getOutputString } from '../backends/types';
 import { parseBudgetAnnotation } from '../budget-annotation';
 import type { CoreDb } from '../db';
 import {
@@ -73,10 +74,13 @@ export async function runAgentConversation({
 
   insertSessionMessage(seenDb, sessionId, 'user', content);
 
-  const { prompt: effectiveContent, budgetSats: inlineBudget } = parseBudgetAnnotation(content);
+  const { prompt: effectiveContent, budgetSats: inlineBudget } =
+    parseBudgetAnnotation(content);
 
   const configuredProviderName = getProviderName(seenDb);
-  const isAutoFlow = inlineBudget !== null && configuredProviderName === 'routstr';
+
+  const isAutoFlow =
+    inlineBudget !== null && configuredProviderName === 'routstr';
 
   const provider = createProvider({
     name: configuredProviderName,
@@ -106,7 +110,10 @@ export async function runAgentConversation({
 
   const prepareErr = await prepareProviderRun({
     provider,
-    budgetSats: inlineBudget != null ? inlineBudget * 1000 : msatsRaw(getRoutstrBudget(seenDb)),
+    budgetSats:
+      inlineBudget != null
+        ? inlineBudget * 1000
+        : msatsRaw(getRoutstrBudget(seenDb)),
   });
 
   if (prepareErr) {
@@ -116,7 +123,7 @@ export async function runAgentConversation({
   }
 
   try {
-    const { output: finalOutput, result: finalResult } = await runAgentWithLintFollowUp({
+    const { result: finalResult } = await runAgentWithLintFollowUp({
       dmBotRoot,
       attachUrl: opencodeServeUrl,
       mode,
@@ -130,6 +137,8 @@ export async function runAgentConversation({
       backendName: backend.name,
     });
 
+    const finalOutput = getOutputString(finalResult);
+
     const isErrorResponse =
       finalResult.type === 'error' ||
       finalOutput.startsWith('Unexpected error') ||
@@ -140,7 +149,10 @@ export async function runAgentConversation({
     if (!isErrorResponse) {
       insertSessionMessage(seenDb, sessionId, 'assistant', finalOutput);
     } else {
-      log.error(`${C.red}[bot] Error response — not stored in session history.${C.reset}`);
+      log.error(
+        `${C.red}[bot] Error response — not stored in session history.${C.reset}`,
+      );
+
       log.error(finalOutput);
     }
 
@@ -148,8 +160,11 @@ export async function runAgentConversation({
     let spentMsats = 0;
 
     if (mintUrl) {
-      const cost = finalResult.type === 'success' ? finalResult.cost : undefined;
-      const tokens = finalResult.type === 'success' ? finalResult.tokens : undefined;
+      const cost =
+        finalResult.type === 'success' ? finalResult.cost : undefined;
+
+      const tokens =
+        finalResult.type === 'success' ? finalResult.tokens : undefined;
 
       const result = await provider.finalizeRun({
         success: finalResult.type === 'success',
@@ -166,7 +181,26 @@ export async function runAgentConversation({
 
     const prefix = modePrefix(mode, isLocal);
     const footer = tokenFooter(finalResult, isLocal, spentMsats);
-    const fullReply = prefix + finalOutput + footer;
+
+    let fullReply: string;
+
+    if (
+      isLocal &&
+      finalResult.type === 'success' &&
+      finalResult.outputs.some((o) => o.type === 'reasoning')
+    ) {
+      const reasoningSegs = finalResult.outputs.filter(
+        (o): o is { type: 'reasoning'; value: string } =>
+          o.type === 'reasoning',
+      );
+
+      const reasoningText = reasoningSegs.map((s) => s.value).join('\n');
+      const thinkingBlock = `${C.dim}<thinking>\n${reasoningText}\n</thinking>${C.reset}\n\n`;
+      const prefixWithNewline = prefix.trimEnd() + '\n';
+      fullReply = prefixWithNewline + thinkingBlock + finalOutput + footer;
+    } else {
+      fullReply = prefix + finalOutput + footer;
+    }
 
     await sendChunkedReply({
       source,

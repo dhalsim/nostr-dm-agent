@@ -6,7 +6,9 @@ import type { z } from 'zod';
 /** Result of parsing one item: either a value or an error. Caller decides how to handle. */
 export type ParseSettledFulfilled<T> = { status: 'fulfilled'; value: T };
 export type ParseSettledRejected = { status: 'rejected'; reason: Error };
-export type ParseSettledResult<T> = ParseSettledFulfilled<T> | ParseSettledRejected;
+export type ParseSettledResult<T> =
+  | ParseSettledFulfilled<T>
+  | ParseSettledRejected;
 
 function stripCodeFences(s: string): string {
   return s
@@ -74,7 +76,10 @@ export function parseToolCalls<T>({
   return results;
 }
 
-function tryParseOne<T>(jsonStr: string, schema: z.ZodType<T>): ParseSettledResult<T> {
+function tryParseOne<T>(
+  jsonStr: string,
+  schema: z.ZodType<T>,
+): ParseSettledResult<T> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonStr);
