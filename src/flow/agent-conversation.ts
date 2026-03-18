@@ -4,19 +4,19 @@
 
 import type { AgentBackend } from '../backends/types';
 import { parseBudgetAnnotation } from '../budget-annotation';
+import type { CoreDb } from '../db';
 import {
-  getDefaultMode,
+  getCurrentOrDefaultMode,
   getProviderName,
   getReplyTransport,
   getRoutstrBudget,
   getWalletDefaultMintUrl,
   getWorkspaceTarget,
 } from '../db';
-import type { CoreDb } from '../db';
 import type { BotConfig } from '../env';
 import { C, log } from '../logger';
-import { modePrefix, tokenFooter, sendChunkedReply } from '../messaging';
 import type { MessageSource } from '../messaging';
+import { modePrefix, tokenFooter, sendChunkedReply } from '../messaging';
 import type { ProviderDb } from '../providers/db';
 import { createProvider } from '../providers/factory';
 import { getOrCreateCurrentSession, insertSessionMessage } from '../session';
@@ -60,7 +60,7 @@ export async function runAgentConversation({
   routstrBaseUrl,
 }: RunAgentConversationProps): Promise<void> {
   const isLocal = source === 'local' || getReplyTransport(seenDb) === 'local';
-  const mode = getDefaultMode(seenDb);
+  const mode = getCurrentOrDefaultMode(seenDb);
   const currentWorkspace = getWorkspaceTarget(seenDb);
   const cwd = currentWorkspace === 'bot' ? dmBotRoot : parentOfBotRoot;
 

@@ -25,6 +25,9 @@ import * as readline from 'readline';
 import { SimplePool } from 'nostr-tools';
 import { z } from 'zod';
 
+import type { CoreDb } from '@src/db';
+import { openCoreDb } from '@src/db';
+
 import { connectBunker, bunkerSignEvent } from '../src/nostr/bunker';
 import {
   createConnectionsTable,
@@ -33,8 +36,6 @@ import {
   getConnection,
   type BunkerSignerData,
 } from '../src/nostr/connections';
-import { dmBotRoot } from '../src/paths';
-import { CoreDb, openCoreDb } from '@src/db';
 
 const PLUGIN_KIND = 32107;
 const ROOT = join(import.meta.dir, '..');
@@ -322,7 +323,10 @@ async function main(): Promise<void> {
   const gitRemote = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { cwd: pluginDir });
 
   if (gitRemote.exitCode !== 0) {
-    console.error('Failed to read git remote origin. Make sure the plugin folder is a git repo with an origin remote.');
+    console.error(
+      'Failed to read git remote origin. Make sure the plugin folder is a git repo with an origin remote.',
+    );
+
     process.exit(1);
   }
 
@@ -341,7 +345,12 @@ async function main(): Promise<void> {
 
   // Step 4: fetch existing ref history from relays
   console.log('\nFetching existing event from relays...');
-  const existingRefs = await fetchExistingRefs(pkg.name, bunkerData.userPubkey, PLUGIN_PUBLISH_RELAYS);
+
+  const existingRefs = await fetchExistingRefs(
+    pkg.name,
+    bunkerData.userPubkey,
+    PLUGIN_PUBLISH_RELAYS,
+  );
 
   if (existingRefs.length > 0) {
     console.log(`Found ${existingRefs.length} existing ref(s).`);
@@ -480,7 +489,10 @@ async function main(): Promise<void> {
 
   if (succeeded > 0) {
     console.log(`  Event ID: ${signedEvent.id}`);
-    console.log(`  Discoverable via: kind:${PLUGIN_KIND} #d:${pkg.name} pubkey:${bunkerData.userPubkey}\n`);
+
+    console.log(
+      `  Discoverable via: kind:${PLUGIN_KIND} #d:${pkg.name} pubkey:${bunkerData.userPubkey}\n`,
+    );
   }
 
   db.close();

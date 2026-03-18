@@ -10,8 +10,9 @@
 // made to your bunker but your real key stays in the signer app.
 // ---------------------------------------------------------------------------
 
-import { CoreDb } from '@src/db';
 import { z } from 'zod';
+
+import type { CoreDb } from '@src/db';
 
 // ---------------------------------------------------------------------------
 // Schema

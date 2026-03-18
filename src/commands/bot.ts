@@ -1,4 +1,5 @@
 import { getPluginHelpTexts } from '@src/core/registry';
+
 import { createBackend } from '../backends/factory';
 import type { AgentBackend } from '../backends/types';
 import {
@@ -15,7 +16,7 @@ import {
   ProviderNameSchema,
   WorkspaceTargetSchema,
   getAgentBackend,
-  getDefaultMode,
+  getCurrentOrDefaultMode,
   getLinting,
   getModelOverride,
   getProviderName,
@@ -63,7 +64,7 @@ export function getStatusLines({
   attachUrl,
 }: StatusProps): string {
   const cur = getState(seenDb, STATE_CURRENT_SESSION);
-  const mode = getDefaultMode(seenDb);
+  const mode = getCurrentOrDefaultMode(seenDb);
   const linting = getLinting(seenDb);
   const backendName = getAgentBackend(seenDb);
   const replyTransport = getReplyTransport(seenDb);
@@ -224,7 +225,7 @@ export async function handleBackend({
 
   const workspace = getWorkspaceTarget(db);
   const cwd = workspace === 'bot' ? dmBotRoot : parentOfBotRoot;
-  const mode = getDefaultMode(db);
+  const mode = getCurrentOrDefaultMode(db);
   const modelOverride = getModelOverride(db);
   const providerName = getProviderName(db);
 
@@ -302,7 +303,7 @@ export async function handleModels({
   attachUrl,
 }: HandleModelsProps): Promise<string> {
   const backendName = getAgentBackend(seenDb);
-  const mode = getDefaultMode(seenDb);
+  const mode = getCurrentOrDefaultMode(seenDb);
   const modelOverride = getModelOverride(seenDb);
   const providerName = getProviderName(seenDb);
 
@@ -339,18 +340,16 @@ export function handleVersion({ version }: { version: string }): string {
 export type HandleLintProps = {
   db: CoreDb;
   args: string[];
-  workspaceRoot: string;
-  dmBotRoot: string;
+  cwd: string;
 };
 
-export function handleLint({ db, args, workspaceRoot, dmBotRoot }: HandleLintProps): string {
+export function handleLint({ db, args, cwd }: HandleLintProps): string {
   const first = args[0]?.toLowerCase();
   const second = args[1]?.toLowerCase();
 
   // !lint — run lint manually for current workspace
   if (args.length === 0) {
     const workspace = getWorkspaceTarget(db);
-    const cwd = workspace === 'bot' ? dmBotRoot : workspaceRoot;
     const label = workspace === 'bot' ? 'dm-bot' : 'workspace';
     const result = runPostAgentLint({ cwd, label });
 

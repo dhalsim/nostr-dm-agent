@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------------
 // backends/factory.ts
 // ---------------------------------------------------------------------------
+
 import type { AgentBackendName, AgentMode } from '../db';
 import { assertUnreachable } from '../logger';
 import type { ProviderName } from '../providers/types';

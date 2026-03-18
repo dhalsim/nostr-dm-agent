@@ -4,48 +4,40 @@
 
 import { join } from 'path';
 
-import { Database as BunDatabase, type Database } from 'bun:sqlite';
-
-import { log } from '../logger';
+import { log } from '@src/logger';
+import { dmBotRoot } from '@src/paths';
 
 import type { BotPlugin, PluginContext } from './plugin';
 
-type RegisteredPlugin = {
+const byAlias = new Map<string, BotPlugin>();
+
+type RegisterPluginProps = {
   plugin: BotPlugin;
-  pluginDb: Database;
+  ctx: PluginContext;
 };
 
-const byAlias = new Map<string, RegisteredPlugin>();
-
-export function registerPlugin(plugin: BotPlugin, dataDir: string) {
+export function registerPlugin({ plugin, ctx }: RegisterPluginProps) {
   if (byAlias.has(plugin.identity.alias)) {
     throw new Error(`Plugin alias collision: "${plugin.identity.alias}" already registered`);
   }
 
-  const databasePath = join(dataDir, 'plugins', plugin.identity.alias, 'db.sqlite');
+  const databasePath = join(dmBotRoot, 'plugins', plugin.identity.alias, 'db.sqlite');
 
   log.info(`Registering plugin: ${plugin.identity.alias} creating database at ${databasePath}`);
 
-  const pluginDb = new BunDatabase(databasePath);
-  plugin.onInit(pluginDb);
+  plugin.onInit(ctx);
 
-  byAlias.set(plugin.identity.alias, { plugin, pluginDb });
+  byAlias.set(plugin.identity.alias, plugin);
 }
 
-export async function dispatchPluginCommand(
-  cmd: string,
-  args: string[],
-  runAgent: (prompt: string) => Promise<string>,
-): Promise<string | null> {
-  const entry = byAlias.get(cmd);
+export async function dispatchPluginCommand(cmd: string, args: string[]): Promise<string | null> {
+  const plugin = byAlias.get(cmd);
 
-  if (!entry) {
+  if (!plugin) {
     return null;
   }
 
-  const ctx: PluginContext = { pluginDb: entry.pluginDb, runAgent };
-
-  return entry.plugin.handler(args, ctx);
+  return plugin.handler(args);
 }
 
 export function getPluginHelpTexts(): string | null {
@@ -54,7 +46,7 @@ export function getPluginHelpTexts(): string | null {
   }
 
   const sections = [...byAlias.entries()]
-    .map(([alias, { plugin }]) => plugin.helpText(alias).join('\n'))
+    .map(([alias, plugin]) => `\n${alias}:\n${plugin.helpText(alias).join('\n')}\n`)
     .filter(Boolean)
     .join('\n\n');
 

@@ -17,8 +17,8 @@ import { log } from '../logger';
 import type { ProviderDb } from '../providers/db';
 import { depositOrTopup, refundRoutstr, getRoutstrBalance } from '../providers/routstr';
 import { buildOpenCodeModelEntry, fetchRoutstrModels } from '../providers/routstr-models';
-import { formatMsats, msatsRaw } from '../types';
 import type { Msats } from '../types';
+import { formatMsats, msatsRaw } from '../types';
 import type { WalletDb } from '../wallets/db';
 
 export type HandleProviderSetProps = {

@@ -3,6 +3,8 @@
 // ---------------------------------------------------------------------------
 import { Cron } from 'croner';
 
+import type { CoreDb } from '../db';
+import type { ProviderName } from '../db';
 import {
   AgentBackendNameSchema,
   AgentModeSchema,
@@ -11,8 +13,6 @@ import {
   DEFAULT_WORKSPACE_TARGET,
   WorkspaceTargetSchema,
 } from '../db';
-import type { CoreDb } from '../db';
-import type { ProviderName } from '../db';
 import { log } from '../logger';
 
 import type { CreateJobInput, Job, JobRun, JobRunStatus } from './types';

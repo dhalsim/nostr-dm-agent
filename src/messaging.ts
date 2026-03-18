@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------------
 // messaging.ts — Message chunking, formatting, and reply sending
 // ---------------------------------------------------------------------------
+
 import type { AgentRunResult } from './backends/types';
 import type { AgentMode } from './db';
 import { C, log } from './logger';
@@ -9,7 +10,7 @@ export const CHUNK_MAX = 4200;
 export const CHUNK_DELAY_BASE_MS = 1500;
 export const CHUNK_DELAY_MAX_MS = 12000;
 
-export type MessageSource = 'nostr' | 'local';
+export type MessageSource = 'nostr' | 'local' | 'plugin';
 
 export type SendChunkedReplyProps = {
   source: MessageSource;

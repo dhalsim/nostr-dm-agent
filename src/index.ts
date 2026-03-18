@@ -32,15 +32,17 @@ import { createBackend } from './backends/factory';
 import { startLocalCli } from './cli/local-cli';
 import { handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
 import { getStatusLines } from './commands/bot';
+import type { PluginContext } from './core/plugin';
+import type { CoreDb } from './db';
 import {
   openCoreDb,
   initSkKeyEncryption,
-  getDefaultMode,
+  getCurrentOrDefaultMode,
   getAgentBackend,
   getModelOverride,
   getProviderName,
+  getWorkspaceTarget,
 } from './db';
-import type { CoreDb } from './db';
 import { createGetAgentEnv, loadBotConfig } from './env';
 import { runAgentConversation } from './flow/agent-conversation';
 import { createJobEngine } from './jobs/engine';
@@ -97,21 +99,10 @@ async function main() {
     process.exit(1);
   }
 
-  // Register plugins if generated/plugins.ts exists (created by install-plugin script)
-  try {
-    const { registerPlugins } = await import('../generated/plugins');
-    log.info(`Registering plugins from ${join(dmBotRoot, 'plugins')}`);
-    registerPlugins(dmBotRoot);
-    log.info('Plugins registered');
-  } catch {
-    log.info('No plugins registered (run plugin:install to add plugins)');
-  }
-
-  const pool = new SimplePool({ enablePing: true, enableReconnect: true });
-
   initSkKeyEncryption(botKeyHex, botPubkey);
 
-  // --- Databases & plugins ---
+  // --- Databases ---
+  const pool = new SimplePool({ enablePing: true, enableReconnect: true });
   const seenDb = openCoreDb();
   const providerDb = asProviderDb(seenDb);
   const walletDb = cashuMnemonic ? openWalletDb(cashuMnemonic) : null;
@@ -213,16 +204,44 @@ async function main() {
 
   createJobEngine(seenDb, jobEngineContext).start();
 
+  // --- Plugins ---
+  const pluginContext: PluginContext = {
+    runAgent: null, // will set later in the conversation loop
+    sendReply: (message: string) => sendReplyForSource('nostr', message),
+    env: getAgentEnv(),
+    defaults: {
+      backend: getAgentBackend(seenDb),
+      provider: getProviderName(seenDb),
+      model: getModelOverride(seenDb),
+      mode: getCurrentOrDefaultMode(seenDb),
+      workspace_target: getWorkspaceTarget(seenDb),
+    },
+  };
+
+  // Register plugins if generated/plugins.ts exists (created by install-plugin script)
+  try {
+    const { registerPlugins } = await import('../generated/plugins');
+    log.info(`Registering plugins from ${join(dmBotRoot, 'plugins')}`);
+    registerPlugins(pluginContext);
+    log.info('Plugins registered');
+  } catch (err) {
+    log.error(`Failed to register plugins: ${String(err)}`);
+    log.error(`Run 'bun run scripts/install-plugin.ts' to install plugins`);
+  }
+
   // --- Message handler: commands, session, agent run, reply ---
   async function handleUserMessage(content: string, source: MessageSource): Promise<void> {
     process.stdout.write(`${C.dim}${C.magenta} > ${content}${C.reset}\n`);
 
+    const mode = getCurrentOrDefaultMode(seenDb);
+    const modelOverride = getModelOverride(seenDb);
+
     const backend = createBackend({
       backendName: getAgentBackend(seenDb),
       dmBotRoot,
-      mode: getDefaultMode(seenDb),
+      mode,
       attachUrl: opencodeServeUrl,
-      modelOverride: getModelOverride(seenDb),
+      modelOverride,
       providerName: getProviderName(seenDb),
     });
 
@@ -230,12 +249,24 @@ async function main() {
 
     const agentEnv = getAgentEnv();
 
+    const cwd = getWorkspaceTarget(seenDb) === 'bot' ? dmBotRoot : parentOfBotRoot;
+
     const sessionId = await getOrCreateCurrentSession({
       db: seenDb,
       backend,
-      cwd: dmBotRoot,
+      cwd,
       env: agentEnv,
     });
+
+    pluginContext.runAgent = async (prompt: string) =>
+      backend.runMessage({
+        sessionId,
+        content: prompt,
+        mode,
+        cwd,
+        env: agentEnv,
+        modelOverride,
+      });
 
     // Commands (!help, !backend, etc.)
     if (input.startsWith('!')) {

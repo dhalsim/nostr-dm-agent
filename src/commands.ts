@@ -304,8 +304,7 @@ export async function handleBangCommand({
           handleLint({
             db: seenDb,
             args,
-            workspaceRoot: parentOfBotRoot,
-            dmBotRoot,
+            cwd,
           }),
         'Lint command failed',
       );
@@ -717,20 +716,7 @@ export async function handleBangCommand({
     }
 
     default: {
-      const runAgent = async (prompt: string) => {
-        const result = await backend.runMessage({
-          sessionId,
-          content: prompt,
-          mode: 'ask',
-          cwd,
-          env: agentEnv,
-          modelOverride: null,
-        });
-
-        return result.output;
-      };
-
-      const pluginResult = await dispatchPluginCommand(cmd, args, runAgent);
+      const pluginResult = await dispatchPluginCommand(cmd, args);
 
       if (pluginResult !== null) {
         return pluginResult;

@@ -1,14 +1,15 @@
 // ---------------------------------------------------------------------------
 // jobs/runner.ts — Execute a single job: backend run + DM result
 // ---------------------------------------------------------------------------
+
 import { createBackend } from '../backends/factory';
 import type { AgentRunResult } from '../backends/types';
 import type { CoreDb } from '../db';
 import { getRoutstrBudget, getRoutstrSkKey, getWalletDefaultMintUrl } from '../db';
 import type { BotConfig } from '../env';
 import { log } from '../logger';
-import { asProviderDb } from '../providers/db';
 import type { ProviderDb } from '../providers/db';
+import { asProviderDb } from '../providers/db';
 import { createProvider } from '../providers/factory';
 import {
   depositOrTopup,
@@ -42,15 +43,12 @@ export async function runJob(job: Job, db: CoreDb, context: JobRunnerContext): P
   const modelRaw = job.model || null;
   const workspaceTarget = job.workspace_target;
 
-  const finalModelOverride =
-    providerName === 'routstr' && modelRaw ? `routstr/${modelRaw}` : modelRaw;
-
   const backend = createBackend({
     backendName,
     dmBotRoot: context.dmBotRoot,
     mode,
     attachUrl: context.attachUrl,
-    modelOverride: finalModelOverride,
+    modelOverride: modelRaw,
     providerName,
   });
 
@@ -169,7 +167,7 @@ export async function runJob(job: Job, db: CoreDb, context: JobRunnerContext): P
       mode,
       cwd,
       env,
-      modelOverride: finalModelOverride,
+      modelOverride: modelRaw,
     });
   } catch (err) {
     const errMsg = String(err);

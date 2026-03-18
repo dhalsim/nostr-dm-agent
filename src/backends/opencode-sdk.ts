@@ -1,9 +1,6 @@
 // ---------------------------------------------------------------------------
 // backends/opencode-sdk.ts — OpenCode via @opencode-ai/sdk (in-process server)
 // ---------------------------------------------------------------------------
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
-
 import type { SessionPromptData } from '@opencode-ai/sdk';
 import { createOpencode } from '@opencode-ai/sdk';
 
@@ -11,6 +8,8 @@ import type { AgentMode } from '../db';
 import { debug, log } from '../logger';
 import type { ProviderName } from '../providers/types';
 
+import type { ParseModelProps } from './opencode-common';
+import { normalizeModelForProvider, readModelFromOpencodeConfig } from './opencode-common';
 import type {
   AgentBackend,
   AgentErrorResult,
@@ -91,48 +90,15 @@ async function getOrInitSdk(env?: Record<string, string | undefined>): Promise<S
   );
 }
 
-function parseModel({
-  dmBotRoot,
-  mode,
-  modelOverride,
-  providerName,
-}: {
-  dmBotRoot: string;
-  mode: AgentMode;
-  modelOverride: string | null | undefined;
-  providerName: ProviderName | null;
-}): string {
+function parseModel({ dmBotRoot, mode, modelOverride, providerName }: ParseModelProps): string {
+  const fromConfig = readModelFromOpencodeConfig(dmBotRoot, mode);
+  let modelName = modelOverride ?? fromConfig;
+
   if (modelOverride) {
     debug(`opencode-sdk: using model override: ${modelOverride}`);
-
-    return modelOverride;
   }
 
-  let modelName = 'opencode/big-pickle';
-
-  try {
-    const cfgPath = join(dmBotRoot, 'opencode.json');
-
-    if (existsSync(cfgPath)) {
-      const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as {
-        agent?: Record<string, { model?: string }>;
-      };
-
-      const configured = cfg.agent?.[mode]?.model;
-
-      if (configured) {
-        modelName = configured;
-      }
-    }
-  } catch {
-    // use default
-  }
-
-  if (providerName === 'routstr' && !modelName.startsWith('routstr/')) {
-    log.warn(
-      `provider is routstr but resolved model "${modelName}" lacks routstr/ prefix — this will likely fail`,
-    );
-  }
+  modelName = normalizeModelForProvider(modelName, providerName) ?? modelName;
 
   if (providerName === 'local' && modelName.startsWith('routstr/')) {
     log.warn(
@@ -213,7 +179,9 @@ export function createOpencodeSDKBackend({
     }: RunMessageProps): Promise<AgentRunResult> {
       const { client } = await getOrInitSdk(env);
 
-      const effectiveModel = runModelOverride ?? modelName;
+      const normalizedOverride = normalizeModelForProvider(runModelOverride, providerName);
+
+      const effectiveModel = normalizedOverride ?? modelName;
       const model = modelToProviderAndId(effectiveModel);
 
       if (runModelOverride) {

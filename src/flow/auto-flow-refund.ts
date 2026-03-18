@@ -2,8 +2,8 @@
 // src/flow/auto-flow-refund.ts — Refund Routstr after auto-flow
 // ---------------------------------------------------------------------------
 
-import { getRoutstrSkKey, getWalletDefaultMintUrl } from '../db';
 import type { CoreDb } from '../db';
+import { getRoutstrSkKey, getWalletDefaultMintUrl } from '../db';
 import { log } from '../logger';
 import type { ProviderDb } from '../providers/db';
 import { refundRoutstr } from '../providers/routstr';

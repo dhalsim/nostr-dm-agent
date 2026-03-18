@@ -1,12 +1,11 @@
 {
   "name": "nostr-dm-bot",
-  "version": "5.2.13",
+  "version": "6.0.0",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
     "watch": "bun run scripts/run-with-restart.ts",
     "lint": "eslint . --fix",
-    "job:create": "bun run scripts/create-job.ts",
     "wallet:setup": "bun run scripts/setup-wallet.ts",
     "nostr:setup": "bun run scripts/nostr-setup.ts",
     "bot:setup": "bun run scripts/bot-setup.ts",
@@ -27,11 +26,11 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@eslint/js": "^9.39.4",
     "eslint-import-resolver-typescript": "^4.4.4",
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/bun": "^1.3.10",
-    "eslint": "^10.0.3",
+    "eslint": "^9.39.4",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-prettier": "^5.5.5",
     "prettier": "^3.8.1",

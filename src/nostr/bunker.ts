@@ -5,8 +5,8 @@
 // + RemoteSignerHelpers.ts. Standalone — no React or app dependencies.
 // ---------------------------------------------------------------------------
 
-import { finalizeEvent, generateSecretKey, getPublicKey, nip04, nip44 } from 'nostr-tools';
 import type { EventTemplate, NostrEvent, SimplePool } from 'nostr-tools';
+import { finalizeEvent, generateSecretKey, getPublicKey, nip04, nip44 } from 'nostr-tools';
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils';
 
 // ---------------------------------------------------------------------------

@@ -2,8 +2,8 @@
 // src/flow/auto-flow-deposit.ts — Prepare auto-flow deposit for Routstr
 // ---------------------------------------------------------------------------
 
-import { getWalletDefaultMintUrl } from '../db';
 import type { CoreDb } from '../db';
+import { getWalletDefaultMintUrl } from '../db';
 import { log } from '../logger';
 import type { ProviderDb } from '../providers/db';
 import { depositOrTopup } from '../providers/routstr';

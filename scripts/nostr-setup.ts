@@ -1,7 +1,8 @@
+import readline from 'readline';
+
+import { nip19 } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
-import { nip19 } from 'nostr-tools';
-import readline from 'readline';
 
 import { getOrSetEnvVar } from '../src/env-file';
 
@@ -38,6 +39,7 @@ function toReadWriteRelays(tags: string[][]): Nip65Relays {
 
 function question(prompt: string): Promise<string> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
   return new Promise((resolve) => {
     rl.question(prompt, (answer) => {
       rl.close();
@@ -54,7 +56,7 @@ async function main() {
 
   const botKeyHex = await getOrSetEnvVar(ENV_PATH, 'BOT_KEY', () => {
     const sk = generateSecretKey();
-    
+
     return Buffer.from(sk).toString('hex');
   });
 
@@ -75,22 +77,22 @@ async function main() {
     let value = '';
     while (!value) {
       const raw = await question('Your master (bot is going to reply to) pubkey (hex|npub): ');
-      
+
       if (raw.startsWith('npub1')) {
         const decoded = nip19.decode(raw);
-        
+
         if (decoded.type !== 'npub') {
           console.error('  Invalid npub format. Please provide a valid npub.');
-          
+
           continue;
         }
-        
+
         value = decoded.data as string;
       } else {
         value = raw;
       }
     }
-    
+
     return value;
   });
 
@@ -98,38 +100,41 @@ async function main() {
     const raw = await question(
       'DM/Inbox Relays (comma-separated).\nCheck https://marcodpt.github.io/nostracker/relays/index.html for NIP17 and NIP42 supported relays.\nEnter your relays (leave empty for default wss://auth.nostr1.com,wss://relay.netstr.io): ',
     );
-    
+
     return raw.trim() || 'wss://auth.nostr1.com,wss://relay.netstr.io';
   });
 
-  const relayList = relays.split(',').map((r) => r.trim()).filter(Boolean);
+  const relayList = relays
+    .split(',')
+    .map((r) => r.trim())
+    .filter(Boolean);
 
   console.log('\n✓ .env up to date');
 
   const pool = new SimplePool();
 
   console.log('\nPublishing kind 0 (bot profile)...');
-  
+
   const metadataContent = JSON.stringify({
     name,
     bot: true,
     picture,
   });
-  
+
   const kind0Event = {
     kind: 0,
     created_at: Math.floor(Date.now() / 1000),
     tags: [],
     content: metadataContent,
   };
-  
+
   const signedKind0 = finalizeEvent(kind0Event, secretKey);
-  
+
   const kind0Results = await Promise.allSettled(pool.publish(PROFILE_PUBLISH_RELAYS, signedKind0));
-  
+
   for (const [idx, result] of kind0Results.entries()) {
     const url = PROFILE_PUBLISH_RELAYS[idx];
-    
+
     if (result.status === 'fulfilled') {
       console.log(`  ✓ Kind 0 → ${url}`);
     } else {
@@ -160,8 +165,8 @@ async function main() {
     limit: 1,
   });
 
-  const masterReadRelays = nip65Event 
-    ? toReadWriteRelays(nip65Event.tags).readRelays 
+  const masterReadRelays = nip65Event
+    ? toReadWriteRelays(nip65Event.tags).readRelays
     : PROFILE_RELAYS;
 
   const signed = finalizeEvent(event, secretKey);
@@ -170,6 +175,7 @@ async function main() {
 
   for (const [idx, result] of results.entries()) {
     const url = masterReadRelays[idx];
+
     if (result.status === 'fulfilled') {
       console.log(`  ✓ Kind 10050 → ${url}`);
     } else {
@@ -178,7 +184,6 @@ async function main() {
   }
 
   // TODO: publish a kind 10050 event for the bot's own relays
-  
 
   console.log('\n✓ Setup complete!');
   console.log('  Next: bun run wallet:setup (optional, for paid AI)');

@@ -1,9 +1,6 @@
 // ---------------------------------------------------------------------------
 // backends/opencode.ts
 // ---------------------------------------------------------------------------
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
-
 import { spawn, spawnSync } from 'bun';
 import { z } from 'zod';
 
@@ -11,6 +8,8 @@ import type { AgentMode } from '../db';
 import { debug, debugAsync, log } from '../logger';
 import type { ProviderName } from '../providers/types';
 
+import type { ParseModelProps } from './opencode-common';
+import { normalizeModelForProvider, readModelFromOpencodeConfig } from './opencode-common';
 import type {
   AgentBackend,
   AgentErrorResult,
@@ -250,52 +249,21 @@ export function parseOpenCodeJsonl(raw: string): AgentRunResult {
   };
 }
 
-type ParseModelProps = {
-  dmBotRoot: string;
-  mode: AgentMode;
-  modelOverride: string | null | undefined;
-  providerName: ProviderName | null;
-};
-
 function parseModel({ dmBotRoot, mode, modelOverride, providerName }: ParseModelProps): string {
+  const fromConfig = readModelFromOpencodeConfig(dmBotRoot, mode);
+  let modelName = modelOverride ?? fromConfig;
+
   if (modelOverride) {
     debug(`Using model override: ${modelOverride}`);
-
-    return modelOverride;
-  }
-
-  let modelName = 'opencode/big-pickle';
-
-  try {
-    const cfgPath = join(dmBotRoot, 'opencode.json');
-
-    if (existsSync(cfgPath)) {
-      debug(`opencode.json found in ${cfgPath}`);
-
-      const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as {
-        agent?: Record<string, { model?: string }>;
-      };
-
-      const configured = cfg.agent?.[mode]?.model;
-
-      if (configured) {
-        modelName = configured;
-        debug(`Using model from opencode.json for mode '${mode}': ${modelName}`);
-      } else {
-        debug(`No model configured in opencode.json for mode '${mode}', using '${modelName}'`);
-      }
-    } else {
-      debug(`opencode.json not found in ${cfgPath}`);
-    }
-  } catch {
-    debug(`Failed to read opencode.json in ${dmBotRoot}`);
-  }
-
-  if (providerName === 'routstr' && !modelName.startsWith('routstr/')) {
-    log.warn(
-      `provider is routstr but resolved model "${modelName}" lacks routstr/ prefix — this will likely fail`,
+  } else {
+    debug(
+      modelName !== fromConfig
+        ? `Using model from opencode.json for mode '${mode}': ${modelName}`
+        : `No model configured in opencode.json for mode '${mode}', using '${modelName}'`,
     );
   }
+
+  modelName = normalizeModelForProvider(modelName, providerName) ?? modelName;
 
   if (providerName === 'local' && modelName.startsWith('routstr/')) {
     log.warn(
@@ -381,8 +349,10 @@ export function createOpenCodeBackend({
         args.push('--attach', attachUrl);
       }
 
-      if (modelOverride) {
-        args.push('--model', modelOverride);
+      const effectiveModel = normalizeModelForProvider(modelOverride, providerName);
+
+      if (effectiveModel) {
+        args.push('--model', effectiveModel);
       }
 
       const argsDisplay = args.reduce<string[]>((acc, arg, i, arr) => {

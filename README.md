@@ -289,8 +289,6 @@ Each job stores **backend**, **provider**, **model**, **mode**, and an optional 
 !job history 1 5
 ```
 
-For programmatic use (e.g. from cron or scripts), the optional **`job:create`** bun script accepts `--schedule <cron>` for recurring or `--run-at <ISO date>` for one-time, plus the usual job fields.
-
 ## Cashu / Routstr Integration (Optional)
 
 The bot supports paid AI providers via Cashu tokens and [Routstr](https://routstr.com). This is optional — by default the bot uses your existing `OPENAI_API_KEY` from the environment.

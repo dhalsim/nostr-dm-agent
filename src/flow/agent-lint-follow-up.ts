@@ -4,8 +4,8 @@
 
 import { createBackend } from '../backends/factory';
 import type { AgentRunResult } from '../backends/types';
-import { getAgentBackend, getLinting, getModelOverride, getRoutstrModel } from '../db';
 import type { AgentMode, CoreDb } from '../db';
+import { getAgentBackend, getLinting, getModelOverride, getRoutstrModel } from '../db';
 import { runPostAgentLint, formatLintSummary } from '../lint';
 import { C, log } from '../logger';
 import type { ProviderName } from '../providers/types';
@@ -47,19 +47,17 @@ export async function runAgentWithLintFollowUp({
     const backendNameFromDb = getAgentBackend(seenDb);
     const routstrModel = getRoutstrModel(seenDb);
 
-    const finalModelOverride =
-      configuredProviderName === 'routstr' && routstrModel
-        ? `routstr/${routstrModel}`
-        : (modelOverride ?? null);
+    const effectiveModelOverride =
+      configuredProviderName === 'routstr' && routstrModel ? routstrModel : (modelOverride ?? null);
 
-    log.info(`finalModelOverride: ${finalModelOverride}`);
+    log.info(`effectiveModelOverride: ${effectiveModelOverride}`);
 
     const roundBackend = createBackend({
       backendName: backendNameFromDb,
       dmBotRoot,
       mode,
       attachUrl,
-      modelOverride: finalModelOverride,
+      modelOverride: effectiveModelOverride,
       providerName: configuredProviderName,
     });
 
@@ -69,7 +67,7 @@ export async function runAgentWithLintFollowUp({
       mode,
       cwd,
       env: getAgentEnv(),
-      modelOverride: finalModelOverride,
+      modelOverride: effectiveModelOverride,
     });
   };
 

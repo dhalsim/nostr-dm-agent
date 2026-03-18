@@ -8,9 +8,9 @@ import { z } from 'zod';
 
 import { assertUnreachable, log } from './logger';
 import { CORE_DB_PATH, RESTART_REQUESTED_PATH } from './paths';
-import { msats, msatsRaw } from './types';
 import type { Brand } from './types';
 import type { Msats } from './types';
+import { msats, msatsRaw } from './types';
 
 export { CORE_DB_PATH as SEEN_DB_PATH, RESTART_REQUESTED_PATH };
 
@@ -185,7 +185,7 @@ export function setState(db: CoreDb, key: string, value: string): void {
   db.run('INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)', [key, value]);
 }
 
-export function getDefaultMode(db: CoreDb): AgentMode {
+export function getCurrentOrDefaultMode(db: CoreDb): AgentMode {
   const v = getState(db, STATE_DEFAULT_MODE);
   const parsed = AgentModeSchema.safeParse(v);
 

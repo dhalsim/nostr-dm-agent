@@ -3,13 +3,13 @@
 // ---------------------------------------------------------------------------
 import { z } from 'zod';
 
+import type { AgentBackendName, AgentMode, ProviderName, WorkspaceTarget } from '../db';
 import {
   AgentBackendNameSchema,
   AgentModeSchema,
   ProviderNameSchema,
   WorkspaceTargetSchema,
 } from '../db';
-import type { AgentBackendName, AgentMode, ProviderName, WorkspaceTarget } from '../db';
 
 export type JobRunStatus = 'running' | 'success' | 'error';
 

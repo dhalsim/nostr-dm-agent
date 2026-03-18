@@ -1,6 +1,7 @@
+import readline from 'readline';
+
 import * as bip39 from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
-import readline from 'readline';
 
 import { getEnvFromFile, setEnvInFile } from '../src/env-file';
 
@@ -8,8 +9,10 @@ const ENV_PATH = '.env';
 
 function question(prompt: string, defaultValue?: string): Promise<string> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
   return new Promise((resolve) => {
     const defaultPrompt = defaultValue ? ` (leave empty for ${defaultValue})` : '';
+
     rl.question(`${prompt}${defaultPrompt}: \n > `, (answer) => {
       rl.close();
       resolve(answer.trim() ?? defaultValue ?? '');
@@ -19,11 +22,17 @@ function question(prompt: string, defaultValue?: string): Promise<string> {
 
 async function main() {
   if (getEnvFromFile(ENV_PATH, 'CASHU_MNEMONIC')) {
-    console.error('CASHU_MNEMONIC already exists in .env. Remove it first if you want to regenerate.');
+    console.error(
+      'CASHU_MNEMONIC already exists in .env. Remove it first if you want to regenerate.',
+    );
+
     process.exit(1);
   }
 
-  const defaultMintUrl = await question('Enter your default Cashu mint URL', 'https://mint.minibits.cash/Bitcoin');
+  const defaultMintUrl = await question(
+    'Enter your default Cashu mint URL',
+    'https://mint.minibits.cash/Bitcoin',
+  );
 
   if (defaultMintUrl) {
     setEnvInFile(ENV_PATH, 'CASHU_DEFAULT_MINT_URL', defaultMintUrl);
@@ -50,23 +59,23 @@ async function main() {
   // random number 0-11
 
   const chosenWordIndices: number[] = [];
-  
+
   for (let i = 0; i < 3; i++) {
     const randomNumber = Math.floor(Math.random() * 12);
-    
+
     while (true) {
       if (chosenWordIndices.includes(randomNumber)) {
         continue;
       }
-      
+
       chosenWordIndices.push(randomNumber);
       break;
     }
 
     console.clear();
-    
+
     const word = await question(`Enter the word at position ${randomNumber + 1} (1-12)`);
-    
+
     if (word !== mnemonic.split(' ')[randomNumber]) {
       console.error('Incorrect word. Try again.');
       process.exit(1);

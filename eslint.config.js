@@ -43,11 +43,41 @@ export default [
         'error',
         {
           groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index'],
+          pathGroups: [
+            {
+              pattern: '@src/**',
+              group: 'internal',
+              position: 'after',
+            },
+            {
+              pattern: '../../../**',
+              group: 'parent',
+              position: 'before',
+            },
+            {
+              pattern: '../../**',
+              group: 'parent',
+              position: 'before',
+            },
+            {
+              pattern: '../**',
+              group: 'parent',
+              position: 'before',
+            },
+            {
+              pattern: './**',
+              group: 'sibling',
+              position: 'after',
+            },
+          ],
+          pathGroupsExcludedImportTypes: [],
           'newlines-between': 'always',
           alphabetize: {
             order: 'asc',
             caseInsensitive: true,
+            orderImportKind: 'asc',
           },
+          distinctGroup: true,
         },
       ],
       curly: ['error', 'all'],

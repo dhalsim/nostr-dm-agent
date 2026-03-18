@@ -7,8 +7,8 @@ import { unwrapEvent, wrapEvent } from 'nostr-tools/nip17';
 import type { SimplePool } from 'nostr-tools/pool';
 import { finalizeEvent } from 'nostr-tools/pure';
 
-import { alreadyHaveEvent, getReplyTransport, markSeen } from '../db';
 import type { CoreDb } from '../db';
+import { alreadyHaveEvent, getReplyTransport, markSeen } from '../db';
 import { ensureWss } from '../env';
 import { C, debug, log, stripAnsi } from '../logger';
 import type { MessageSource } from '../messaging';

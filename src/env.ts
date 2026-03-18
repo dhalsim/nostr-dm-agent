@@ -3,8 +3,8 @@
 // ---------------------------------------------------------------------------
 import { delimiter } from 'path';
 
-import { getAgentBackend, getProviderName, getRoutstrSkKey } from './db';
 import type { CoreDb } from './db';
+import { getAgentBackend, getProviderName, getRoutstrSkKey } from './db';
 import { log } from './logger';
 
 export type CreateGetAgentEnvProps = {
