@@ -65,6 +65,7 @@ const PackageJsonSchema = z.object({
   description: z.string().optional(),
   dmBot: z.object({
     coreApiVersion: z.string().min(1),
+    description: z.string().optional(),
   }),
 });
 
@@ -311,10 +312,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const description = pkg.dmBot.description ?? pkg.description;
+
   console.log(`Plugin:         ${pkg.name} v${pkg.version}`);
 
-  if (pkg.description) {
-    console.log(`Description:    ${pkg.description}`);
+  if (description) {
+    console.log(`Description:    ${description}`);
   }
 
   console.log(`Core API major: ${coreMajor}`);
@@ -442,23 +445,38 @@ async function main(): Promise<void> {
 
   console.log(`Publishing to: ${writeRelays.join(', ')}`);
 
-  // Step 9: build and sign event
+  // Step 9: event content (description) — allow user to edit
+  let eventContent = description ?? '';
+
+  console.log('\nEvent content (plugin description):');
+  console.log(eventContent || '(empty)');
+
+  const editPrompt = await ask(
+    '\nEdit event content? (press Enter to keep, or type new content and Enter): ',
+  );
+
+  if (editPrompt !== '') {
+    eventContent = editPrompt;
+    console.log('Using edited content.');
+  }
+
+  // Step 10: build and sign event
   const eventTemplate = {
     kind: PLUGIN_KIND,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['d', pkg.name],
-      ...(pkg.description ? [['description', pkg.description]] : []),
       ['repo', repoUrl],
       ['version', gitTag],
       ['coreApiVersion', coreMajor],
       ['t', 'dm-bot-plugin'],
       ...updatedRefs.map((r) => ['ref', r.tag, r.coreMajor, r.changelog]),
     ],
-    content: '',
+    content: eventContent,
   };
 
   console.log('\nSigning event via bunker...');
+  console.log(`  Content length: ${eventContent.length} chars`);
   let signedEvent;
   try {
     signedEvent = await bunkerSignEvent(pool, bunkerData, eventTemplate);
@@ -469,7 +487,7 @@ async function main(): Promise<void> {
 
   console.log(`✓ Signed. Event ID: ${signedEvent.id}`);
 
-  // Step 10: publish
+  // Step 11: publish
   console.log('\nPublishing...');
   const results = await Promise.allSettled(pool.publish(writeRelays, signedEvent));
   pool.destroy();

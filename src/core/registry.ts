@@ -45,14 +45,18 @@ export function getPluginHelpTexts(): string | null {
     return null;
   }
 
-  const sections = [...byAlias.entries()]
-    .map(([alias, plugin]) => `\n${alias}:\n${plugin.helpText(alias).join('\n')}\n`)
-    .filter(Boolean)
-    .join('\n\n');
+  const sections = [...byAlias.entries()].map(([alias, plugin]) => {
+    const { name, version, description } = plugin.identity;
+    const header = ` ▸ ${alias} (${name}) v${version}`;
+    const descLine = description ? `\n   ${description}` : '';
+    const helpLines = plugin.helpText(alias).join('\n');
 
-  if (!sections) {
+    return `\n${header}${descLine}\n\n${helpLines}\n`;
+  });
+
+  if (sections.length === 0) {
     return 'No plugins registered to help text';
   }
 
-  return `\n---------------\nPlugin Commands\n---------------\n\n${sections}`;
+  return `\n---------------\nPlugin Commands\n---------------${sections.join('')}`;
 }
