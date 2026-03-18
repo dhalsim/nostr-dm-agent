@@ -111,55 +111,6 @@ export function openCoreDb(): CoreDb {
     )
   `);
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS jobs (
-      id                     TEXT    PRIMARY KEY,
-      name                   TEXT    NOT NULL UNIQUE,
-      schedule               TEXT    NOT NULL,
-      schedule_description   TEXT    NOT NULL,
-      prompt                 TEXT    NOT NULL,
-      enabled                INTEGER NOT NULL DEFAULT 1,
-      created_at             INTEGER NOT NULL,
-      last_run_at            INTEGER,
-      next_run_at            INTEGER,
-      backend                TEXT    NOT NULL,
-      provider               TEXT    NOT NULL,
-      model                  TEXT    NOT NULL,
-      mode                   TEXT    NOT NULL,
-      budget_sats            INTEGER,
-      instructions           TEXT,
-      execution_type         TEXT    NOT NULL DEFAULT 'cron',
-      run_at                 INTEGER,
-      max_runs               INTEGER
-    )
-  `);
-
-  db.run('CREATE UNIQUE INDEX IF NOT EXISTS jobs_name_unique ON jobs(name)');
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS job_runs (
-      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-      job_id             INTEGER NOT NULL,
-      started_at         INTEGER NOT NULL,
-      finished_at        INTEGER,
-      status             TEXT    NOT NULL,
-      output             TEXT,
-      error              TEXT,
-      budget_used_msats  INTEGER,
-      FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS job_drafts (
-      id              INTEGER PRIMARY KEY,
-      kind            TEXT NOT NULL,
-      input           TEXT NOT NULL,
-      original_prompt TEXT NOT NULL DEFAULT '',
-      created_at      INTEGER NOT NULL
-    )
-  `);
-
   return db as CoreDb;
 }
 

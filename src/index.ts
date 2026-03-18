@@ -33,7 +33,6 @@ import { startLocalCli } from './cli/local-cli';
 import { handleBangCommand, EXIT_COMMAND_SENTINEL } from './commands';
 import { getStatusLines } from './commands/bot';
 import type { PluginContext } from './core/plugin';
-import type { CoreDb } from './db';
 import {
   openCoreDb,
   initSkKeyEncryption,
@@ -45,10 +44,6 @@ import {
 } from './db';
 import { createGetAgentEnv, loadBotConfig } from './env';
 import { runAgentConversation } from './flow/agent-conversation';
-import { createJobEngine } from './jobs/engine';
-import type { JobRunnerContext } from './jobs/runner';
-import { runJob } from './jobs/runner';
-import type { Job } from './jobs/types';
 import { C, debug, log } from './logger';
 import type { MessageSource } from './messaging';
 import {
@@ -177,33 +172,6 @@ async function main() {
     signAuthEvent,
   });
 
-  const jobRunnerContext: JobRunnerContext = {
-    dmBotRoot,
-    parentOfBotRoot,
-    attachUrl: opencodeServeUrl,
-    getAgentEnv,
-    walletDb,
-    providerDb,
-    config,
-    routstrBaseUrl,
-    sendDm: (message) =>
-      sendDm({
-        pool,
-        botRelayUrl: primaryRelay,
-        senderSecretKey: botSecretKey,
-        recipientPubkey: masterPubkey,
-        message,
-        signAuthEvent,
-        redrawPrompt: null,
-      }),
-  };
-
-  const jobEngineContext = {
-    runJob: (job: Job, db: CoreDb) => runJob(job, db, jobRunnerContext),
-  };
-
-  createJobEngine(seenDb, jobEngineContext).start();
-
   // --- Plugins ---
   const pluginContext: PluginContext = {
     runAgent: null, // will set later in the conversation loop
@@ -280,12 +248,10 @@ async function main() {
         agentEnv,
         attachUrl: opencodeServeUrl,
         backend,
-        sessionId,
         botPubkey,
         walletDb,
         providerDb,
         config,
-        jobEngine: jobEngineContext,
       });
 
       if (reply === EXIT_COMMAND_SENTINEL) {

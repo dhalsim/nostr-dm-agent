@@ -20,8 +20,6 @@ import {
   handleModel,
   handleModels,
 } from './commands/bot';
-import { handleJobAi } from './commands/job-ai';
-import { handleJob } from './commands/jobs';
 import {
   handleProviderAddModel,
   handleProviderBalance,
@@ -60,7 +58,6 @@ import {
 import type { BotConfig } from './env';
 import { getEnvFromFile, setEnvInFile } from './env-file';
 import { fileUpload, fileDownload } from './file-sync';
-import type { JobEngineContext } from './jobs/engine';
 import { getInfoLogsEnabled, log, setInfoLogsEnabled } from './logger';
 import { RESTART_REQUESTED_PATH } from './paths';
 import type { ProviderDb } from './providers/db';
@@ -87,13 +84,11 @@ export type HandleBangCommandProps = {
   agentEnv: Record<string, string | undefined>;
   attachUrl: string | null;
   backend: AgentBackend;
-  sessionId: string;
   botPubkey: string | null;
   seenDb: CoreDb;
   walletDb: WalletDb | null;
   providerDb: ProviderDb | null;
   config: BotConfig;
-  jobEngine: JobEngineContext | null;
 };
 
 export async function handleBangCommand({
@@ -107,11 +102,9 @@ export async function handleBangCommand({
   agentEnv,
   attachUrl,
   backend,
-  sessionId,
   botPubkey,
   walletDb,
   config,
-  jobEngine,
 }: HandleBangCommandProps): Promise<string | null> {
   if (!input.startsWith('!')) {
     log.warn(`Input does not start with !: ${input}`);
@@ -203,37 +196,6 @@ export async function handleBangCommand({
 
     case 'help':
       return getHelpText();
-
-    case 'job': {
-      return handleError(
-        async () =>
-          handleJob({
-            args,
-            db: seenDb,
-            jobEngine,
-            backend,
-            sessionId,
-            cwd,
-            agentEnv,
-          }),
-        'Job command failed',
-      );
-    }
-
-    case 'job-ai': {
-      return handleError(
-        async () =>
-          handleJobAi({
-            args,
-            db: seenDb,
-            backend,
-            sessionId,
-            cwd,
-            agentEnv,
-          }),
-        'Job AI failed',
-      );
-    }
 
     case 'local': {
       return handleError(
