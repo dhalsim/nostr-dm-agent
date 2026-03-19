@@ -21,9 +21,11 @@ export function formatDraftReply(
 ): string {
   const pad = blockPrefix + '  ';
   const first = blockPrefix + 'Reply: ';
+
   if (kind === 'delete') {
     return `${first}${cmd} accept ${id}\n${pad}${cmd} decline ${id}`;
   }
+
   return `${first}${cmd} accept ${id}\n${pad}${cmd} revise ${id} <corrections>\n${pad}${cmd} decline ${id}`;
 }
 
@@ -31,11 +33,11 @@ export function formatCreateDraftTree(node: Create{{PASCAL_ALIAS}}Draft): string
   return `  - ${node.data}`;
 }
 
-export function format{{PASCAL_ALIAS}}Tree(
-  items: {{PASCAL_ALIAS}}[],
-  _showDescriptions?: boolean,
-): string {
-  if (items.length === 0) return 'No {{ALIAS}}s.';
+export function format{{PASCAL_ALIAS}}Tree(items: {{PASCAL_ALIAS}}[], _showDescriptions?: boolean): string {
+  if (items.length === 0) {
+    return 'No {{ALIAS}}s.';
+  }
+
   return items.map((t) => `  ${t.id} ${t.data}`).join('\n');
 }
 

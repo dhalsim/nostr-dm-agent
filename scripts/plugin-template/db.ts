@@ -35,11 +35,14 @@ export function create{{PASCAL_ALIAS}}(
   _source?: string,
 ): {{PASCAL_ALIAS}} {
   const now = Date.now();
-  const info = db.run(
-    `INSERT INTO {{ALIAS}}s (data, created_at) VALUES (?, ?)`,
-    [input.data, now],
-  );
+  
+  const info = db.run(`INSERT INTO {{ALIAS}}s (data, created_at) VALUES (?, ?)`, [
+    input.data,
+    now,
+  ]);
+
   const id = Number(info.lastInsertRowid);
+
   return get{{PASCAL_ALIAS}}(db, id)!;
 }
 
@@ -47,6 +50,7 @@ export function get{{PASCAL_ALIAS}}(db: Database, id: number): {{PASCAL_ALIAS}} 
   const row = db.prepare('SELECT * FROM {{ALIAS}}s WHERE id = ?').get(id) as
     | Record<string, unknown>
     | undefined;
+
   return row ? rowTo{{PASCAL_ALIAS}}(row) : null;
 }
 
@@ -55,19 +59,26 @@ export function list{{PASCAL_ALIAS}}s(db: Database): {{PASCAL_ALIAS}}[] {
     string,
     unknown
   >[];
+
   return rows.map(rowTo{{PASCAL_ALIAS}});
 }
 
 export function update{{PASCAL_ALIAS}}(db: Database, input: Update{{PASCAL_ALIAS}}Input): {{PASCAL_ALIAS}} | null {
   const existing = get{{PASCAL_ALIAS}}(db, input.id);
-  if (!existing) return null;
+
+  if (!existing) {
+    return null;
+  }
+
   if (input.data !== undefined) {
     db.run('UPDATE {{ALIAS}}s SET data = ? WHERE id = ?', [input.data, input.id]);
   }
+
   return get{{PASCAL_ALIAS}}(db, input.id);
 }
 
 export function delete{{PASCAL_ALIAS}}(db: Database, id: number): boolean {
   const info = db.prepare('DELETE FROM {{ALIAS}}s WHERE id = ?').run(id);
+
   return info.changes > 0;
 }

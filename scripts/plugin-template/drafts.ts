@@ -54,10 +54,12 @@ export function create{{PASCAL_ALIAS}}DraftsTable(db: Database): void {
 
 export function storeDraft(db: Database, entry: {{PASCAL_ALIAS}}DraftEntry): number {
   const now = Date.now();
+
   const info = db.run(
     `INSERT INTO {{ALIAS}}_drafts (kind, input, original_prompt, created_at) VALUES (?, ?, ?, ?)`,
     [entry.kind, JSON.stringify(entry.input), entry.originalPrompt, now],
   );
+
   return Number(info.lastInsertRowid);
 }
 
@@ -65,7 +67,11 @@ export function getDraft(db: Database, id: number): {{PASCAL_ALIAS}}DraftRow | n
   const row = db.prepare('SELECT * FROM {{ALIAS}}_drafts WHERE id = ?').get(id) as
     | Record<string, unknown>
     | undefined;
-  if (!row) return null;
+
+  if (!row) {
+    return null;
+  }
+
   return rowToDraft(row);
 }
 
@@ -73,6 +79,7 @@ export function listDrafts(db: Database): {{PASCAL_ALIAS}}DraftRow[] {
   const rows = db
     .prepare('SELECT * FROM {{ALIAS}}_drafts ORDER BY id')
     .all() as Record<string, unknown>[];
+
   return rows.map(rowToDraft);
 }
 
@@ -88,6 +95,7 @@ export function updateDraftInput(
   const info = db
     .prepare('UPDATE {{ALIAS}}_drafts SET input = ? WHERE id = ?')
     .run(JSON.stringify(input), id);
+
   return info.changes > 0;
 }
 
@@ -96,14 +104,18 @@ function rowToDraft(row: Record<string, unknown>): {{PASCAL_ALIAS}}DraftRow {
   const input = JSON.parse(String(row.input));
   const originalPrompt = String(row.original_prompt);
   const id = Number(row.id);
+
   if (kind === 'create') {
     return { id, kind, input: input as Create{{PASCAL_ALIAS}}Draft, originalPrompt };
   }
+
   if (kind === 'update') {
     return { id, kind, input: input as Update{{PASCAL_ALIAS}}Input, originalPrompt };
   }
+
   if (kind === 'delete') {
     return { id, kind, input: input as { id: number }, originalPrompt };
   }
+
   return assertUnreachable(kind);
 }
