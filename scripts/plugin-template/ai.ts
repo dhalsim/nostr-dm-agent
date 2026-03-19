@@ -17,8 +17,8 @@ import { get{{PASCAL_ALIAS}}, list{{PASCAL_ALIAS}}s } from './db';
 import { storeDraft } from './drafts';
 import { formatDraftReply } from './format';
 import { format{{PASCAL_ALIAS}}Tree } from './format';
-import { buildSystemPrompt, parse{{PASCAL_ALIAS}}ToolCalls } from './tool';
 import type { {{PASCAL_ALIAS}}ToolCall } from './tool';
+import { buildSystemPrompt, parse{{PASCAL_ALIAS}}ToolCalls } from './tool';
 
 export type Handle{{PASCAL_ALIAS}}AiProps = {
   args: string[];
@@ -51,64 +51,104 @@ export async function handle{{PASCAL_ALIAS}}Ai({
   }
 
   const results = parse{{PASCAL_ALIAS}}ToolCalls(raw);
+
   const fulfilled = results.filter(
-    (r): r is { status: 'fulfilled'; value: {{PASCAL_ALIAS}}ToolCall } => r.status === 'fulfilled',
+    (r): r is { status: 'fulfilled'; value: {{PASCAL_ALIAS}}ToolCall } =>
+      r.status === 'fulfilled',
   );
 
   if (fulfilled.length === 0) {
     const firstRejected = results.find((r) => r.status === 'rejected');
-    const msg = firstRejected?.status === 'rejected' ? firstRejected.reason.message : 'No valid JSON';
+
+    const msg =
+      firstRejected?.status === 'rejected'
+        ? firstRejected.reason.message
+        : 'No valid JSON';
+
     return `Failed to parse response: ${msg}`;
   }
 
   const cmd = `!${alias}`;
   const previews: string[] = [];
 
-  for (const call of fulfilled) {
-    if (call.type === 'list') {
+  for (const { value } of fulfilled) {
+    if (value.type === 'list') {
       const list = list{{PASCAL_ALIAS}}s(db);
+
       return list.length === 0 ? 'No {{ALIAS}}s.' : format{{PASCAL_ALIAS}}Tree(list);
     }
-    if (call.type === 'create') {
+
+    if (value.type === 'create') {
       const draftId = storeDraft(db, {
         kind: 'create',
-        input: call.input,
+        input: value.input,
         originalPrompt: userPrompt,
       });
+
       previews.push(
-        ['Create:', '', `  - ${call.input.data}`, '', `Draft ID: ${draftId}`, formatDraftReply(cmd, draftId, 'create')].join('\n'),
+        [
+          'Create:',
+          '',
+          `  - ${value.input.data}`,
+          '',
+          `Draft ID: ${draftId}`,
+          formatDraftReply(cmd, draftId, 'create'),
+        ].join('\n'),
       );
-    } else if (call.type === 'update') {
-      const existing = get{{PASCAL_ALIAS}}(db, call.input.id);
+    } else if (value.type === 'update') {
+      const existing = get{{PASCAL_ALIAS}}(db, value.input.id);
+
       if (!existing) {
-        previews.push(`{{PASCAL_ALIAS}} not found: ${call.input.id}. Call list first.`);
+        previews.push(`{{PASCAL_ALIAS}} not found: ${value.input.id}. Call list first.`);
         continue;
       }
+
       const draftId = storeDraft(db, {
         kind: 'update',
-        input: call.input,
+        input: value.input,
         originalPrompt: userPrompt,
       });
+
       previews.push(
-        [`Update #${call.input.id}: "${existing.data}"`, '', `Draft ID: ${draftId}`, formatDraftReply(cmd, draftId, 'update')].join('\n'),
+        [
+          `Update #${value.input.id}: "${existing.data}"`,
+          '',
+          `Draft ID: ${draftId}`,
+          formatDraftReply(cmd, draftId, 'update'),
+        ].join('\n'),
       );
-    } else if (call.type === 'delete') {
-      const item = get{{PASCAL_ALIAS}}(db, call.input.id);
+    } else if (value.type === 'delete') {
+      const item = get{{PASCAL_ALIAS}}(db, value.input.id);
+
       if (!item) {
-        previews.push(`{{PASCAL_ALIAS}} not found: ${call.input.id}. Call list first.`);
+        previews.push(`{{PASCAL_ALIAS}} not found: ${value.input.id}. Call list first.`);
         continue;
       }
+
       const draftId = storeDraft(db, {
         kind: 'delete',
-        input: { id: call.input.id },
+        input: { id: value.input.id },
         originalPrompt: userPrompt,
       });
+
       previews.push(
-        [`Delete #${call.input.id}: "${item.data}"`, '', `Draft ID: ${draftId}`, formatDraftReply(cmd, draftId, 'delete')].join('\n'),
+        [
+          `Delete #${value.input.id}: "${item.data}"`,
+          '',
+          `Draft ID: ${draftId}`,
+          formatDraftReply(cmd, draftId, 'delete'),
+        ].join('\n'),
       );
     }
   }
 
-  if (previews.length === 0) return 'No operations to show.';
-  return [`You can accept all: ${cmd} accept all`, '', previews.join('\n\n')].join('\n');
+  if (previews.length === 0) {
+    return 'No operations to show.';
+  }
+
+  return [
+    `You can accept all: ${cmd} accept all`,
+    '',
+    previews.join('\n\n'),
+  ].join('\n');
 }

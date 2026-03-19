@@ -48,7 +48,7 @@ export type {{PASCAL_ALIAS}}ToolCall = z.infer<typeof {{PASCAL_ALIAS}}ToolCallSc
 
 export function buildSystemPrompt(userPrompt: string, context: string): string {
   const schema = z.toJSONSchema({{PASCAL_ALIAS}}ToolCallSchema);
-  
+
   return `You are helping the user manage {{ALIAS}}s. Current state:\n${context}\n\nUser request: "${userPrompt}"\n\nOutput one or more JSON objects matching this schema (one per line for multiple). No markdown.\n\n${JSON.stringify(schema, null, 2)}`;
 }
 

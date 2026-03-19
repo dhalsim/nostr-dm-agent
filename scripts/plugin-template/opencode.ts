@@ -73,14 +73,19 @@ export function createToolDefinitions(alias: string) {
       execute: async (): Promise<string> => {
         const db = openDb();
         const items = list{{PASCAL_ALIAS}}s(db);
+
         return items.length === 0 ? 'No {{ALIAS}}s.' : format{{PASCAL_ALIAS}}Tree(items);
       },
     },
     {
       name: 'create',
-      description: 'Propose a new {{ALIAS}} (returns draft for user to accept/revise/decline).',
+      description: 
+        'Propose a new {{ALIAS}} (returns draft for user to accept/revise/decline).',
       args: createArgs,
-      execute: async (args: { data: string; original_prompt: string }): Promise<string> => {
+      execute: async (args: {
+        data: string;
+        original_prompt: string;
+      }): Promise<string> => {
         const db = openDb();
         const parsed = Create{{PASCAL_ALIAS}}DraftSchema.safeParse({ data: args.data });
 
@@ -112,7 +117,11 @@ export function createToolDefinitions(alias: string) {
       name: 'update',
       description: 'Propose an update (returns draft).',
       args: updateArgs,
-      execute: async (args: { id: number; data?: string; original_prompt: string }): Promise<string> => {
+      execute: async (args: {
+        id: number;
+        data?: string;
+        original_prompt: string;
+      }): Promise<string> => {
         const db = openDb();
 
         const parsed = Update{{PASCAL_ALIAS}}InputSchema.safeParse({
@@ -148,7 +157,10 @@ export function createToolDefinitions(alias: string) {
       name: 'delete',
       description: 'Propose deleting a {{ALIAS}} (returns draft).',
       args: deleteArgs,
-      execute: async (args: { id: number; original_prompt: string }): Promise<string> => {
+      execute: async (args: {
+        id: number;
+        original_prompt: string;
+      }): Promise<string> => {
         const db = openDb();
         const item = get{{PASCAL_ALIAS}}(db, args.id);
 
@@ -163,9 +175,9 @@ export function createToolDefinitions(alias: string) {
         });
 
         return [
-          `Delete #${args.id}: "${item.data}"`, 
-          '', 
-          `Draft ID: ${draftId}`, 
+          `Delete #${args.id}: "${item.data}"`,
+          '',
+          `Draft ID: ${draftId}`,
           formatDraftReply(cmd, draftId, 'delete'),
         ].join('\n');
       },
