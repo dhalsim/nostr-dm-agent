@@ -5,7 +5,8 @@
 //
 // Prompts for alias (required), description (optional), core API version
 // (optional). Creates plugins/<alias>/ with template files and placeholders
-// replaced. Does not modify plugins.json or run plugin:generate.
+// replaced. Optionally runs eslint --fix only for plugins/<alias>.
+// Does not modify plugins.json or run plugin:generate.
 // ---------------------------------------------------------------------------
 
 import {
@@ -61,6 +62,41 @@ function expandTemplate(content: string, vars: Record<string, string>): string {
     /\{\{(\w+)\}\}/g,
     (_, key) => vars[key] ?? `{{${key}}}`,
   );
+}
+
+function templateOutputName(name: string): string {
+  if (name.endsWith('.template')) {
+    return name.slice(0, -'.template'.length);
+  }
+
+  return name;
+}
+
+type RunLintForPluginProps = {
+  alias: string;
+};
+
+function runLintForPlugin({ alias }: RunLintForPluginProps): void {
+  const relPluginDir = `plugins/${alias}`;
+  console.log(`\nRunning eslint --fix for ${relPluginDir} ...\n`);
+
+  const result = Bun.spawnSync({
+    cmd: ['bun', 'run', 'eslint', relPluginDir, '--fix'],
+    cwd: ROOT,
+    stdin: 'inherit',
+    stdout: 'inherit',
+    stderr: 'inherit',
+  });
+
+  if (result.exitCode !== 0) {
+    console.warn(
+      `\nLint finished with issues (exit ${result.exitCode}). You can fix them manually in ${relPluginDir}.`,
+    );
+
+    return;
+  }
+
+  console.log(`\nLint complete for ${relPluginDir}.`);
 }
 
 async function main(): Promise<void> {
@@ -134,11 +170,26 @@ async function main(): Promise<void> {
     const srcPath = join(TEMPLATE_DIR, name);
     const raw = readFileSync(srcPath, 'utf8');
     const expanded = expandTemplate(raw, vars);
-    const destPath = join(outDir, name);
+    const destName = templateOutputName(name);
+    const destPath = join(outDir, destName);
     writeFileSync(destPath, expanded, 'utf8');
   }
 
   console.log(`\nPlugin created at plugins/${alias}/`);
+
+  const lintAnswer = await ask(
+    `Run eslint --fix only for plugins/${alias} now? [Y/n]: `,
+  );
+
+  const shouldRunLint = lintAnswer === '' || /^y(es)?$/i.test(lintAnswer);
+
+  if (shouldRunLint) {
+    runLintForPlugin({ alias });
+  } else {
+    console.log(
+      `Skipped lint. To run later: bun run eslint plugins/${alias} --fix`,
+    );
+  }
 
   console.log(
     'Add it to plugins.json and run `bun run plugin:generate` when you want to use it in this repo.',
