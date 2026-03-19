@@ -41,6 +41,7 @@ export function createToolDefinitions(alias: string) {
     db.run('PRAGMA foreign_keys = ON');
     create{{PASCAL_ALIAS}}Table(db);
     create{{PASCAL_ALIAS}}DraftsTable(db);
+
     return db;
   }
 
@@ -82,16 +83,29 @@ export function createToolDefinitions(alias: string) {
       execute: async (args: { data: string; original_prompt: string }): Promise<string> => {
         const db = openDb();
         const parsed = Create{{PASCAL_ALIAS}}DraftSchema.safeParse({ data: args.data });
-        if (!parsed.success) return `Validation error: ${parsed.error.message}`;
+
+        if (!parsed.success) {
+          return `Validation error: ${parsed.error.message}`;
+        }
+
         const draftId = storeDraft(db, {
           kind: 'create',
           input: parsed.data,
           originalPrompt: args.original_prompt,
         });
+
         const title = hasDraftChildren(parsed.data)
           ? 'Create the following:'
           : 'Create:';
-        return [title, '', formatCreateDraftTree(parsed.data), '', `Draft ID: ${draftId}`, formatDraftReply(cmd, draftId, 'create')].join('\n');
+
+        return [
+          title,
+          '',
+          formatCreateDraftTree(parsed.data),
+          '',
+          `Draft ID: ${draftId}`,
+          formatDraftReply(cmd, draftId, 'create'),
+        ].join('\n');
       },
     },
     {
@@ -100,19 +114,34 @@ export function createToolDefinitions(alias: string) {
       args: updateArgs,
       execute: async (args: { id: number; data?: string; original_prompt: string }): Promise<string> => {
         const db = openDb();
+
         const parsed = Update{{PASCAL_ALIAS}}InputSchema.safeParse({
           id: args.id,
           data: args.data,
         });
-        if (!parsed.success) return `Validation error: ${parsed.error.message}`;
+
+        if (!parsed.success) {
+          return `Validation error: ${parsed.error.message}`;
+        }
+
         const existing = get{{PASCAL_ALIAS}}(db, args.id);
-        if (!existing) return `{{PASCAL_ALIAS}} not found: ${args.id}. Call list first.`;
+
+        if (!existing) {
+          return `{{PASCAL_ALIAS}} not found: ${args.id}. Call list first.`;
+        }
+
         const draftId = storeDraft(db, {
           kind: 'update',
           input: parsed.data,
           originalPrompt: args.original_prompt,
         });
-        return [`Update #${args.id}: "${existing.data}"`, '', `Draft ID: ${draftId}`, formatDraftReply(cmd, draftId, 'update')].join('\n');
+
+        return [
+          `Update #${args.id}: "${existing.data}"`,
+          '',
+          `Draft ID: ${draftId}`,
+          formatDraftReply(cmd, draftId, 'update'),
+        ].join('\n');
       },
     },
     {
@@ -122,13 +151,23 @@ export function createToolDefinitions(alias: string) {
       execute: async (args: { id: number; original_prompt: string }): Promise<string> => {
         const db = openDb();
         const item = get{{PASCAL_ALIAS}}(db, args.id);
-        if (!item) return `{{PASCAL_ALIAS}} not found: ${args.id}. Call list first.`;
+
+        if (!item) {
+          return `{{PASCAL_ALIAS}} not found: ${args.id}. Call list first.`;
+        }
+
         const draftId = storeDraft(db, {
           kind: 'delete',
           input: { id: args.id },
           originalPrompt: args.original_prompt,
         });
-        return [`Delete #${args.id}: "${item.data}"`, '', `Draft ID: ${draftId}`, formatDraftReply(cmd, draftId, 'delete')].join('\n');
+
+        return [
+          `Delete #${args.id}: "${item.data}"`, 
+          '', 
+          `Draft ID: ${draftId}`, 
+          formatDraftReply(cmd, draftId, 'delete'),
+        ].join('\n');
       },
     },
   ] as const;

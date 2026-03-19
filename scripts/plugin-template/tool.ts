@@ -21,14 +21,17 @@ import { parseToolCalls } from '@src/tools/utils';
 import { Create{{PASCAL_ALIAS}}InputSchema, Update{{PASCAL_ALIAS}}InputSchema } from './types';
 
 const {{PASCAL_ALIAS}}ListCallSchema = z.object({ type: z.literal('list') });
+
 const {{PASCAL_ALIAS}}CreateCallSchema = z.object({
   type: z.literal('create'),
   input: Create{{PASCAL_ALIAS}}InputSchema,
 });
+
 const {{PASCAL_ALIAS}}UpdateCallSchema = z.object({
   type: z.literal('update'),
   input: Update{{PASCAL_ALIAS}}InputSchema,
 });
+
 const {{PASCAL_ALIAS}}DeleteCallSchema = z.object({
   type: z.literal('delete'),
   input: z.object({ id: z.number().int().positive() }),
@@ -45,6 +48,7 @@ export type {{PASCAL_ALIAS}}ToolCall = z.infer<typeof {{PASCAL_ALIAS}}ToolCallSc
 
 export function buildSystemPrompt(userPrompt: string, context: string): string {
   const schema = z.toJSONSchema({{PASCAL_ALIAS}}ToolCallSchema);
+  
   return `You are helping the user manage {{ALIAS}}s. Current state:\n${context}\n\nUser request: "${userPrompt}"\n\nOutput one or more JSON objects matching this schema (one per line for multiple). No markdown.\n\n${JSON.stringify(schema, null, 2)}`;
 }
 

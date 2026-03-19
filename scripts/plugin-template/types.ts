@@ -36,7 +36,6 @@ export interface Create{{PASCAL_ALIAS}}Draft {
   data: string;
 }
 
-export const Create{{PASCAL_ALIAS}}DraftSchema: z.ZodType<Create{{PASCAL_ALIAS}}Draft> =
-  z.object({
-    data: z.string().min(1),
-  });
+export const Create{{PASCAL_ALIAS}}DraftSchema: z.ZodType<Create{{PASCAL_ALIAS}}Draft> = z.object({
+  data: z.string().min(1),
+});
