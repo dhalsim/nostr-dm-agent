@@ -10,7 +10,7 @@ export default [
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ['dist/**', 'public/**', 'node_modules/**'],
+    ignores: ['dist/**', 'public/**', 'node_modules/**', 'scripts/plugin-template/**'],
   },
   {
     files: ['src/**/*.{ts,tsx}', 'scripts/**/*.{ts,tsx}', 'plugins/**/*.{ts,tsx}'],

@@ -1,0 +1,48 @@
+// ---------------------------------------------------------------------------
+// plugins/{{ALIAS}}/format.ts — Display helpers for the {{ALIAS}} plugin
+//
+// Replace with formatters for your entity and drafts, e.g.:
+// - format{{PASCAL_ALIAS}}Detail(item) for !{{ALIAS}} show <id>
+// - format{{PASCAL_ALIAS}}Tree(items) or list view for !{{ALIAS}} list
+// - formatCreateDraftTree(draft), formatDraftReply(cmd, id, kind) for draft UX
+// - hasDraftChildren(draft) if you support nested/tree drafts
+// ---------------------------------------------------------------------------
+import type { Create{{PASCAL_ALIAS}}Draft, {{PASCAL_ALIAS}} } from './types';
+
+export function hasDraftChildren(_node: Create{{PASCAL_ALIAS}}Draft): boolean {
+  return false;
+}
+
+export function formatDraftReply(
+  cmd: string,
+  id: number,
+  kind: 'create' | 'update' | 'delete',
+  blockPrefix: string = '',
+): string {
+  const pad = blockPrefix + '  ';
+  const first = blockPrefix + 'Reply: ';
+  if (kind === 'delete') {
+    return `${first}${cmd} accept ${id}\n${pad}${cmd} decline ${id}`;
+  }
+  return `${first}${cmd} accept ${id}\n${pad}${cmd} revise ${id} <corrections>\n${pad}${cmd} decline ${id}`;
+}
+
+export function formatCreateDraftTree(node: Create{{PASCAL_ALIAS}}Draft): string {
+  return `  - ${node.data}`;
+}
+
+export function format{{PASCAL_ALIAS}}Tree(
+  items: {{PASCAL_ALIAS}}[],
+  _showDescriptions?: boolean,
+): string {
+  if (items.length === 0) return 'No {{ALIAS}}s.';
+  return items.map((t) => `  ${t.id} ${t.data}`).join('\n');
+}
+
+export function format{{PASCAL_ALIAS}}Detail(t: {{PASCAL_ALIAS}}): string {
+  return [
+    `ID:   ${t.id}`,
+    `Data: ${t.data}`,
+    `Created: ${new Date(t.created_at).toLocaleString()}`,
+  ].join('\n');
+}

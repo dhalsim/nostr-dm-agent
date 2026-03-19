@@ -1,0 +1,109 @@
+// ---------------------------------------------------------------------------
+// plugins/{{ALIAS}}/drafts.ts — Draft store for the {{ALIAS}} plugin
+//
+// Used when the agent (or !{{ALIAS}} ai) proposes a change and the user
+// must accept/revise/decline. If you don't need draft/confirm, you can
+// simplify commands and opencode to apply changes directly and remove or
+// stub draft usage here.
+//
+// Replace Create{{PASCAL_ALIAS}}Draft / Update{{PASCAL_ALIAS}}Input with your
+// types from types.ts so draft entries type-check.
+// ---------------------------------------------------------------------------
+import type { Database } from 'bun:sqlite';
+
+import { assertUnreachable } from '@src/utils';
+
+import type { Create{{PASCAL_ALIAS}}Draft, Update{{PASCAL_ALIAS}}Input } from './types';
+
+export type CreateDraftEntry = {
+  kind: 'create';
+  input: Create{{PASCAL_ALIAS}}Draft;
+  originalPrompt: string;
+};
+
+export type UpdateDraftEntry = {
+  kind: 'update';
+  input: Update{{PASCAL_ALIAS}}Input;
+  originalPrompt: string;
+};
+
+export type DeleteDraftEntry = {
+  kind: 'delete';
+  input: { id: number };
+  originalPrompt: string;
+};
+
+export type {{PASCAL_ALIAS}}DraftEntry =
+  | CreateDraftEntry
+  | UpdateDraftEntry
+  | DeleteDraftEntry;
+
+export type {{PASCAL_ALIAS}}DraftRow = {{PASCAL_ALIAS}}DraftEntry & { id: number };
+
+export function create{{PASCAL_ALIAS}}DraftsTable(db: Database): void {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS {{ALIAS}}_drafts (
+      id              INTEGER PRIMARY KEY,
+      kind            TEXT NOT NULL,
+      input           TEXT NOT NULL,
+      original_prompt TEXT NOT NULL DEFAULT '',
+      created_at      INTEGER NOT NULL
+    )
+  `);
+}
+
+export function storeDraft(db: Database, entry: {{PASCAL_ALIAS}}DraftEntry): number {
+  const now = Date.now();
+  const info = db.run(
+    `INSERT INTO {{ALIAS}}_drafts (kind, input, original_prompt, created_at) VALUES (?, ?, ?, ?)`,
+    [entry.kind, JSON.stringify(entry.input), entry.originalPrompt, now],
+  );
+  return Number(info.lastInsertRowid);
+}
+
+export function getDraft(db: Database, id: number): {{PASCAL_ALIAS}}DraftRow | null {
+  const row = db.prepare('SELECT * FROM {{ALIAS}}_drafts WHERE id = ?').get(id) as
+    | Record<string, unknown>
+    | undefined;
+  if (!row) return null;
+  return rowToDraft(row);
+}
+
+export function listDrafts(db: Database): {{PASCAL_ALIAS}}DraftRow[] {
+  const rows = db
+    .prepare('SELECT * FROM {{ALIAS}}_drafts ORDER BY id')
+    .all() as Record<string, unknown>[];
+  return rows.map(rowToDraft);
+}
+
+export function deleteDraft(db: Database, id: number): boolean {
+  return db.prepare('DELETE FROM {{ALIAS}}_drafts WHERE id = ?').run(id).changes > 0;
+}
+
+export function updateDraftInput(
+  db: Database,
+  id: number,
+  input: {{PASCAL_ALIAS}}DraftEntry['input'],
+): boolean {
+  const info = db
+    .prepare('UPDATE {{ALIAS}}_drafts SET input = ? WHERE id = ?')
+    .run(JSON.stringify(input), id);
+  return info.changes > 0;
+}
+
+function rowToDraft(row: Record<string, unknown>): {{PASCAL_ALIAS}}DraftRow {
+  const kind = String(row.kind) as {{PASCAL_ALIAS}}DraftEntry['kind'];
+  const input = JSON.parse(String(row.input));
+  const originalPrompt = String(row.original_prompt);
+  const id = Number(row.id);
+  if (kind === 'create') {
+    return { id, kind, input: input as Create{{PASCAL_ALIAS}}Draft, originalPrompt };
+  }
+  if (kind === 'update') {
+    return { id, kind, input: input as Update{{PASCAL_ALIAS}}Input, originalPrompt };
+  }
+  if (kind === 'delete') {
+    return { id, kind, input: input as { id: number }, originalPrompt };
+  }
+  return assertUnreachable(kind);
+}
