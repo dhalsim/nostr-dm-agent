@@ -149,6 +149,95 @@ function latestRef(refs: RefEntry[]): RefEntry | null {
   return refs.at(-1) ?? null;
 }
 
+/** Compare tags like `1.0.0` and `v1.0.0`. */
+function normalizeRefTag(tag: string): string {
+  const t = tag.trim().toLowerCase();
+
+  return t.startsWith('v') ? t.slice(1) : t;
+}
+
+function findRefForInstalledVersion(
+  refs: RefEntry[],
+  installedVersion: string,
+): RefEntry | null {
+  const n = normalizeRefTag(installedVersion);
+
+  return refs.find((r) => normalizeRefTag(r.tag) === n) ?? null;
+}
+
+type BuildPluginDiscoveryVersionLinesProps = {
+  plugin: PluginEvent;
+  installed: PluginEntry | null;
+  coreMajor: string;
+};
+
+function buildPluginDiscoveryVersionLines({
+  plugin,
+  installed,
+  coreMajor,
+}: BuildPluginDiscoveryVersionLinesProps): string[] {
+  const compatible = findCompatibleRef(plugin.refs, coreMajor);
+  const lines: string[] = [];
+
+  if (installed) {
+    const installedRef = findRefForInstalledVersion(
+      plugin.refs,
+      installed.version,
+    );
+
+    if (installedRef) {
+      lines.push(
+        `version: ${installedRef.tag} for core ${installedRef.coreMajor} ✓ installed`,
+      );
+    } else {
+      lines.push(
+        `version: ${installed.version} ✓ installed (no matching ref tag on catalog)`,
+      );
+    }
+
+    if (compatible) {
+      if (
+        normalizeRefTag(compatible.tag) !== normalizeRefTag(installed.version)
+      ) {
+        lines.push(
+          `version: ${compatible.tag} for core ${compatible.coreMajor} (upgrade available)`,
+        );
+      }
+    } else {
+      const latest = latestRef(plugin.refs);
+
+      lines.push(
+        `version: no ref for bot core ${coreMajor} (latest catalog ref: ${latest?.tag ?? '?'} for core ${latest?.coreMajor ?? '?'})`,
+      );
+    }
+  } else if (compatible) {
+    lines.push(
+      `version: ${compatible.tag} for core ${compatible.coreMajor} ✓ compatible`,
+    );
+  } else {
+    const latest = latestRef(plugin.refs);
+
+    lines.push(
+      `version: latest ${latest?.tag ?? '?'} for core ${latest?.coreMajor ?? '?'} — not compatible with bot core ${coreMajor}`,
+    );
+  }
+
+  return lines;
+}
+
+async function findInstalledEntryForEvent(
+  event: PluginEvent,
+  plugins: PluginEntry[],
+): Promise<PluginEntry | null> {
+  for (const entry of plugins) {
+    if (await samePlugin(entry.repo, event)) {
+      return entry;
+    }
+  }
+
+  return null;
+}
+
 /** Resolve a nostr:// repo URL to { pubkeyHex, repoName }.
  *  Supports both npub and NIP-05 (_@domain) identity formats. */
 async function resolveRepoIdentity(
@@ -249,16 +338,50 @@ async function queryPluginEvents(pool: SimplePool): Promise<PluginEvent[]> {
   });
 }
 
-async function selectCompatibleRef(
-  plugin: PluginEvent,
-  coreMajor: string,
-): Promise<RefEntry | null> {
+type SelectCompatibleRefProps = {
+  plugin: PluginEvent;
+  coreMajor: string;
+  installedEntry: PluginEntry | null;
+};
+
+async function selectCompatibleRef({
+  plugin,
+  coreMajor,
+  installedEntry,
+}: SelectCompatibleRefProps): Promise<RefEntry | null> {
   const compatible = findCompatibleRef(plugin.refs, coreMajor);
 
-  if (compatible) {
+  if (installedEntry) {
     console.log(
-      `✓ Compatible ref: ${compatible.tag} (core ${compatible.coreMajor})`,
+      `Current installation: ${installedEntry.alias} @ ${installedEntry.version}`,
     );
+
+    if (compatible) {
+      if (
+        normalizeRefTag(compatible.tag) ===
+        normalizeRefTag(installedEntry.version)
+      ) {
+        console.log(
+          `Latest compatible ref matches installed (${compatible.tag}, core ${compatible.coreMajor}).`,
+        );
+      } else {
+        console.log(
+          `Latest compatible ref: ${compatible.tag} (core ${compatible.coreMajor}) — upgrade from ${installedEntry.version}`,
+        );
+      }
+    }
+  }
+
+  if (compatible) {
+    if (
+      !installedEntry ||
+      normalizeRefTag(installedEntry.version) !==
+        normalizeRefTag(compatible.tag)
+    ) {
+      console.log(
+        `✓ Compatible ref: ${compatible.tag} (core ${compatible.coreMajor})`,
+      );
+    }
 
     console.log(`  ${compatible.changelog}`);
 
@@ -348,13 +471,17 @@ async function updatePlugin(
     process.exit(1);
   }
 
-  const selectedRef = await selectCompatibleRef(plugin, coreMajor);
+  const selectedRef = await selectCompatibleRef({
+    plugin,
+    coreMajor,
+    installedEntry: entry,
+  });
 
   if (!selectedRef) {
     process.exit(1);
   }
 
-  if (selectedRef.tag === entry.version) {
+  if (normalizeRefTag(selectedRef.tag) === normalizeRefTag(entry.version)) {
     console.log(`✓ Already up to date (${entry.version}).`);
     process.exit(0);
   }
@@ -416,21 +543,30 @@ async function installPlugin(
 
   console.log(`\nFound ${events.length} plugin(s):\n`);
 
-  events.forEach((p, i) => {
-    const compatible = findCompatibleRef(p.refs, coreMajor);
+  const installedForEvents = await Promise.all(
+    events.map((e) => findInstalledEntryForEvent(e, pluginsData.plugins)),
+  );
 
-    const status = compatible
-      ? `✓ compatible`
-      : `✗ incompatible (needs core ${latestRef(p.refs)?.coreMajor ?? '?'})`;
+  const indent = '    ';
+
+  events.forEach((p, i) => {
+    const installed = installedForEvents[i] ?? null;
 
     console.log(`  ${i + 1}. ${p.name}`);
 
     if (p.description) {
-      console.log(`     ${p.description}`);
+      console.log(`${indent}description: ${p.description}`);
     }
 
-    console.log(`     version: ${p.version} | ${status}`);
-    console.log(`     repo: ${p.repo}`);
+    for (const line of buildPluginDiscoveryVersionLines({
+      plugin: p,
+      installed,
+      coreMajor,
+    })) {
+      console.log(`${indent}${line}`);
+    }
+
+    console.log(`${indent}repo: ${p.repo}`);
     console.log();
   });
 
@@ -452,7 +588,13 @@ async function installPlugin(
   const plugin = events[idx];
   console.log(`\nSelected: ${plugin.name}`);
 
-  const selectedRef = await selectCompatibleRef(plugin, coreMajor);
+  const installedForSelected = installedForEvents[idx] ?? null;
+
+  const selectedRef = await selectCompatibleRef({
+    plugin,
+    coreMajor,
+    installedEntry: installedForSelected,
+  });
 
   if (!selectedRef) {
     process.exit(1);

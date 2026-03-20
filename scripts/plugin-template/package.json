@@ -6,8 +6,5 @@
     "description": "{{DESCRIPTION}}"
   },
   "description": "{{DESCRIPTION}}",
-  "type": "module",
-  "dependencies": {
-    "@opencode-ai/sdk": "^1.2.16"
-  }
+  "type": "module"
 }
