@@ -34,7 +34,7 @@ Review points from the plugins/jobs and core bot refactor, with status and follo
 
 **Issue:** Runner used empty `env`, ignored `workspace_target` for cwd, and `job.model` might need routstr handling. AI job-creation defaults were hardcoded.
 
-**Status:** Done. Core passes `defaults: { backend, provider, model, mode, workspace_target }` in `PluginContext`. Runner uses `ctx.env` and cwd from `job.workspace_target`. `plugins/jobs/ai.ts` uses a prompt-only schema (no backend/provider/model/mode/workspace_target); after parsing model output, defaults are injected from `ctx.defaults` and the result is validated as `JobDraftInput`. Same for revise flow.
+**Status:** Done. Core passes `defaults: { backend, provider, model, mode, workspace_target }` in `PluginContext`. The job runner uses `ctx.getAgentEnv()` (fresh agent env each run) and cwd from `job.workspace_target`. `plugins/jobs/ai.ts` uses a prompt-only schema (no backend/provider/model/mode/workspace_target); after parsing model output, defaults are injected from `ctx.defaults` and the result is validated as `JobDraftInput`. Same for revise flow.
 
 ---
 

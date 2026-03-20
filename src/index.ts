@@ -176,15 +176,17 @@ async function main() {
     signAuthEvent,
   });
 
+  const backendName = getAgentBackend(seenDb);
+
   // --- Plugins ---
   const pluginContext: PluginContext = {
     runAgent: null, // will set later in the conversation loop
     sendReply: (message: string) => sendReplyForSource('nostr', message),
-    env: getAgentEnv(),
+    getAgentEnv,
     defaults: {
-      backend: getAgentBackend(seenDb),
+      backend: backendName,
       provider: getProviderName(seenDb),
-      model: getModelOverride(seenDb),
+      model: getModelOverride(seenDb, backendName),
       mode: getCurrentOrDefaultMode(seenDb),
       workspace_target: getWorkspaceTarget(seenDb),
     },
@@ -209,10 +211,11 @@ async function main() {
     process.stdout.write(`${C.dim}${C.magenta} > ${content}${C.reset}\n`);
 
     const mode = getCurrentOrDefaultMode(seenDb);
-    const modelOverride = getModelOverride(seenDb);
+    const backendName = getAgentBackend(seenDb);
+    const modelOverride = getModelOverride(seenDb, backendName);
 
     const backend = createBackend({
-      backendName: getAgentBackend(seenDb),
+      backendName,
       dmBotRoot,
       mode,
       attachUrl: opencodeServeUrl,

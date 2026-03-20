@@ -203,21 +203,21 @@ export function createOpencodeSDKBackend({
       mode,
       cwd,
       env,
-      modelOverride: runModelOverride,
+      modelOverride,
     }: RunMessageProps): Promise<AgentRunResult> {
       const { client } = await getOrInitSdk(env);
 
       const normalizedOverride = normalizeModelForProvider(
-        runModelOverride,
+        modelOverride,
         providerName,
       );
 
       const effectiveModel = normalizedOverride ?? modelName;
       const model = modelToProviderAndId(effectiveModel);
 
-      if (runModelOverride) {
+      if (modelOverride) {
         debug(
-          `opencode-sdk: runMessage using model override: ${runModelOverride}`,
+          `opencode-sdk: runMessage using model override: ${modelOverride}`,
         );
       }
 

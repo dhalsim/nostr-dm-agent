@@ -206,15 +206,26 @@ export function setWorkspaceTarget(db: CoreDb, target: WorkspaceTarget): void {
   setState(db, STATE_WORKSPACE_TARGET, target);
 }
 
-export function getModelOverride(db: CoreDb): string | null {
-  return getState(db, STATE_MODEL_OVERRIDE);
+export function getModelOverride(
+  db: CoreDb,
+  backendName: AgentBackendName,
+): string | null {
+  const key = `${STATE_MODEL_OVERRIDE}:${backendName}`;
+
+  return getState(db, key);
 }
 
-export function setModelOverride(db: CoreDb, model: string | null): void {
+export function setModelOverride(
+  db: CoreDb,
+  backendName: AgentBackendName,
+  model: string | null,
+): void {
+  const key = `${STATE_MODEL_OVERRIDE}:${backendName}`;
+
   if (model === null) {
-    db.run('DELETE FROM state WHERE key = ?', [STATE_MODEL_OVERRIDE]);
+    db.run('DELETE FROM state WHERE key = ?', [key]);
   } else {
-    setState(db, STATE_MODEL_OVERRIDE, model);
+    setState(db, key, model);
   }
 }
 

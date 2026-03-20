@@ -13,7 +13,7 @@ import type {
 export function createCursorBackend(
   modelOverride?: string | null,
 ): AgentBackend {
-  const effectiveModel = modelOverride ?? 'auto';
+  const effectiveModel = modelOverride ?? 'composer-2-fast';
 
   return {
     name: 'cursor',

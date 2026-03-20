@@ -48,6 +48,12 @@ export type BotConfig = {
   routstrBaseUrl: string;
 };
 
+/** BOT_KEY + BOT_RELAYS only — for Nostr file share without loading full bot config. */
+export type FileShareNostrConfig = {
+  botKeyHex: string;
+  relayUrls: string[];
+};
+
 export function requireEnv(name: string): string {
   const val = process.env[name];
 
@@ -86,9 +92,8 @@ export function normalizePath(pathValue: string): string {
   return [...new Set(parts)].join(delimiter);
 }
 
-export function loadBotConfig(): BotConfig {
+export function loadFileShareNostrConfig(): FileShareNostrConfig {
   const botKeyHex = requireEnv('BOT_KEY');
-  const masterPubkey = requireEnv('BOT_MASTER_PUBKEY');
   const relayUrls = parseRelayUrls(requireEnv('BOT_RELAYS'));
 
   if (relayUrls.length === 0) {
@@ -98,6 +103,13 @@ export function loadBotConfig(): BotConfig {
 
     process.exit(1);
   }
+
+  return { botKeyHex, relayUrls };
+}
+
+export function loadBotConfig(): BotConfig {
+  const { botKeyHex, relayUrls } = loadFileShareNostrConfig();
+  const masterPubkey = requireEnv('BOT_MASTER_PUBKEY');
 
   return {
     botKeyHex,

@@ -72,7 +72,7 @@ export function getStatusLines({
   const replyTransport = getReplyTransport(seenDb);
   const workspace = getWorkspaceTarget(seenDb);
   const serveUrl = process.env.BOT_OPENCODE_SERVE_URL;
-  const modelOverride = getModelOverride(seenDb);
+  const modelOverride = getModelOverride(seenDb, backendName);
   const providerName = getProviderName(seenDb);
 
   const backend = createBackend({
@@ -227,12 +227,11 @@ export async function handleBackend({
   }
 
   setAgentBackend(db, nextBackendName);
-  setModelOverride(db, null);
 
   const workspace = getWorkspaceTarget(db);
   const cwd = workspace === 'bot' ? dmBotRoot : parentOfBotRoot;
   const mode = getCurrentOrDefaultMode(db);
-  const modelOverride = getModelOverride(db);
+  const modelOverride = getModelOverride(db, nextBackendName);
   const providerName = getProviderName(db);
 
   const newBackend = createBackend({
@@ -258,13 +257,12 @@ export async function handleBackend({
   }
 }
 
-export function handleMode({
-  db,
-  modeArg,
-}: {
+type HandleModeProps = {
   db: CoreDb;
   modeArg: string;
-}): string {
+};
+
+export function handleMode({ db, modeArg }: HandleModeProps): string {
   const parsed = AgentModeSchema.safeParse(modeArg);
 
   if (!parsed.success) {
@@ -285,28 +283,29 @@ export function handleMode({
   }
 }
 
-export function handleModel({
-  db,
-  selected,
-}: {
+type HandleModelProps = {
   db: CoreDb;
-  selected?: string;
-}): string {
-  if (!selected) {
-    const current = getModelOverride(db);
+  selected: string | null;
+};
 
-    return `Model: ${current ?? 'auto (from backend config)'}.`;
+export function handleModel({ db, selected }: HandleModelProps): string {
+  const backendName = getAgentBackend(db);
+
+  if (!selected) {
+    const current = getModelOverride(db, backendName);
+
+    return `Backend ${backendName} model override: ${current ?? '(none)'}.`;
   }
 
   if (selected.toLowerCase() === 'reset') {
-    setModelOverride(db, null);
+    setModelOverride(db, backendName, null);
 
-    return 'Model override cleared. Using backend config.';
+    return `Backend ${backendName} model override cleared.`;
   }
 
-  setModelOverride(db, selected);
+  setModelOverride(db, backendName, selected);
 
-  return `Model override set to: ${selected}.`;
+  return `Backend ${backendName} model override set to: ${selected}.`;
 }
 
 export type HandleModelsProps = {
@@ -322,7 +321,7 @@ export async function handleModels({
 }: HandleModelsProps): Promise<string> {
   const backendName = getAgentBackend(seenDb);
   const mode = getCurrentOrDefaultMode(seenDb);
-  const modelOverride = getModelOverride(seenDb);
+  const modelOverride = getModelOverride(seenDb, backendName);
   const providerName = getProviderName(seenDb);
 
   debug(`modelOverride: ${modelOverride}`);
@@ -440,8 +439,6 @@ export function getHelpText(): string {
 !provider models [filter] — list Routstr models, optional filter by name
 !provider sync-models — sync models from Routstr
 !provider add-model <id> — add a Routstr model to opencode.json
-!file upload <path> <npub>   Encrypt and share a file with another bot
-!file download <naddr>       Download and decrypt a file shared with this bot
 !exit — stop the bot process
 ${getPluginHelpTexts() ?? ''}`;
 }

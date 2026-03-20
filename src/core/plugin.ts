@@ -27,10 +27,20 @@ export type PluginDefaults = {
   workspace_target: WorkspaceTarget;
 };
 
+/**
+ * Shared context for plugins. Mutating handlers run after `onInit(ctx)` has been called.
+ *
+ * - **getAgentEnv** — Environment passed to agent backends (merged process env, PATH, Routstr
+ *   key from DB when applicable). The job runner calls this when spawning a run so values stay
+ *   current; it is not a frozen snapshot of `process.env` at startup.
+ * - **defaults** — UI defaults when a user message is handled; for authoritative DB state prefer
+ *   `openCoreDb()` inside the plugin (see job plugin CLI tools).
+ */
 export type PluginContext = {
   runAgent: RunAgentFn | null;
   sendReply: SendReplyFn;
-  env: Record<string, string | undefined>;
+  // used by plugins/job/runner.ts
+  getAgentEnv: () => Record<string, string | undefined>;
   defaults: PluginDefaults;
 };
 

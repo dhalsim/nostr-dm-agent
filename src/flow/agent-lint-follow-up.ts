@@ -5,7 +5,7 @@
 import { createBackend } from '../backends/factory';
 import type { AgentRunResult } from '../backends/types';
 import { getOutputString } from '../backends/types';
-import type { AgentMode, CoreDb } from '../db';
+import type { AgentBackendName, AgentMode, CoreDb } from '../db';
 import {
   getAgentBackend,
   getLinting,
@@ -30,7 +30,7 @@ export type RunAgentWithLintFollowUpProps = {
   seenDb: CoreDb;
   effectiveContent: string;
   currentWorkspace: string;
-  backendName: string;
+  backendName: AgentBackendName;
 };
 
 export async function runAgentWithLintFollowUp({
@@ -55,8 +55,8 @@ export async function runAgentWithLintFollowUp({
   ): Promise<AgentRunResult> => {
     log.info(startLog);
 
-    const modelOverride = getModelOverride(seenDb);
     const backendNameFromDb = getAgentBackend(seenDb);
+    const modelOverride = getModelOverride(seenDb, backendNameFromDb);
     const routstrModel = getRoutstrModel(seenDb);
 
     const effectiveModelOverride =

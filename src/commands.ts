@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { writeFileSync } from 'fs';
-import { join, resolve } from 'path';
+import { join } from 'path';
 
 import { nip19 } from 'nostr-tools';
 
@@ -57,7 +57,6 @@ import {
 } from './db';
 import type { BotConfig } from './env';
 import { getEnvFromFile, setEnvInFile } from './env-file';
-import { fileUpload, fileDownload } from './file-sync';
 import { getInfoLogsEnabled, log, setInfoLogsEnabled } from './logger';
 import { RESTART_REQUESTED_PATH } from './paths';
 import type { ProviderDb } from './providers/db';
@@ -333,7 +332,7 @@ export async function handleBangCommand({
 
     case 'models': {
       return handleError(
-        async () => handleModels({ seenDb: seenDb, dmBotRoot, attachUrl }),
+        async () => handleModels({ seenDb, dmBotRoot, attachUrl }),
         'Failed to list models',
       );
     }
@@ -705,62 +704,6 @@ export async function handleBangCommand({
 
     case 'exit':
       return EXIT_COMMAND_SENTINEL;
-
-    case 'file': {
-      const [subcommand, ...fileArgs] = args;
-
-      if (subcommand === 'upload') {
-        const [filePathArg, recipientNpub] = fileArgs;
-
-        if (!filePathArg || !recipientNpub) {
-          return 'Usage: !file upload <file_path> <npub_bot_b>';
-        }
-
-        const workspace = getWorkspaceTarget(seenDb);
-
-        const filePath = () =>
-          workspace === 'bot'
-            ? resolve(dmBotRoot, filePathArg)
-            : resolve(parentOfBotRoot, filePathArg);
-
-        return handleError(async () => {
-          const result = await fileUpload({
-            filePath: filePath(),
-            recipientNpub,
-            config,
-          });
-
-          if (result.skipped) {
-            return `File unchanged (hash matches remote): ${result.filename}. Nothing to upload.\nnaddr: ${result.naddr}`;
-          }
-
-          return `Upload complete: ${result.filename}\nnaddr: ${result.naddr}`;
-        }, 'File upload failed');
-      }
-
-      if (subcommand === 'download') {
-        const [naddr] = fileArgs;
-
-        if (!naddr) {
-          return 'Usage: !file download <naddr>';
-        }
-
-        return handleError(async () => {
-          const workspace = getWorkspaceTarget(seenDb);
-          const filePath = workspace === 'bot' ? dmBotRoot : parentOfBotRoot;
-
-          const result = await fileDownload({ naddr, config, filePath });
-
-          if (result.skipped) {
-            return `File already up to date: ${result.filename}. Nothing to download.`;
-          }
-
-          return `Download complete: ${result.filename} → ${result.path}`;
-        }, 'File download failed');
-      }
-
-      return 'Usage: !file <upload|download>';
-    }
 
     default: {
       const pluginResult = await dispatchPluginCommand(cmd, args);

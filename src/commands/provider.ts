@@ -12,6 +12,7 @@ import {
   getRoutstrSkKey,
   setCachedRoutstrModels,
   getCachedRoutstrModels,
+  getAgentBackend,
 } from '../db';
 import { log } from '../logger';
 import type { ProviderDb } from '../providers/db';
@@ -47,6 +48,7 @@ export function handleProviderSet({
     return `Invalid provider: ${name}. Use: ${ProviderNameSchema.options.join('|')}`;
   }
 
+  const backendName = getAgentBackend(seenDb);
   setProviderName(seenDb, parsed.data);
 
   if (parsed.data === 'routstr') {
@@ -59,7 +61,7 @@ export function handleProviderSet({
         : 'No session yet. Use !provider deposit <sats> or append !!<sats> to your prompt.',
     );
 
-    const modelOverride = getModelOverride(seenDb);
+    const modelOverride = getModelOverride(seenDb, backendName);
     const routstrModel = getRoutstrModel(seenDb);
 
     if (modelOverride && !modelOverride.startsWith('routstr/')) {
