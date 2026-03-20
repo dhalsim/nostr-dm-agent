@@ -41,12 +41,14 @@ To update an installed plugin:
 bun run plugin:install todo
 ```
 
-### Known plugins
+### Some Plugins
 
 | Plugin | Nostr URI | Description |
 |--------|-----------|-------------|
+| **dm-bot-bm-plugin** | `nostr://_@dhalsim.github.io/dm-bot-bm-plugin` | Bookmark management: add, list, mark as to_read, manage with AI |
 | **dm-bot-todo-plugin** | `nostr://_@dhalsim.github.io/dm-bot-todo-plugin` | Todo management: add, list, and complete tasks; create drafts from natural language with `!todo ai`; accept, revise, or decline drafts. |
 | **dm-bot-job-plugin** | `nostr://_@dhalsim.github.io/dm-bot-job-plugin` | Scheduled and one-off jobs: cron and run-once tasks; create job drafts with `!job ai`; enable, disable, run, and view history. |
+| **dm-bot-file-plugin** | `nostr://_@dhalsim.github.io/dm-bot-file-plugin` | File management: upload, download, and list files |
 
 See [PLUGINS.md](PLUGINS.md) for full documentation — installing, updating, and authoring your own plugins.
 

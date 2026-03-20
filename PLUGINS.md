@@ -284,4 +284,4 @@ Plugin repo URLs support both formats:
 - `nostr://npub1abc.../dm-bot-todo-plugin` — direct npub
 - `nostr://_@yourdomain.com/dm-bot-todo-plugin` — NIP-05 identity
 
-The installer resolves NIP-05 identities via `.well-known/nostr.json` automatically.
+The installer resolves NIP-05 identities via `.well-known/nostr.json?name=<name>` automatically.
