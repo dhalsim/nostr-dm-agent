@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // scripts/send-dm-to-master.ts — one-shot NIP-17 DM from bot identity to BOT_MASTER_PUBKEY
 //
-// Usage: bun run dm:send-master -- <message>
+// Usage: bun scripts/send-dm-to-master.ts -- <message>
 // Requires: BOT_KEY, BOT_MASTER_PUBKEY, BOT_RELAYS (same as the main bot)
 
 import { SimplePool } from 'nostr-tools/pool';
@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   const message = process.argv.slice(2).join(' ').trim();
 
   if (!message) {
-    console.error('Usage: bun run dm:send-master -- <message>');
+    console.error('Usage: bun scripts/send-dm-to-master.ts -- <message>');
     process.exit(1);
   }
 
