@@ -5,19 +5,21 @@
 //
 // Reads current state from DB, shows current values as defaults,
 // lets user reconfigure workspace, backend, provider, mode, lint, ready.
-// If workspace is "parent", symlinks AGENTS.md and opencode.json
-// into the parent project root.
+// If workspace is "parent", symlinks AGENTS.md, opencode.json, and
+// `.claude/skills/dm-bot*/` skill folders into the parent project.
 // ---------------------------------------------------------------------------
 
 import {
   existsSync,
+  mkdirSync,
+  readdirSync,
   symlinkSync,
   unlinkSync,
   lstatSync,
   readFileSync,
   writeFileSync,
 } from 'fs';
-import { basename, join, resolve } from 'path';
+import { basename, dirname, join, resolve } from 'path';
 import * as readline from 'readline';
 
 import type { Linting } from '../src/db';
@@ -39,24 +41,55 @@ import { dmBotRoot } from '../src/paths';
 
 const PARENT_ROOT = resolve(join(dmBotRoot, '..'));
 const BOT_DIR_NAME = basename(dmBotRoot);
+const DM_BOT_SKILLS_DIR = join(dmBotRoot, '.claude', 'skills');
 
-const SYMLINK_TARGETS = [
-  {
-    label: 'opencode.json',
-    src: join(dmBotRoot, 'opencode.json'),
-    dest: join(PARENT_ROOT, 'opencode.json'),
-  },
-  {
-    label: 'AGENTS.md',
-    src: join(dmBotRoot, 'AGENTS.md'),
-    dest: join(PARENT_ROOT, 'AGENTS.md'),
-  },
-];
+type SymlinkTarget = {
+  label: string;
+  src: string;
+  dest: string;
+};
+
+function getSymlinkTargets(): SymlinkTarget[] {
+  const staticTargets: SymlinkTarget[] = [
+    {
+      label: 'opencode.json',
+      src: join(dmBotRoot, 'opencode.json'),
+      dest: join(PARENT_ROOT, 'opencode.json'),
+    },
+    {
+      label: 'AGENTS.md',
+      src: join(dmBotRoot, 'AGENTS.md'),
+      dest: join(PARENT_ROOT, 'AGENTS.md'),
+    },
+  ];
+
+  const skillTargets: SymlinkTarget[] = [];
+
+  if (existsSync(DM_BOT_SKILLS_DIR)) {
+    const names = readdirSync(DM_BOT_SKILLS_DIR, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && d.name.startsWith('dm-bot'))
+      .map((d) => d.name)
+      .sort();
+
+    for (const name of names) {
+      const rel = join('.claude', 'skills', name);
+
+      skillTargets.push({
+        label: rel,
+        src: join(DM_BOT_SKILLS_DIR, name),
+        dest: join(PARENT_ROOT, rel),
+      });
+    }
+  }
+
+  return [...staticTargets, ...skillTargets];
+}
 
 const PARENT_GITIGNORE_ENTRIES = [
   `${BOT_DIR_NAME}/`,
   'opencode.json',
   'AGENTS.md',
+  '.claude/skills/dm-bot-*/',
 ];
 
 // ---------------------------------------------------------------------------
@@ -216,7 +249,7 @@ function removeParentGitignoreEntries(): void {
 }
 
 async function removeSymlinks(): Promise<void> {
-  for (const target of SYMLINK_TARGETS) {
+  for (const target of getSymlinkTargets()) {
     if (isSymlink(target.dest)) {
       unlinkSync(target.dest);
       console.log(`  ✓ Removed symlink: ${target.label}`);
@@ -227,7 +260,7 @@ async function removeSymlinks(): Promise<void> {
 async function createSymlinks(): Promise<void> {
   console.log(`\nParent project root: ${PARENT_ROOT}\n`);
 
-  for (const target of SYMLINK_TARGETS) {
+  for (const target of getSymlinkTargets()) {
     if (!existsSync(target.src)) {
       console.log(`  ⚠ Source not found, skipping: ${target.label}`);
       continue;
@@ -249,6 +282,12 @@ async function createSymlinks(): Promise<void> {
       }
 
       unlinkSync(target.dest);
+    }
+
+    const destParent = dirname(target.dest);
+
+    if (!existsSync(destParent)) {
+      mkdirSync(destParent, { recursive: true });
     }
 
     symlinkSync(target.src, target.dest);
@@ -447,7 +486,9 @@ async function main(): Promise<void> {
   if (isParent) {
     console.log(`\n  Parent root:       ${PARENT_ROOT}`);
 
-    console.log('  Symlinks created for opencode.json and AGENTS.md');
+    console.log(
+      '  Symlinks: opencode.json, AGENTS.md, .claude/skills/dm-bot-*/',
+    );
   }
 
   console.log('\n✓ Setup complete. Run `bun run start` to start the bot.\n');
