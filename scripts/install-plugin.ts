@@ -130,7 +130,7 @@ function parsePluginEvent(event: NostrEvent): PluginEvent | null {
     created_at: event.created_at,
     pubkey: event.pubkey,
     name,
-    description: tagValue(event.tags, 'description'),
+    description: event.content,
     version: tagValue(event.tags, 'version'),
     coreApiVersion: tagValue(event.tags, 'coreApiVersion'),
     repo,
