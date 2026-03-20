@@ -72,6 +72,50 @@ function templateOutputName(name: string): string {
   return name;
 }
 
+type CopyTemplateRecursiveProps = {
+  outDir: string;
+  vars: Record<string, string>;
+  relDir: string;
+};
+
+function copyTemplateRecursive({
+  outDir,
+  vars,
+  relDir,
+}: CopyTemplateRecursiveProps): void {
+  const absDir = join(TEMPLATE_DIR, relDir);
+
+  for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+    const relPath = relDir ? join(relDir, entry.name) : entry.name;
+
+    if (entry.isDirectory()) {
+      const destDir = join(outDir, relPath);
+      mkdirSync(destDir, { recursive: true });
+      copyTemplateRecursive({ outDir, vars, relDir: relPath });
+
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    if (entry.name.endsWith('.sqlite')) {
+      continue;
+    }
+
+    const srcPath = join(TEMPLATE_DIR, relPath);
+    const raw = readFileSync(srcPath, 'utf8');
+    const expanded = expandTemplate(raw, vars);
+    const destName = templateOutputName(entry.name);
+    const destDir = join(outDir, relDir);
+    const destPath = join(destDir, destName);
+
+    mkdirSync(destDir, { recursive: true });
+    writeFileSync(destPath, expanded, 'utf8');
+  }
+}
+
 type RunLintForPluginProps = {
   alias: string;
 };
@@ -153,27 +197,8 @@ async function main(): Promise<void> {
     CORE_API_VERSION: coreApiVersion,
   };
 
-  const files = readdirSync(TEMPLATE_DIR, { withFileTypes: true });
   mkdirSync(outDir, { recursive: true });
-
-  for (const dirent of files) {
-    if (!dirent.isFile()) {
-      continue;
-    }
-
-    const name = dirent.name;
-
-    if (name.endsWith('.sqlite')) {
-      continue;
-    }
-
-    const srcPath = join(TEMPLATE_DIR, name);
-    const raw = readFileSync(srcPath, 'utf8');
-    const expanded = expandTemplate(raw, vars);
-    const destName = templateOutputName(name);
-    const destPath = join(outDir, destName);
-    writeFileSync(destPath, expanded, 'utf8');
-  }
+  copyTemplateRecursive({ outDir, vars, relDir: '' });
 
   console.log(`\nPlugin created at plugins/${alias}/`);
 
@@ -192,7 +217,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    'Add it to plugins.json and run `bun run plugin:generate` when you want to use it in this repo.',
+    'Add it to plugins.json and run `bun run plugin:generate` when you want to refresh plugin registration and CLI/skill outputs.',
   );
 }
 

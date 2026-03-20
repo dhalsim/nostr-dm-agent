@@ -19,7 +19,7 @@ This opens an interactive discovery flow:
 3. You pick one and choose a short **alias** (e.g. `todo`, `jobs`)
 4. The plugin is cloned into `plugins/<alias>/`
 5. `plugins.json` is updated
-6. OpenCode tool definitions and bot registration are generated automatically
+6. Plugin registration, the CLI tool registry, and generated skill docs are updated automatically
 
 The alias you choose becomes the command prefix (`!todo list`) and the folder name (`plugins/todo/`). Keep it short and memorable.
 
@@ -57,7 +57,7 @@ Once installed, plugins register their commands under the alias you chose. Run:
 
 to see available commands for that plugin. All plugin commands follow the same `!<alias> <subcommand>` pattern.
 
-Plugin AI features work with the OpenCode backend — the plugin's tools appear in OpenCode as `<alias>_list`, `<alias>_create`, etc. You can ask the agent to manage plugin data in natural language and it will use these tools automatically.
+Plugin AI features work through your configured agent backend and the generated **skills** / **`bun src/cli.ts`** tool flow: each plugin exposes a `ToolCallSchema` in `ai.ts`, and `bun run plugin:generate` writes `.claude/skills/dm-bot-<alias>/SKILL.md` when the plugin exports `ToolCallSchema` and `skillDescription`.
 
 ### Version compatibility
 
@@ -69,26 +69,58 @@ Currently manual:
 
 1. Delete the `plugins/<alias>/` folder
 2. Remove the entry from `plugins.json`
-3. Run `bun run plugin:generate` to regenerate bot registration and OpenCode tools
+3. Run `bun run plugin:generate` to regenerate bot registration and CLI/skill outputs
 
 ---
 
 ## For Plugin Authors
 
+### Scaffolding a new plugin (local dev)
+
+To start from the built-in template inside this repo:
+
+```bash
+bun run plugin:new
+```
+
+The script prompts for:
+
+- **Alias** (required) — folder name and command prefix (e.g. `todo` → `plugins/todo/`, `!todo …`)
+- **Short description** (optional) — defaults to a sensible string from the alias
+- **Core API version** (optional) — defaults from the bot’s current major version in root `package.json`
+
+It copies `scripts/plugin-template/` into `plugins/<alias>/`, expanding placeholders (`{{ALIAS}}`, `{{PASCAL_ALIAS}}`, etc.). It can optionally run `eslint` with `--fix` **only** for that new folder.
+
+**It does not** edit `plugins.json` or run `bun run plugin:generate`. After you’re ready to wire the plugin into this checkout:
+
+1. Add an entry to `plugins.json`
+2. Run `bun run plugin:generate` (registers the plugin and CLI/skill outputs)
+
+For a distributable plugin, treat the scaffold as a starting point: finish features, then publish from its own git repo as described under [Publishing a plugin](#publishing-a-plugin).
+
 ### Plugin structure
 
-A plugin is a git repository with this structure:
+A plugin is a git repository with this structure (matches `scripts/plugin-template/`):
 
 ```
 my-plugin/
   package.json          ← metadata + coreApiVersion
   init.ts               ← exports the BotPlugin object
-  opencode.ts           ← exports createToolDefinitions() and agentInstructions()
+  commands.ts           ← !<alias> subcommand handler
+  ai.ts                 ← !<alias> ai <prompt> handler (optional but typical)
+  tool.ts               ← system prompt + tool-call parsing for AI
   db.ts                 ← SQLite schema and CRUD
   format.ts             ← display helpers
-  types.ts              ← Zod schemas and TypeScript types
+  types/                ← Zod schemas and TypeScript types
+    index.ts
+    item.ts             ← main entity (rename/stub as needed)
+    draft.ts            ← create-draft shape (draft/confirm flow)
   drafts.ts             ← draft persistence (if using draft/confirm flow)
+  README.md
+  .gitignore
 ```
+
+Older plugins may use a single root `types.ts` instead of `types/`; both layouts are valid.
 
 ### `package.json`
 
@@ -142,45 +174,18 @@ export const TodoPlugin: BotPlugin = {
 - **handler(args)** — called for each `!<alias> ...` command. Only `args` are passed; use the context and DB stored in onInit.
 - **helpText(alias)** — returns an array of help lines shown under the plugin in `!help`. Identity `description` is used in the plugin list.
 
-### `opencode.ts` — AI tool definitions
+### `ai.ts` — AI/CLI tool definitions
 
-This file bridges your plugin to OpenCode's tool system. It exports two things:
+Plugins expose AI/CLI tool calls via:
 
-**`createToolDefinitions(alias)`** — returns the tool definitions array. Each entry is passed directly to OpenCode's `tool()` function:
+- **`ToolCallSchema`** (named export from `ai.ts`) — a Zod discriminated union keyed by `type`
+- **`skillDescription`** (export from `ai.ts`) — short string for the generated skill frontmatter (required for skill generation)
+- **`executeTool({ alias, call, db })`** (export from `ai.ts`) — executes one validated tool call
+- **`agentInstructions(alias)`** (optional export from `ai.ts`) — extra prose prepended to generated `.claude/skills/dm-bot-<alias>/SKILL.md` (omit it when the JSON schema + shared skill rules are enough)
 
-```typescript
-export function createToolDefinitions(alias: string) {
-  const dbPath = join(dmBotRoot, 'plugins', alias, 'db.sqlite');
-  const cmd = `!${alias}`;
+`src/cli.ts` validates incoming JSON with `ToolCallSchema`, injects `type` from `<toolName>`, then calls `executeTool`.
 
-  function openDb(): Database { ... }
-
-  return [
-    {
-      name: 'list',
-      description: 'List all todos...',
-      args: {
-        filter: tool.schema.enum(['pending', 'done', 'all']).optional(),
-      },
-      execute: async (args, _context) => {
-        const db = openDb();
-        // ...
-      },
-    },
-    // create, update, delete...
-  ] as const;
-}
-```
-
-**`agentInstructions(alias)`** — returns a Markdown string injected into `AGENTS.md`:
-
-```typescript
-export function agentInstructions(alias: string): string {
-  return `## ${alias} tools\n\nWhen the user asks to manage todos:\n- Always use the ${alias}_* tools...`;
-}
-```
-
-Note: `args` must use `tool.schema.*` (OpenCode's Zod v3 DSL), not your own Zod v4 instance. Use your own Zod only inside `execute` bodies for runtime validation.
+Pluginsare allowed to differ in **which** tools they expose, how `!<alias> ai` is implemented, and how `executeTool` applies domain rules. What must stay consistent is the **exports above** so `plugin:generate` and the CLI keep working. For **new** plugins, start from `bun run plugin:new` — `scripts/plugin-template/` is kept in sync with that contract.
 
 ### The draft/confirm flow
 
@@ -247,22 +252,7 @@ Users on core `4` will get `v1.2.3`, users on core `5` will get `v2.0.0`. The in
 
 ### Code generation
 
-The bot uses two generated files that are updated automatically when you run `bun run plugin:install` or `bun run plugin:generate`:
-
-**`.opencode/tools/<alias>.ts`** — thin wrapper that imports your `createToolDefinitions` and exports named tool constants for OpenCode:
-
-```typescript
-// AUTO-GENERATED
-import { tool } from '@opencode-ai/plugin';
-import { createToolDefinitions } from '../../plugins/todo/opencode';
-
-const defs = createToolDefinitions('todo');
-
-export const _list = tool(defs[0]);
-export const _create = tool(defs[1]);
-export const _update = tool(defs[2]);
-export const _delete = tool(defs[3]);
-```
+The bot refreshes plugin registration, CLI registry, and skill docs when you run `bun run plugin:install` or `bun run plugin:generate`:
 
 **`generated/plugins.ts`** — registers all installed plugins at bot startup:
 
@@ -277,7 +267,15 @@ export function registerPlugins(ctx: PluginContext): void {
 }
 ```
 
-Both files are in `.gitignore` and regenerated on every install/update.
+**`generated/cli-registry.ts`** — AUTO-GENERATED; imports each plugin’s `ToolCallSchema` from `plugins/<alias>/ai.ts` and exposes alias/schema metadata for `src/cli.ts`.
+
+**`.claude/skills/dm-bot-<alias>/SKILL.md`** — AUTO-GENERATED skill docs for CLI-based tool usage (generated when the plugin exports `ToolCallSchema`, `skillDescription`, and passes the generator’s schema checks).
+
+Paths such as `.claude/skills/dm-bot*/` and `generated/` may be gitignored locally; run `bun run plugin:generate` after clone or template changes. Keep `plugins.json` private as today.
+
+#### SQLite WAL
+
+Plugins open `plugins/<alias>/db.sqlite` through `openDb()` in `db.ts` and run `PRAGMA foreign_keys = ON` plus `PRAGMA journal_mode=WAL`, so bot commands and CLI calls share one DB setup path.
 
 ### NIP-05 and npub repo URLs
 

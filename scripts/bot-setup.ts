@@ -5,13 +5,12 @@
 //
 // Reads current state from DB, shows current values as defaults,
 // lets user reconfigure workspace, backend, provider, mode, lint, ready.
-// If workspace is "parent", symlinks .opencode/tools, AGENTS.md, opencode.json
+// If workspace is "parent", symlinks AGENTS.md and opencode.json
 // into the parent project root.
 // ---------------------------------------------------------------------------
 
 import {
   existsSync,
-  mkdirSync,
   symlinkSync,
   unlinkSync,
   lstatSync,
@@ -48,11 +47,6 @@ const SYMLINK_TARGETS = [
     dest: join(PARENT_ROOT, 'opencode.json'),
   },
   {
-    label: '.opencode/tools',
-    src: join(dmBotRoot, '.opencode', 'tools'),
-    dest: join(PARENT_ROOT, '.opencode', 'tools'),
-  },
-  {
     label: 'AGENTS.md',
     src: join(dmBotRoot, 'AGENTS.md'),
     dest: join(PARENT_ROOT, 'AGENTS.md'),
@@ -62,7 +56,6 @@ const SYMLINK_TARGETS = [
 const PARENT_GITIGNORE_ENTRIES = [
   `${BOT_DIR_NAME}/`,
   'opencode.json',
-  '.opencode/',
   'AGENTS.md',
 ];
 
@@ -256,15 +249,6 @@ async function createSymlinks(): Promise<void> {
       }
 
       unlinkSync(target.dest);
-    }
-
-    // Ensure parent .opencode dir exists
-    if (target.label === '.opencode/tools') {
-      const opencodeDir = join(PARENT_ROOT, '.opencode');
-
-      if (!existsSync(opencodeDir)) {
-        mkdirSync(opencodeDir, { recursive: true });
-      }
     }
 
     symlinkSync(target.src, target.dest);
@@ -463,9 +447,7 @@ async function main(): Promise<void> {
   if (isParent) {
     console.log(`\n  Parent root:       ${PARENT_ROOT}`);
 
-    console.log(
-      '  Symlinks created for opencode.json, .opencode/tools, AGENTS.md',
-    );
+    console.log('  Symlinks created for opencode.json and AGENTS.md');
   }
 
   console.log('\n✓ Setup complete. Run `bun run start` to start the bot.\n');

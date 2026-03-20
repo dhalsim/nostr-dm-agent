@@ -3,7 +3,7 @@
 //
 // Used when the agent (or !{{ALIAS}} ai) proposes a change and the user
 // must accept/revise/decline. If you don't need draft/confirm, you can
-// simplify commands and opencode to apply changes directly and remove or
+// simplify commands and CLI execution to apply changes directly and remove or
 // stub draft usage here.
 //
 // Replace Create{{PASCAL_ALIAS}}Draft / Update{{PASCAL_ALIAS}}Input with your

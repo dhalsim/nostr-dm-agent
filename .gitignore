@@ -7,3 +7,4 @@ plugins.json
 plugins/
 generated/
 TOOLS.md
+.claude/skills/dm-bot*/

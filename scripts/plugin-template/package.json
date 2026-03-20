@@ -8,7 +8,6 @@
   "description": "{{DESCRIPTION}}",
   "type": "module",
   "dependencies": {
-    "@opencode-ai/plugin": "^1.2.21",
     "@opencode-ai/sdk": "^1.2.16"
   }
 }

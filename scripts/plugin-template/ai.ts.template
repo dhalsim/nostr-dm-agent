@@ -4,21 +4,66 @@
 // Calls the agent with a system prompt and parses tool calls (list, create,
 // update, delete). For list we return the formatted list; for create/update/
 // delete we store drafts and return previews. Replace or extend the prompt
-// and handling in tool.ts to match your plugin’s operations.
+// and handling below to match your plugin’s operations.
 // ---------------------------------------------------------------------------
 
 import type { Database } from 'bun:sqlite';
+import { z } from 'zod';
 
 import type { AgentRunResult } from '@src/backends/types';
 import { getOutputString } from '@src/backends/types';
 import type { PluginIdentity } from '@src/core/plugin';
+import type { ParseSettledResult } from '@src/tools/utils';
+import { parseToolCalls } from '@src/tools/utils';
 
 import { get{{PASCAL_ALIAS}}, list{{PASCAL_ALIAS}}s } from './db';
 import { storeDraft } from './drafts';
 import { formatDraftReply } from './format';
-import { format{{PASCAL_ALIAS}}Tree } from './format';
-import type { {{PASCAL_ALIAS}}ToolCall } from './tool';
-import { buildSystemPrompt, parse{{PASCAL_ALIAS}}ToolCalls } from './tool';
+import { format{{PASCAL_ALIAS}}s } from './format';
+import { Create{{PASCAL_ALIAS}}InputSchema, Update{{PASCAL_ALIAS}}InputSchema } from './types';
+
+const {{PASCAL_ALIAS}}ListCallSchema = z.object({ type: z.literal('list') });
+
+const {{PASCAL_ALIAS}}CreateCallSchema = z.object({
+  type: z.literal('create'),
+  input: Create{{PASCAL_ALIAS}}InputSchema,
+  original_prompt: z.string(),
+});
+
+const {{PASCAL_ALIAS}}UpdateCallSchema = z.object({
+  type: z.literal('update'),
+  input: Update{{PASCAL_ALIAS}}InputSchema,
+  original_prompt: z.string(),
+});
+
+const {{PASCAL_ALIAS}}DeleteCallSchema = z.object({
+  type: z.literal('delete'),
+  input: z.object({ id: z.number().int().positive() }),
+  original_prompt: z.string(),
+});
+
+const {{PASCAL_ALIAS}}ToolCallSchema = z.discriminatedUnion('type', [
+  {{PASCAL_ALIAS}}ListCallSchema,
+  {{PASCAL_ALIAS}}CreateCallSchema,
+  {{PASCAL_ALIAS}}UpdateCallSchema,
+  {{PASCAL_ALIAS}}DeleteCallSchema,
+]);
+
+export type {{PASCAL_ALIAS}}ToolCall = z.infer<typeof {{PASCAL_ALIAS}}ToolCallSchema>;
+export { {{PASCAL_ALIAS}}ToolCallSchema as ToolCallSchema };
+export const skillDescription = '{{PASCAL_ALIAS}} management via local dm-bot CLI tools.';
+
+export function buildSystemPrompt(userPrompt: string, context: string): string {
+  const schema = z.toJSONSchema({{PASCAL_ALIAS}}ToolCallSchema);
+
+  return `You are helping the user manage {{ALIAS}}s. Current state:\n${context}\n\nUser request: "${userPrompt}"\n\nOutput one or more JSON objects matching this schema (one per line for multiple). No markdown.\n\n${JSON.stringify(schema, null, 2)}`;
+}
+
+export function parse{{PASCAL_ALIAS}}ToolCalls(
+  raw: string,
+): ParseSettledResult<{{PASCAL_ALIAS}}ToolCall>[] {
+  return parseToolCalls({ raw, schema: {{PASCAL_ALIAS}}ToolCallSchema });
+}
 
 export type Handle{{PASCAL_ALIAS}}AiProps = {
   args: string[];
@@ -41,7 +86,7 @@ export async function handle{{PASCAL_ALIAS}}Ai({
   }
 
   const items = list{{PASCAL_ALIAS}}s(db);
-  const context = items.length > 0 ? format{{PASCAL_ALIAS}}Tree(items) : '(no {{ALIAS}}s yet)';
+  const context = items.length > 0 ? format{{PASCAL_ALIAS}}s(items) : '(no {{ALIAS}}s yet)';
   const systemPrompt = buildSystemPrompt(userPrompt, context);
   const result = await runAgent(systemPrompt);
   const raw = getOutputString(result).trim();
@@ -68,79 +113,12 @@ export async function handle{{PASCAL_ALIAS}}Ai({
     return `Failed to parse response: ${msg}`;
   }
 
+  const previews = await Promise.all(
+    fulfilled.map(async ({ value }) =>
+      executeTool({ alias, call: value, db }),
+    ),
+  );
   const cmd = `!${alias}`;
-  const previews: string[] = [];
-
-  for (const { value } of fulfilled) {
-    if (value.type === 'list') {
-      const list = list{{PASCAL_ALIAS}}s(db);
-
-      return list.length === 0 ? 'No {{ALIAS}}s.' : format{{PASCAL_ALIAS}}Tree(list);
-    }
-
-    if (value.type === 'create') {
-      const draftId = storeDraft(db, {
-        kind: 'create',
-        input: value.input,
-        originalPrompt: userPrompt,
-      });
-
-      previews.push(
-        [
-          'Create:',
-          '',
-          `  - ${value.input.data}`,
-          '',
-          `Draft ID: ${draftId}`,
-          formatDraftReply(cmd, draftId, 'create'),
-        ].join('\n'),
-      );
-    } else if (value.type === 'update') {
-      const existing = get{{PASCAL_ALIAS}}(db, value.input.id);
-
-      if (!existing) {
-        previews.push(`{{PASCAL_ALIAS}} not found: ${value.input.id}. Call list first.`);
-        continue;
-      }
-
-      const draftId = storeDraft(db, {
-        kind: 'update',
-        input: value.input,
-        originalPrompt: userPrompt,
-      });
-
-      previews.push(
-        [
-          `Update #${value.input.id}: "${existing.data}"`,
-          '',
-          `Draft ID: ${draftId}`,
-          formatDraftReply(cmd, draftId, 'update'),
-        ].join('\n'),
-      );
-    } else if (value.type === 'delete') {
-      const item = get{{PASCAL_ALIAS}}(db, value.input.id);
-
-      if (!item) {
-        previews.push(`{{PASCAL_ALIAS}} not found: ${value.input.id}. Call list first.`);
-        continue;
-      }
-
-      const draftId = storeDraft(db, {
-        kind: 'delete',
-        input: { id: value.input.id },
-        originalPrompt: userPrompt,
-      });
-
-      previews.push(
-        [
-          `Delete #${value.input.id}: "${item.data}"`,
-          '',
-          `Draft ID: ${draftId}`,
-          formatDraftReply(cmd, draftId, 'delete'),
-        ].join('\n'),
-      );
-    }
-  }
 
   if (previews.length === 0) {
     return 'No operations to show.';
@@ -152,3 +130,89 @@ export async function handle{{PASCAL_ALIAS}}Ai({
     previews.join('\n\n'),
   ].join('\n');
 }
+
+export async function executeTool({
+  alias,
+  call,
+  db,
+}: {
+  alias: string;
+  call: {{PASCAL_ALIAS}}ToolCall;
+  db: Database;
+}): Promise<string> {
+  const cmd = `!${alias}`;
+
+  if (call.type === 'list') {
+    const list = list{{PASCAL_ALIAS}}s(db);
+
+    return list.length === 0 ? 'No {{ALIAS}}s.' : format{{PASCAL_ALIAS}}s(list);
+  }
+
+  if (call.type === 'create') {
+    const draftId = storeDraft(db, {
+      kind: 'create',
+      input: call.input,
+      originalPrompt: call.original_prompt,
+    });
+
+    return [
+      'Create:',
+      '',
+      `  - ${call.input.data}`,
+      '',
+      `Draft ID: ${draftId}`,
+      formatDraftReply(cmd, draftId, 'create'),
+    ].join('\n');
+  }
+
+  if (call.type === 'update') {
+    const existing = get{{PASCAL_ALIAS}}(db, call.input.id);
+
+    if (!existing) {
+      return `{{PASCAL_ALIAS}} not found: ${call.input.id}. Call list first.`;
+    }
+
+    const draftId = storeDraft(db, {
+      kind: 'update',
+      input: call.input,
+      originalPrompt: call.original_prompt,
+    });
+
+    return [
+      `Update #${call.input.id}: "${existing.data}"`,
+      '',
+      `Draft ID: ${draftId}`,
+      formatDraftReply(cmd, draftId, 'update'),
+    ].join('\n');
+  }
+
+  const item = get{{PASCAL_ALIAS}}(db, call.input.id);
+  if (!item) {
+    return `{{PASCAL_ALIAS}} not found: ${call.input.id}. Call list first.`;
+  }
+
+  const draftId = storeDraft(db, {
+    kind: 'delete',
+    input: { id: call.input.id },
+    originalPrompt: call.original_prompt,
+  });
+
+  return [
+    `Delete #${call.input.id}: "${item.data}"`,
+    '',
+    `Draft ID: ${draftId}`,
+    formatDraftReply(cmd, draftId, 'delete'),
+  ].join('\n');
+}
+
+export function agentInstructions(alias: string): string {
+  return `## {{PASCAL_ALIAS}} (${alias} tools)
+
+When the user asks to manage {{ALIAS}}s:
+- Use bash and call \`bun src/cli.ts ${alias} <toolName> '<json>'\`
+- Call list first to resolve IDs before update/delete
+- Show full tool output exactly (including Draft ID and reply instructions)
+- For create/update/delete, include original_prompt at the top level of JSON`;
+}
+
+export { openDb } from './db';

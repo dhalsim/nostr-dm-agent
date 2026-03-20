@@ -15,8 +15,12 @@ import type { PluginIdentity } from '@src/core/plugin';
 import { handle{{PASCAL_ALIAS}}Ai } from './ai';
 import { create{{PASCAL_ALIAS}}, delete{{PASCAL_ALIAS}}, get{{PASCAL_ALIAS}}, list{{PASCAL_ALIAS}}s, update{{PASCAL_ALIAS}} } from './db';
 import { deleteDraft, getDraft, listDrafts } from './drafts';
-import { formatCreateDraftTree, formatDraftReply } from './format';
-import { format{{PASCAL_ALIAS}}Detail, format{{PASCAL_ALIAS}}Tree } from './format';
+import {
+  format{{PASCAL_ALIAS}}Detail,
+  format{{PASCAL_ALIAS}}s,
+  formatCreateDraftList,
+  formatDraftReply,
+} from './format';
 import type { Create{{PASCAL_ALIAS}}Draft, Update{{PASCAL_ALIAS}}Input } from './types';
 import { Create{{PASCAL_ALIAS}}InputSchema } from './types';
 
@@ -73,8 +77,8 @@ export async function handle{{PASCAL_ALIAS}}({
 
   if (sub === 'list') {
     const items = list{{PASCAL_ALIAS}}s(db);
-    
-    return items.length === 0 ? 'No {{ALIAS}}s.' : format{{PASCAL_ALIAS}}Tree(items);
+
+    return items.length === 0 ? 'No {{ALIAS}}s.' : format{{PASCAL_ALIAS}}s(items);
   }
 
   if (sub === 'show') {
@@ -141,7 +145,7 @@ export async function handle{{PASCAL_ALIAS}}({
         return [
           `Draft #${id} [create]:`,
           '',
-          formatCreateDraftTree(entry.input as Create{{PASCAL_ALIAS}}Draft),
+          formatCreateDraftList(entry.input as Create{{PASCAL_ALIAS}}Draft),
           '',
           formatDraftReply(cmd, id, 'create'),
         ].join('\n');

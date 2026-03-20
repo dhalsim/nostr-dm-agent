@@ -7,9 +7,12 @@
 // - If you need a draft tree (e.g. hierarchical create): add create{{PASCAL_ALIAS}}sFromDraftTree
 //   and wire it in commands.ts (accept subcommand).
 // ---------------------------------------------------------------------------
-import type { Database } from 'bun:sqlite';
+import { join } from 'path';
+
+import { Database, type Database as DatabaseType } from 'bun:sqlite';
 
 import type { {{PASCAL_ALIAS}}, Create{{PASCAL_ALIAS}}Input, Update{{PASCAL_ALIAS}}Input } from './types';
+import { create{{PASCAL_ALIAS}}DraftsTable } from './drafts';
 
 function rowTo{{PASCAL_ALIAS}}(row: Record<string, unknown>): {{PASCAL_ALIAS}} {
   return {
@@ -19,7 +22,7 @@ function rowTo{{PASCAL_ALIAS}}(row: Record<string, unknown>): {{PASCAL_ALIAS}} {
   };
 }
 
-export function create{{PASCAL_ALIAS}}Table(db: Database): void {
+export function create{{PASCAL_ALIAS}}Table(db: DatabaseType): void {
   db.run(`
     CREATE TABLE IF NOT EXISTS {{ALIAS}}s (
       id         INTEGER PRIMARY KEY,
@@ -30,7 +33,7 @@ export function create{{PASCAL_ALIAS}}Table(db: Database): void {
 }
 
 export function create{{PASCAL_ALIAS}}(
-  db: Database,
+  db: DatabaseType,
   input: Create{{PASCAL_ALIAS}}Input,
   _source?: string,
 ): {{PASCAL_ALIAS}} {
@@ -46,7 +49,7 @@ export function create{{PASCAL_ALIAS}}(
   return get{{PASCAL_ALIAS}}(db, id)!;
 }
 
-export function get{{PASCAL_ALIAS}}(db: Database, id: number): {{PASCAL_ALIAS}} | null {
+export function get{{PASCAL_ALIAS}}(db: DatabaseType, id: number): {{PASCAL_ALIAS}} | null {
   const row = db.prepare('SELECT * FROM {{ALIAS}}s WHERE id = ?').get(id) as
     | Record<string, unknown>
     | undefined;
@@ -54,7 +57,7 @@ export function get{{PASCAL_ALIAS}}(db: Database, id: number): {{PASCAL_ALIAS}} 
   return row ? rowTo{{PASCAL_ALIAS}}(row) : null;
 }
 
-export function list{{PASCAL_ALIAS}}s(db: Database): {{PASCAL_ALIAS}}[] {
+export function list{{PASCAL_ALIAS}}s(db: DatabaseType): {{PASCAL_ALIAS}}[] {
   const rows = db.prepare('SELECT * FROM {{ALIAS}}s ORDER BY id').all() as Record<
     string,
     unknown
@@ -63,7 +66,7 @@ export function list{{PASCAL_ALIAS}}s(db: Database): {{PASCAL_ALIAS}}[] {
   return rows.map(rowTo{{PASCAL_ALIAS}});
 }
 
-export function update{{PASCAL_ALIAS}}(db: Database, input: Update{{PASCAL_ALIAS}}Input): {{PASCAL_ALIAS}} | null {
+export function update{{PASCAL_ALIAS}}(db: DatabaseType, input: Update{{PASCAL_ALIAS}}Input): {{PASCAL_ALIAS}} | null {
   const existing = get{{PASCAL_ALIAS}}(db, input.id);
 
   if (!existing) {
@@ -77,8 +80,18 @@ export function update{{PASCAL_ALIAS}}(db: Database, input: Update{{PASCAL_ALIAS
   return get{{PASCAL_ALIAS}}(db, input.id);
 }
 
-export function delete{{PASCAL_ALIAS}}(db: Database, id: number): boolean {
+export function delete{{PASCAL_ALIAS}}(db: DatabaseType, id: number): boolean {
   const info = db.prepare('DELETE FROM {{ALIAS}}s WHERE id = ?').run(id);
 
   return info.changes > 0;
+}
+
+export function openDb(): DatabaseType {
+  const db = new Database(join(import.meta.dir, 'db.sqlite'), { strict: true });
+  db.run('PRAGMA foreign_keys = ON');
+  db.run('PRAGMA journal_mode=WAL');
+  create{{PASCAL_ALIAS}}Table(db);
+  create{{PASCAL_ALIAS}}DraftsTable(db);
+  
+  return db;
 }

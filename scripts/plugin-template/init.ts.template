@@ -5,7 +5,7 @@
 // command list once you implement commands in commands.ts.
 // ---------------------------------------------------------------------------
 
-import { basename, join } from 'path';
+import { basename } from 'path';
 
 import { Database } from 'bun:sqlite';
 
@@ -16,8 +16,7 @@ import {
 } from '@src/core/plugin';
 
 import { handle{{PASCAL_ALIAS}} } from './commands';
-import { create{{PASCAL_ALIAS}}Table } from './db';
-import { create{{PASCAL_ALIAS}}DraftsTable } from './drafts';
+import { openDb } from './db';
 
 const pluginDir = import.meta.dir;
 const alias = basename(pluginDir);
@@ -59,15 +58,11 @@ export const {{PASCAL_ALIAS}}Plugin: BotPlugin = {
   },
   onInit: (ctx: PluginContext) => {
     {{PASCAL_ALIAS}}PluginContext = ctx;
-
-    {{PASCAL_ALIAS}}PluginDb = new Database(join(pluginDir, 'db.sqlite'), { strict: true });
-
-    create{{PASCAL_ALIAS}}Table({{PASCAL_ALIAS}}PluginDb);
-    create{{PASCAL_ALIAS}}DraftsTable({{PASCAL_ALIAS}}PluginDb);
+    {{PASCAL_ALIAS}}PluginDb = openDb();
   },
   // Replace with your real command help lines when you implement commands.
   helpText: (alias: string) => [
     `!${alias} help — this message`,
-    `!${alias} ai <prompt> — natural language (implement in ai.ts + tool.ts)`,
+    `!${alias} ai <prompt> — natural language (implement in ai.ts)`,
   ],
 };

@@ -3,9 +3,9 @@
 //
 // Replace with formatters for your entity and drafts, e.g.:
 // - format{{PASCAL_ALIAS}}Detail(item) for !{{ALIAS}} show <id>
-// - format{{PASCAL_ALIAS}}Tree(items) or list view for !{{ALIAS}} list
-// - formatCreateDraftTree(draft), formatDraftReply(cmd, id, kind) for draft UX
-// - hasDraftChildren(draft) if you support nested/tree drafts
+// - format{{PASCAL_ALIAS}}s(items) for !{{ALIAS}} list (flat list, not a tree)
+// - formatCreateDraftList(draft), formatDraftReply(cmd, id, kind) for draft UX
+// - hasDraftChildren(draft) only if you support nested drafts
 // ---------------------------------------------------------------------------
 import type { Create{{PASCAL_ALIAS}}Draft, {{PASCAL_ALIAS}} } from './types';
 
@@ -29,11 +29,11 @@ export function formatDraftReply(
   return `${first}${cmd} accept ${id}\n${pad}${cmd} revise ${id} <corrections>\n${pad}${cmd} decline ${id}`;
 }
 
-export function formatCreateDraftTree(node: Create{{PASCAL_ALIAS}}Draft): string {
+export function formatCreateDraftList(node: Create{{PASCAL_ALIAS}}Draft): string {
   return `  - ${node.data}`;
 }
 
-export function format{{PASCAL_ALIAS}}Tree(items: {{PASCAL_ALIAS}}[], _showDescriptions?: boolean): string {
+export function format{{PASCAL_ALIAS}}s(items: {{PASCAL_ALIAS}}[]): string {
   if (items.length === 0) {
     return 'No {{ALIAS}}s.';
   }
