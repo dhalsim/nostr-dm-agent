@@ -1,5 +1,7 @@
 .env
 dm-bot.sqlite
+dm-bot.sqlite-shm
+dm-bot.sqlite-wal
 restart.requested
 node_modules
 .opencode/

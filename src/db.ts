@@ -73,6 +73,8 @@ export type CoreDb = Brand<Database, 'CoreDb'>;
 export function openCoreDb(): CoreDb {
   const db = new Database(CORE_DB_PATH);
   db.run('PRAGMA foreign_keys = ON');
+  db.run('PRAGMA journal_mode=WAL');
+  db.run('PRAGMA busy_timeout=5000');
   db.run('CREATE TABLE IF NOT EXISTS seen_events (id TEXT PRIMARY KEY)');
 
   db.run(`
