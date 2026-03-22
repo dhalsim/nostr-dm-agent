@@ -6,5 +6,8 @@
     "description": "{{DESCRIPTION}}"
   },
   "description": "{{DESCRIPTION}}",
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "contrib:setup": "chmod +x ../../scripts/commit-msg ../../scripts/post-commit ../../scripts/ngit-helper.sh && git config core.hooksPath ../../scripts"
+  }
 }

@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const gitDir = path.join(__dirname, '..');
+/** Repo making this commit (works when hooksPath points at another repo’s scripts). */
+function getAbsoluteGitDir() {
+  return execSync('git rev-parse --absolute-git-dir', { encoding: 'utf8' }).trim();
+}
 
 const commitMsgFile = process.argv[2];
 let commitMsg = fs.readFileSync(commitMsgFile, 'utf8');
@@ -16,7 +17,10 @@ if (!versionMatch) process.exit(1);
 const bumpType = versionMatch[1].toLowerCase();
 
 // Save bump type for post-commit hook
-fs.writeFileSync(path.join(gitDir, '.git', '.version-bump-type'), bumpType + '\n');
+fs.writeFileSync(
+  path.join(getAbsoluteGitDir(), '.version-bump-type'),
+  bumpType + '\n',
+);
 
 // Clean the flag from the message
 const cleanMsg = commitMsg.replace(/--(major|minor|patch)/i, '').trim();

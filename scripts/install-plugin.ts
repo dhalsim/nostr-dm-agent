@@ -53,6 +53,13 @@ type RefEntry = {
   changelog: string;
 };
 
+/** Stored in plugins.json when the user installs the remote default branch (nightly). */
+const PLUGIN_VERSION_HEAD = 'HEAD';
+
+type SelectedPluginVersion =
+  | { kind: 'catalog'; ref: RefEntry }
+  | { kind: 'head' };
+
 type PluginEvent = {
   id: string;
   created_at: number;
@@ -160,39 +167,174 @@ function findRefForInstalledVersion(
   refs: RefEntry[],
   installedVersion: string,
 ): RefEntry | null {
+  if (installedVersion === PLUGIN_VERSION_HEAD) {
+    return null;
+  }
+
   const n = normalizeRefTag(installedVersion);
 
   return refs.find((r) => normalizeRefTag(r.tag) === n) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Remote: compare default branch (HEAD) to a release tag
+// ---------------------------------------------------------------------------
+
+const GIT_LS_REMOTE_TIMEOUT_MS = 12_000;
+const NIP05_FETCH_TIMEOUT_MS = 8_000;
+
+type ParseLsRemoteForHeadAndTagProps = {
+  lsRemoteStdout: string;
+  tag: string;
+};
+
+function parseLsRemoteForHeadAndTag({
+  lsRemoteStdout,
+  tag,
+}: ParseLsRemoteForHeadAndTagProps): {
+  headSha: string | null;
+  tagSha: string | null;
+} {
+  let headSha: string | null = null;
+  let tagDirect: string | null = null;
+  let tagPeeled: string | null = null;
+  const tagRef = `refs/tags/${tag}`;
+  const tagPeeledRef = `${tagRef}^{}`;
+
+  for (const line of lsRemoteStdout.split('\n')) {
+    const t = line.trim();
+
+    if (!t) {
+      continue;
+    }
+
+    const tab = t.indexOf('\t');
+
+    if (tab === -1) {
+      continue;
+    }
+
+    const sha = t.slice(0, tab).trim();
+    const ref = t.slice(tab + 1).trim();
+
+    if (!/^[0-9a-f]{7,40}$/i.test(sha)) {
+      continue;
+    }
+
+    if (ref === 'HEAD') {
+      headSha = sha;
+    }
+
+    if (ref === tagPeeledRef) {
+      tagPeeled = sha;
+    }
+
+    if (ref === tagRef) {
+      tagDirect = sha;
+    }
+  }
+
+  const tagSha = tagPeeled ?? tagDirect;
+
+  return { headSha, tagSha };
+}
+
+type GitLsRemoteFullProps = {
+  repoUrl: string;
+  timeoutMs: number;
+};
+
+/** One `git ls-remote` per repo (not per ref) so discovery stays responsive. */
+async function gitLsRemoteFull({
+  repoUrl,
+  timeoutMs,
+}: GitLsRemoteFullProps): Promise<string | null> {
+  const proc = Bun.spawn(['git', 'ls-remote', '--', repoUrl], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+
+  const killTimer = setTimeout(() => {
+    proc.kill();
+  }, timeoutMs);
+
+  try {
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      return null;
+    }
+
+    return await new Response(proc.stdout).text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(killTimer);
+  }
+}
+
+/** `true` if default branch points to a different commit than the tag; `null` if unknown. */
+async function remoteHeadDiffersFromTag(
+  repoUrl: string,
+  tag: string,
+): Promise<boolean | null> {
+  const stdout = await gitLsRemoteFull({
+    repoUrl,
+    timeoutMs: GIT_LS_REMOTE_TIMEOUT_MS,
+  });
+
+  if (!stdout) {
+    return null;
+  }
+
+  const { headSha, tagSha } = parseLsRemoteForHeadAndTag({
+    lsRemoteStdout: stdout,
+    tag,
+  });
+
+  if (!headSha || !tagSha) {
+    return null;
+  }
+
+  return headSha !== tagSha;
 }
 
 type BuildPluginDiscoveryVersionLinesProps = {
   plugin: PluginEvent;
   installed: PluginEntry | null;
   coreMajor: string;
+  headAheadOfRelease: boolean | null;
 };
 
 function buildPluginDiscoveryVersionLines({
   plugin,
   installed,
   coreMajor,
+  headAheadOfRelease,
 }: BuildPluginDiscoveryVersionLinesProps): string[] {
   const compatible = findCompatibleRef(plugin.refs, coreMajor);
   const lines: string[] = [];
 
   if (installed) {
-    const installedRef = findRefForInstalledVersion(
-      plugin.refs,
-      installed.version,
-    );
-
-    if (installedRef) {
+    if (installed.version === PLUGIN_VERSION_HEAD) {
       lines.push(
-        `version: ${installedRef.tag} for core ${installedRef.coreMajor} ✓ installed`,
+        `version: HEAD (experimental) ✓ installed — default branch, not a catalog tag`,
       );
     } else {
-      lines.push(
-        `version: ${installed.version} ✓ installed (no matching ref tag on catalog)`,
+      const installedRef = findRefForInstalledVersion(
+        plugin.refs,
+        installed.version,
       );
+
+      if (installedRef) {
+        lines.push(
+          `version: ${installedRef.tag} for core ${installedRef.coreMajor} ✓ installed`,
+        );
+      } else {
+        lines.push(
+          `version: ${installed.version} ✓ installed (no matching ref tag on catalog)`,
+        );
+      }
     }
 
     if (compatible) {
@@ -201,6 +343,15 @@ function buildPluginDiscoveryVersionLines({
       ) {
         lines.push(
           `version: ${compatible.tag} for core ${compatible.coreMajor} (upgrade available)`,
+        );
+      }
+
+      if (
+        headAheadOfRelease === true &&
+        installed.version !== PLUGIN_VERSION_HEAD
+      ) {
+        lines.push(
+          `version: HEAD (experimental — newer than ${compatible.tag})`,
         );
       }
     } else {
@@ -214,6 +365,10 @@ function buildPluginDiscoveryVersionLines({
     lines.push(
       `version: ${compatible.tag} for core ${compatible.coreMajor} ✓ compatible`,
     );
+
+    if (headAheadOfRelease === true) {
+      lines.push(`version: HEAD (experimental — newer than ${compatible.tag})`);
+    }
   } else {
     const latest = latestRef(plugin.refs);
 
@@ -264,6 +419,7 @@ async function resolveRepoIdentity(
 
       const res = await fetch(
         `https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name)}`,
+        { signal: AbortSignal.timeout(NIP05_FETCH_TIMEOUT_MS) },
       );
 
       if (!res.ok) {
@@ -338,56 +494,15 @@ async function queryPluginEvents(pool: SimplePool): Promise<PluginEvent[]> {
   });
 }
 
-type SelectCompatibleRefProps = {
+type FallbackSelectWhenNoCompatibleRefProps = {
   plugin: PluginEvent;
   coreMajor: string;
-  installedEntry: PluginEntry | null;
 };
 
-async function selectCompatibleRef({
+async function fallbackSelectWhenNoCompatibleRef({
   plugin,
   coreMajor,
-  installedEntry,
-}: SelectCompatibleRefProps): Promise<RefEntry | null> {
-  const compatible = findCompatibleRef(plugin.refs, coreMajor);
-
-  if (installedEntry) {
-    console.log(
-      `Current installation: ${installedEntry.alias} @ ${installedEntry.version}`,
-    );
-
-    if (compatible) {
-      if (
-        normalizeRefTag(compatible.tag) ===
-        normalizeRefTag(installedEntry.version)
-      ) {
-        console.log(
-          `Latest compatible ref matches installed (${compatible.tag}, core ${compatible.coreMajor}).`,
-        );
-      } else {
-        console.log(
-          `Latest compatible ref: ${compatible.tag} (core ${compatible.coreMajor}) — upgrade from ${installedEntry.version}`,
-        );
-      }
-    }
-  }
-
-  if (compatible) {
-    if (
-      !installedEntry ||
-      normalizeRefTag(installedEntry.version) !==
-        normalizeRefTag(compatible.tag)
-    ) {
-      console.log(
-        `✓ Compatible ref: ${compatible.tag} (core ${compatible.coreMajor})`,
-      );
-    }
-
-    console.log(`  ${compatible.changelog}`);
-
-    return compatible;
-  }
-
+}: FallbackSelectWhenNoCompatibleRefProps): Promise<RefEntry | null> {
   const latest = latestRef(plugin.refs);
 
   if (!latest) {
@@ -428,6 +543,114 @@ async function selectCompatibleRef({
   return null;
 }
 
+type SelectPluginVersionProps = {
+  plugin: PluginEvent;
+  coreMajor: string;
+  installedEntry: PluginEntry | null;
+  headAheadFromDiscovery: boolean | null;
+};
+
+async function selectPluginVersion({
+  plugin,
+  coreMajor,
+  installedEntry,
+  headAheadFromDiscovery,
+}: SelectPluginVersionProps): Promise<SelectedPluginVersion | null> {
+  const compatible = findCompatibleRef(plugin.refs, coreMajor);
+
+  if (installedEntry) {
+    console.log(
+      `Current installation: ${installedEntry.alias} @ ${installedEntry.version}`,
+    );
+
+    if (compatible) {
+      if (
+        normalizeRefTag(compatible.tag) ===
+        normalizeRefTag(installedEntry.version)
+      ) {
+        console.log(
+          `Latest compatible ref matches installed (${compatible.tag}, core ${compatible.coreMajor}).`,
+        );
+      } else if (installedEntry.version !== PLUGIN_VERSION_HEAD) {
+        console.log(
+          `Latest compatible ref: ${compatible.tag} (core ${compatible.coreMajor}) — upgrade from ${installedEntry.version}`,
+        );
+      } else {
+        console.log(
+          `Latest compatible ref: ${compatible.tag} (core ${compatible.coreMajor}) — you are on ${PLUGIN_VERSION_HEAD}`,
+        );
+      }
+    }
+  }
+
+  if (!compatible) {
+    const fallback = await fallbackSelectWhenNoCompatibleRef({
+      plugin,
+      coreMajor,
+    });
+
+    if (!fallback) {
+      return null;
+    }
+
+    return { kind: 'catalog', ref: fallback };
+  }
+
+  let headAhead =
+    headAheadFromDiscovery ??
+    (await remoteHeadDiffersFromTag(plugin.repo, compatible.tag));
+
+  if (headAhead === null) {
+    headAhead = false;
+  }
+
+  if (!headAhead) {
+    if (
+      !installedEntry ||
+      normalizeRefTag(installedEntry.version) !==
+        normalizeRefTag(compatible.tag)
+    ) {
+      console.log(
+        `✓ Compatible ref: ${compatible.tag} (core ${compatible.coreMajor})`,
+      );
+    }
+
+    console.log(`  ${compatible.changelog}`);
+
+    return { kind: 'catalog', ref: compatible };
+  }
+
+  console.log(
+    `\nChoose a version (${compatible.tag} is the latest stable release for your bot; default branch may be newer):`,
+  );
+
+  console.log(
+    `  1. ${compatible.tag} (recommended) — stable release for core ${compatible.coreMajor}`,
+  );
+
+  console.log(
+    `  2. ${PLUGIN_VERSION_HEAD} (experimental) — default branch tip (nightly / pre-release)`,
+  );
+
+  console.log(`  ${compatible.changelog}`);
+
+  const choice = await ask(`Enter 1 or 2 (default: 1 — recommended): `);
+
+  const c = choice.trim();
+
+  if (c === '2') {
+    console.log(
+      `\n⚠ Installing default-branch ${PLUGIN_VERSION_HEAD}: not a tagged release; expect churn and breakage.`,
+    );
+
+    return { kind: 'head' };
+  }
+
+  console.log(`✓ Using stable release ${compatible.tag}.`);
+
+  return { kind: 'catalog', ref: compatible };
+}
+
 function runGenerator(): void {
   console.log('\nRunning code generators...');
 
@@ -440,6 +663,62 @@ function runGenerator(): void {
     console.error('✗ Generator failed.');
     process.exit(1);
   }
+}
+
+function selectedVersionLabel(selected: SelectedPluginVersion): string {
+  if (selected.kind === 'catalog') {
+    return selected.ref.tag;
+  }
+
+  return PLUGIN_VERSION_HEAD;
+}
+
+function resolveDefaultBranchName(pluginDir: string): string | null {
+  const r = Bun.spawnSync(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], {
+    cwd: pluginDir,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+
+  if (r.exitCode !== 0) {
+    return null;
+  }
+
+  const s = r.stdout.toString().trim();
+  const m = s.match(/^refs\/remotes\/origin\/(.+)$/);
+
+  return m?.[1] ?? null;
+}
+
+function checkoutRemoteDefaultBranch(pluginDir: string): boolean {
+  const fetchResult = Bun.spawnSync(['git', 'fetch', 'origin'], {
+    cwd: pluginDir,
+    stdio: ['inherit', 'inherit', 'inherit'],
+  });
+
+  if (fetchResult.exitCode !== 0) {
+    return false;
+  }
+
+  let branch = resolveDefaultBranchName(pluginDir);
+
+  if (!branch) {
+    branch = 'main';
+  }
+
+  let co = Bun.spawnSync(
+    ['git', 'checkout', '-B', branch, `origin/${branch}`],
+    { cwd: pluginDir, stdio: ['inherit', 'inherit', 'inherit'] },
+  );
+
+  if (co.exitCode !== 0) {
+    co = Bun.spawnSync(['git', 'checkout', '-B', 'master', 'origin/master'], {
+      cwd: pluginDir,
+      stdio: ['inherit', 'inherit', 'inherit'],
+    });
+  }
+
+  return co.exitCode === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -471,57 +750,100 @@ async function updatePlugin(
     process.exit(1);
   }
 
-  const selectedRef = await selectCompatibleRef({
+  const selected = await selectPluginVersion({
     plugin,
     coreMajor,
     installedEntry: entry,
+    headAheadFromDiscovery: null,
   });
 
-  if (!selectedRef) {
+  if (!selected) {
     process.exit(1);
   }
-
-  if (normalizeRefTag(selectedRef.tag) === normalizeRefTag(entry.version)) {
-    console.log(`✓ Already up to date (${entry.version}).`);
-    process.exit(0);
-  }
-
-  console.log(
-    `\nUpdating ${entry.alias}: ${entry.version} → ${selectedRef.tag}`,
-  );
 
   const pluginDir = join(ROOT, 'plugins', entry.alias);
 
-  const fetchResult = Bun.spawnSync(['git', 'fetch', '--tags'], {
-    cwd: pluginDir,
-    stdio: ['inherit', 'inherit', 'inherit'],
-  });
+  if (selected.kind === 'catalog') {
+    if (normalizeRefTag(selected.ref.tag) === normalizeRefTag(entry.version)) {
+      console.log(`✓ Already up to date (${entry.version}).`);
+      process.exit(0);
+    }
+  } else if (entry.version === PLUGIN_VERSION_HEAD) {
+    const pullResult = Bun.spawnSync(['git', 'pull', '--ff-only'], {
+      cwd: pluginDir,
+      stdio: ['inherit', 'inherit', 'inherit'],
+    });
 
-  if (fetchResult.exitCode !== 0) {
-    console.error('✗ git fetch failed.');
-    process.exit(1);
+    if (pullResult.exitCode !== 0) {
+      console.error('✗ git pull failed.');
+      process.exit(1);
+    }
+
+    runGenerator();
+
+    console.log(
+      `\n✓ Plugin "${entry.alias}" is up to date on ${PLUGIN_VERSION_HEAD}.\n`,
+    );
+
+    process.exit(0);
   }
 
-  const checkoutResult = Bun.spawnSync(['git', 'checkout', selectedRef.tag], {
-    cwd: pluginDir,
-    stdio: ['inherit', 'inherit', 'inherit'],
-  });
+  const label = selectedVersionLabel(selected);
 
-  if (checkoutResult.exitCode !== 0) {
-    console.error('✗ git checkout failed.');
-    process.exit(1);
+  console.log(`\nUpdating ${entry.alias}: ${entry.version} → ${label}`);
+
+  if (selected.kind === 'catalog') {
+    const fetchResult = Bun.spawnSync(['git', 'fetch', '--tags'], {
+      cwd: pluginDir,
+      stdio: ['inherit', 'inherit', 'inherit'],
+    });
+
+    if (fetchResult.exitCode !== 0) {
+      console.error('✗ git fetch failed.');
+      process.exit(1);
+    }
+
+    const checkoutResult = Bun.spawnSync(
+      ['git', 'checkout', selected.ref.tag],
+      {
+        cwd: pluginDir,
+        stdio: ['inherit', 'inherit', 'inherit'],
+      },
+    );
+
+    if (checkoutResult.exitCode !== 0) {
+      console.error('✗ git checkout failed.');
+      process.exit(1);
+    }
+
+    console.log(`✓ Checked out ${selected.ref.tag}.`);
+  } else {
+    const fetchResult = Bun.spawnSync(['git', 'fetch', 'origin'], {
+      cwd: pluginDir,
+      stdio: ['inherit', 'inherit', 'inherit'],
+    });
+
+    if (fetchResult.exitCode !== 0) {
+      console.error('✗ git fetch failed.');
+      process.exit(1);
+    }
+
+    if (!checkoutRemoteDefaultBranch(pluginDir)) {
+      console.error('✗ Could not check out the remote default branch.');
+      process.exit(1);
+    }
+
+    console.log(`✓ Checked out ${PLUGIN_VERSION_HEAD} (default branch).`);
   }
-
-  console.log(`✓ Checked out ${selectedRef.tag}.`);
 
   const idx = pluginsData.plugins.findIndex((p) => p.alias === entry.alias);
-  pluginsData.plugins[idx] = { ...entry, version: selectedRef.tag };
+  pluginsData.plugins[idx] = { ...entry, version: label };
   writePluginsJson(pluginsData);
   console.log('✓ plugins.json updated.');
 
   runGenerator();
 
-  console.log(`\n✓ Plugin "${entry.alias}" updated to ${selectedRef.tag}.\n`);
+  console.log(`\n✓ Plugin "${entry.alias}" updated to ${label}.\n`);
 }
 
 // ---------------------------------------------------------------------------
@@ -543,14 +865,35 @@ async function installPlugin(
 
   console.log(`\nFound ${events.length} plugin(s):\n`);
 
+  console.log(
+    'Matching installed plugins (NIP-05 lookups are limited to a few seconds each)…',
+  );
+
   const installedForEvents = await Promise.all(
     events.map((e) => findInstalledEntryForEvent(e, pluginsData.plugins)),
+  );
+
+  console.log(
+    'Checking remote git repositories for newer commits than release tags…',
+  );
+
+  const headAheadForEvents = await Promise.all(
+    events.map(async (p) => {
+      const c = findCompatibleRef(p.refs, coreMajor);
+
+      if (!c) {
+        return null;
+      }
+
+      return remoteHeadDiffersFromTag(p.repo, c.tag);
+    }),
   );
 
   const indent = '    ';
 
   events.forEach((p, i) => {
     const installed = installedForEvents[i] ?? null;
+    const headAhead = headAheadForEvents[i];
 
     console.log(`  ${i + 1}. ${p.name}`);
 
@@ -562,6 +905,7 @@ async function installPlugin(
       plugin: p,
       installed,
       coreMajor,
+      headAheadOfRelease: headAhead,
     })) {
       console.log(`${indent}${line}`);
     }
@@ -589,16 +933,20 @@ async function installPlugin(
   console.log(`\nSelected: ${plugin.name}`);
 
   const installedForSelected = installedForEvents[idx] ?? null;
+  const headAheadFromDiscovery = headAheadForEvents[idx];
 
-  const selectedRef = await selectCompatibleRef({
+  const selected = await selectPluginVersion({
     plugin,
     coreMajor,
     installedEntry: installedForSelected,
+    headAheadFromDiscovery,
   });
 
-  if (!selectedRef) {
+  if (!selected) {
     process.exit(1);
   }
+
+  const installLabel = selectedVersionLabel(selected);
 
   console.log('\nThe alias is used for:');
   console.log('  • Plugin folder:   plugins/<alias>/');
@@ -643,25 +991,41 @@ async function installPlugin(
     process.exit(1);
   }
 
-  console.log(`\nCloning ${plugin.repo} at ${selectedRef.tag}...`);
+  if (selected.kind === 'catalog') {
+    console.log(`\nCloning ${plugin.repo} at ${selected.ref.tag}...`);
 
-  const cloneResult = Bun.spawnSync(
-    [
-      'git',
-      'clone',
-      '--branch',
-      selectedRef.tag,
-      '--depth',
-      '1',
-      plugin.repo,
-      destDir,
-    ],
-    { stdio: ['inherit', 'inherit', 'inherit'] },
-  );
+    const cloneResult = Bun.spawnSync(
+      [
+        'git',
+        'clone',
+        '--branch',
+        selected.ref.tag,
+        '--depth',
+        '1',
+        plugin.repo,
+        destDir,
+      ],
+      { stdio: ['inherit', 'inherit', 'inherit'] },
+    );
 
-  if (cloneResult.exitCode !== 0) {
-    console.error('✗ git clone failed.');
-    process.exit(1);
+    if (cloneResult.exitCode !== 0) {
+      console.error('✗ git clone failed.');
+      process.exit(1);
+    }
+  } else {
+    console.log(
+      `\nCloning ${plugin.repo} (default branch, shallow) — recorded as "${PLUGIN_VERSION_HEAD}" in plugins.json...`,
+    );
+
+    const cloneResult = Bun.spawnSync(
+      ['git', 'clone', '--depth', '1', plugin.repo, destDir],
+      { stdio: ['inherit', 'inherit', 'inherit'] },
+    );
+
+    if (cloneResult.exitCode !== 0) {
+      console.error('✗ git clone failed.');
+      process.exit(1);
+    }
   }
 
   console.log('✓ Plugin cloned.');
@@ -669,7 +1033,7 @@ async function installPlugin(
   pluginsData.plugins.push({
     alias,
     repo: plugin.repo,
-    version: selectedRef.tag,
+    version: installLabel,
   });
 
   writePluginsJson(pluginsData);

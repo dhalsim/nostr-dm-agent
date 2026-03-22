@@ -4,11 +4,20 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const projectRoot = path.join(__dirname, '..');
+const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
+const changelogScript = path.join(scriptsDir, 'release-changelog.ts');
 
-const tmpFile = path.join(projectRoot, '.git', '.version-bump-type');
+/** Work tree of the repo making this commit (bump that tree’s package.json). */
+function getWorkTreeRoot() {
+  return execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
+}
+
+function getAbsoluteGitDir() {
+  return execSync('git rev-parse --absolute-git-dir', { encoding: 'utf8' }).trim();
+}
+
+const projectRoot = getWorkTreeRoot();
+const tmpFile = path.join(getAbsoluteGitDir(), '.version-bump-type');
 // No temp file = already ran (e.g. re-run after amend); skip silently
 if (!fs.existsSync(tmpFile)) process.exit(0);
 
@@ -27,9 +36,55 @@ else newVersion = `${major}.${minor}.${patch + 1}`;
 pkg.version = newVersion;
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 
-execSync('git add package.json', { stdio: 'inherit' });
-execSync('git commit --amend --no-edit --no-verify', { stdio: 'inherit' });
+execSync('git add package.json', { stdio: 'inherit', cwd: projectRoot });
+execSync('git commit --amend --no-edit --no-verify', {
+  stdio: 'inherit',
+  cwd: projectRoot,
+});
 
 console.log(`✅ Version bumped to ${newVersion} and included in this commit.`);
+
+const tagName = `v${newVersion}`;
+let createdTagThisRun = false;
+
+try {
+  execSync(`git rev-parse --verify --quiet refs/tags/${tagName}`, {
+    stdio: 'pipe',
+    cwd: projectRoot,
+  });
+  console.warn(`⚠️ Tag ${tagName} already exists; skipping git tag`);
+} catch {
+  execSync(`git tag -a ${tagName} -m ${tagName}`, {
+    stdio: 'inherit',
+    cwd: projectRoot,
+  });
+  console.log(`✅ Created tag ${tagName}`);
+  createdTagThisRun = true;
+}
+
+execSync(`bun run ${JSON.stringify(changelogScript)}`, {
+  stdio: 'inherit',
+  cwd: projectRoot,
+});
+
+const porcelain = execSync('git status --porcelain CHANGELOG.md', {
+  encoding: 'utf8',
+  cwd: projectRoot,
+}).trim();
+
+if (porcelain.length > 0) {
+  execSync('git add CHANGELOG.md', { stdio: 'inherit', cwd: projectRoot });
+  execSync('git commit --amend --no-edit --no-verify', {
+    stdio: 'inherit',
+    cwd: projectRoot,
+  });
+  if (createdTagThisRun) {
+    execSync(`git tag -f -a ${tagName} -m ${tagName}`, {
+      stdio: 'inherit',
+      cwd: projectRoot,
+    });
+    console.log(`✅ Moved ${tagName} to amended commit (includes CHANGELOG.md)`);
+  }
+}
 
 process.exit(0);
