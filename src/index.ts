@@ -53,6 +53,7 @@ import {
   sendDm,
 } from './nostr/nip17';
 import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
+import { PROMPT_SESSION_EXIT } from './prompt-session';
 import { asProviderDb } from './providers/db';
 import { getOrCreateCurrentSession } from './session';
 import { openWalletDb } from './wallets/db';
@@ -180,12 +181,40 @@ async function main() {
 
   let pendingPrompt: ((answer: string) => void) | null = null;
 
+  /** Reply transport for plugin `sendReply` / `promptFn` — mirrors the current inbound message source. */
+  let replySource: MessageSource = 'nostr';
+
+  async function resolvePendingPromptIfAny(
+    content: string,
+    source: MessageSource,
+  ): Promise<boolean> {
+    if (!pendingPrompt) {
+      return false;
+    }
+
+    if (content.trim().startsWith('!exit')) {
+      await sendReplyForSource(source, 'Exiting...');
+
+      const resolve = pendingPrompt;
+      pendingPrompt = null;
+      resolve(PROMPT_SESSION_EXIT);
+
+      return true;
+    }
+
+    const resolve = pendingPrompt;
+    pendingPrompt = null;
+    resolve(content);
+
+    return true;
+  }
+
   // --- Plugins ---
   const pluginContext: PluginContext = {
     runAgent: null, // will set later in the conversation loop
-    sendReply: (message: string) => sendReplyForSource('nostr', message),
+    sendReply: (message: string) => sendReplyForSource(replySource, message),
     promptFn: async (message: string): Promise<string> => {
-      await sendReplyForSource('nostr', message);
+      await sendReplyForSource(replySource, message);
 
       return new Promise((resolve) => {
         pendingPrompt = resolve;
@@ -218,18 +247,9 @@ async function main() {
     content: string,
     source: MessageSource,
   ): Promise<void> {
-    // Intercept if a plugin is waiting for input
-    if (pendingPrompt) {
-      if (content.trim().startsWith('!exit')) {
-        sendReplyForSource(source, 'Exiting...');
+    replySource = source;
 
-        return;
-      }
-
-      const resolve = pendingPrompt;
-      pendingPrompt = null;
-      resolve(content);
-
+    if (await resolvePendingPromptIfAny(content, source)) {
       return;
     }
 
@@ -349,6 +369,8 @@ async function main() {
     readyDmPromise.finally(() =>
       startLocalCli({
         onMessage: (input) => handleUserMessage(input, 'local'),
+        resolvePendingPromptFirst: (line) =>
+          resolvePendingPromptIfAny(line, 'local'),
         setRedrawPrompt: (fn) => {
           redrawPrompt = fn;
         },

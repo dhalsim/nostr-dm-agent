@@ -4,6 +4,10 @@ All notable changes for each version are listed under the corresponding `v*.*.*`
 Tags and this file are updated by the post-commit hook when you commit with `--patch`, `--minor`, or `--major` (see CONTRIBUTING.md).
 You can also run `bun run release:changelog` to rewrite this file from tags.
 
+## [v7.7.0] - 2026-03-23
+
+- new prompt functionality for plugin interactive loops (c476b0a)
+
 ## [v7.6.0] - 2026-03-23
 
 - Initial commit: Add dm-bot NIP-17 agent, project rules, and supporting files (741cc78)
@@ -143,4 +147,4 @@ You can also run `bun run release:changelog` to rewrite this file from tags.
 - fix DB lock issue with WAL mode (9f15a25)
 - added bunker management script (ac54f2d)
 - bunker script (6f0837d)
-- Enhance contribution guidelines and scripts for versioning and changelog management. Added support for plugin repositories and improved commit message handling in hooks. (659a34d)
+- Enhance contribution guidelines and scripts for versioning and changelog management. Added support for plugin repositories and improved commit message handling in hooks. (32d63c8)

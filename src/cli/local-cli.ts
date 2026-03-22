@@ -9,11 +9,18 @@ import { C, log } from '../logger';
 export type StartLocalCliProps = {
   onMessage: (content: string) => Promise<void>;
   setRedrawPrompt: (fn: (() => void) | null) => void;
+  /**
+   * When a plugin interactive session is waiting on `promptFn`, the next line must resolve
+   * that prompt **without** waiting behind `onMessage`'s queue — otherwise the CLI deadlocks
+   * (the handler is blocked inside `await promptFn()` until the next line is processed).
+   */
+  resolvePendingPromptFirst?: (line: string) => Promise<boolean>;
 };
 
 export function startLocalCli({
   onMessage,
   setRedrawPrompt,
+  resolvePendingPromptFirst,
 }: StartLocalCliProps): void {
   console.log(
     `${C.dim}Type a prompt or ${C.reset}${C.white}!help${C.reset}${C.dim} to list commands.${C.reset}\n`,
@@ -30,20 +37,40 @@ export function startLocalCli({
   let localQueue = Promise.resolve();
 
   localCli.on('line', (line) => {
-    const input = line.trim();
+    void (async () => {
+      if (resolvePendingPromptFirst) {
+        try {
+          const handled = await resolvePendingPromptFirst(line);
 
-    if (!input) {
-      localCli.prompt();
+          if (handled) {
+            localCli.prompt();
 
-      return;
-    }
+            return;
+          }
+        } catch (err) {
+          log.error(`Local CLI pending-prompt handler failed: ${String(err)}`);
 
-    localQueue = localQueue
-      .then(() => onMessage(input))
-      .catch((err) =>
-        log.error(`Local CLI message processing failed: ${String(err)}`),
-      )
-      .finally(() => localCli.prompt());
+          localCli.prompt();
+
+          return;
+        }
+      }
+
+      const input = line.trim();
+
+      if (!input) {
+        localCli.prompt();
+
+        return;
+      }
+
+      localQueue = localQueue
+        .then(() => onMessage(input))
+        .catch((err) =>
+          log.error(`Local CLI message processing failed: ${String(err)}`),
+        )
+        .finally(() => localCli.prompt());
+    })();
   });
 
   localCli.on('close', () => {

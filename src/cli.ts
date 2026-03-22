@@ -33,7 +33,7 @@ function printHelp(): void {
   console.log(`- bun src/cli.ts todo list '{}'`);
 
   console.log(
-    `- bun src/cli.ts todo create '{"input":{"todo":"Test","parent_id":null,"priority":null,"description":null,"tags":null},"original_prompt":"add a todo"}'`,
+    `- bun src/cli.ts todo create '{"input":{"todo":"Test","parent_id":null,"description":null,"tags":null},"original_prompt":"add a todo"}'`,
   );
 
   console.log('');
