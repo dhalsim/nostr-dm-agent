@@ -5,13 +5,19 @@
 // + RemoteSignerHelpers.ts. Standalone — no React or app dependencies.
 // ---------------------------------------------------------------------------
 
-import type { EventTemplate, NostrEvent, SimplePool } from 'nostr-tools';
+import type {
+  EventTemplate,
+  NostrEvent,
+  SimplePool,
+  VerifiedEvent,
+} from 'nostr-tools';
 import {
   finalizeEvent,
   generateSecretKey,
   getPublicKey,
   nip04,
   nip44,
+  verifyEvent,
 } from 'nostr-tools';
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils';
 
@@ -386,7 +392,7 @@ export async function bunkerSignEvent(
   pool: SimplePool,
   data: BunkerSignerData,
   event: EventTemplate,
-): Promise<NostrEvent> {
+): Promise<VerifiedEvent> {
   const ephemeralSecret = hexToBytes(data.ephemeralSecret);
 
   const response = await sendNip46Request({
@@ -403,6 +409,12 @@ export async function bunkerSignEvent(
 
   if (!signed || typeof signed.id !== 'string') {
     throw new Error('Invalid sign_event response from bunker');
+  }
+
+  const verified = verifyEvent(signed);
+
+  if (!verified) {
+    throw new Error('Failed to verify sign_event response from bunker');
   }
 
   return signed;

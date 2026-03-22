@@ -526,7 +526,11 @@ async function main(): Promise<void> {
   console.log('\nPublishing...');
 
   const results = await Promise.allSettled(
-    pool.publish(writeRelays, signedEvent),
+    pool.publish(writeRelays, signedEvent, {
+      onauth(event) {
+        return bunkerSignEvent(pool, bunkerData, event);
+      },
+    }),
   );
 
   pool.destroy();

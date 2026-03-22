@@ -178,10 +178,20 @@ async function main() {
 
   const backendName = getAgentBackend(seenDb);
 
+  let pendingPrompt: ((answer: string) => void) | null = null;
+
   // --- Plugins ---
   const pluginContext: PluginContext = {
     runAgent: null, // will set later in the conversation loop
     sendReply: (message: string) => sendReplyForSource('nostr', message),
+    promptFn: async (message: string): Promise<string> => {
+      await sendReplyForSource('nostr', message);
+
+      return new Promise((resolve) => {
+        pendingPrompt = resolve;
+      });
+    },
+
     getAgentEnv,
     defaults: {
       backend: backendName,
@@ -208,6 +218,21 @@ async function main() {
     content: string,
     source: MessageSource,
   ): Promise<void> {
+    // Intercept if a plugin is waiting for input
+    if (pendingPrompt) {
+      if (content.trim().startsWith('!exit')) {
+        sendReplyForSource(source, 'Exiting...');
+
+        return;
+      }
+
+      const resolve = pendingPrompt;
+      pendingPrompt = null;
+      resolve(content);
+
+      return;
+    }
+
     process.stdout.write(`${C.dim}${C.magenta} > ${content}${C.reset}\n`);
 
     const mode = getCurrentOrDefaultMode(seenDb);
