@@ -1,10 +1,9 @@
 ---
-name: dm-bot-release
+name: bot-release
 description: >-
   Summarize working-tree changes (staged and unstaged) with a one-line commit
   message for version commits. Use when preparing a release commit or reviewing
   uncommitted work.
-allowed-tools: Bash
 ---
 
 ## Working tree: summary and suggested commit line

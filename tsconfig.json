@@ -9,6 +9,11 @@
       "@src/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*", "scripts/*.ts", "plugins/**/*", "generated/**/*"],
+  "include": [
+    "src/**/*",
+    "scripts/**/*.ts",
+    "plugins/**/*",
+    "generated/**/*"
+  ],
   "exclude": ["scripts/plugin-template/**/*"]
 }

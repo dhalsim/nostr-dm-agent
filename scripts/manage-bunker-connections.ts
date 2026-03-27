@@ -1,3 +1,10 @@
+#!/usr/bin/env bun
+// scripts/manage-bunker-connections.ts — save NIP-46 bunker sessions in core DB
+//
+// Usage:
+//   bun scripts/manage-bunker-connections.ts           — interactive menu
+//   bun scripts/manage-bunker-connections.ts --list  — one connection name per line, then exit
+
 import * as readline from 'readline';
 
 import { nip19 } from 'nostr-tools';
@@ -72,6 +79,15 @@ function showConnection(conn: ConnectionRow, index: number): void {
   );
 
   console.log(`     Created: ${formatDate(conn.created_at)}`);
+}
+
+/** One name per line, stdout only — for scripts and agents. */
+function listConnectionNamesOnly(db: ReturnType<typeof openCoreDb>): void {
+  const connections = listConnections(db);
+
+  for (const conn of connections) {
+    console.log(conn.name);
+  }
 }
 
 async function listConnectionsMenu(
@@ -205,6 +221,19 @@ async function deleteConnectionMenu(
 }
 
 async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+
+  if (argv.includes('--list')) {
+    const db = openCoreDb();
+
+    createConnectionsTable(db);
+    listConnectionNamesOnly(db);
+
+    db.close();
+
+    process.exit(0);
+  }
+
   console.log('\n── Manage Bunker Connections ──\n');
 
   const db = openCoreDb();

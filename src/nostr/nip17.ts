@@ -276,8 +276,8 @@ export function createDmSubscription({
           const content = rumor.content?.trim() ?? '';
           const kind = rumor.kind ?? 0;
 
-          if (kind !== 14) {
-            debug('Ignoring non–kind-14 rumor:', kind);
+          if (kind !== 14 && kind !== 15) {
+            debug('Ignoring non–kind-14 or kind-15 rumor:', kind);
 
             return;
           }

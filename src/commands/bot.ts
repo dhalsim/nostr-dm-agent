@@ -410,6 +410,7 @@ export function getHelpText(): string {
 !show-last-messages <id> [N] — last N messages (default 5)
 !status — bot status and current session/mode/backend
 !version — show git hash (dm-bot project)
+!ping — reply with pong
 !bot npub — print the bot's public key (npub) for sharing
 !bot restart — request bot restart (when running under watch)
 !help — this message

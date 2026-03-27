@@ -1,12 +1,11 @@
 ---
-name: dm-bot-git
-description: Show git status, diff, and log for the current workspace
-allowed-tools: Bash
+name: git
+description: Show git status, diff, and log for the current workspace.
 ---
 
 ## Usage
 
-\`\`\`bash
+```bash
 # Status
 git status --short
 
@@ -24,7 +23,7 @@ git --no-pager log --oneline -10
 
 # Diff since last commit
 git --no-pager diff HEAD~1
-\`\`\`
+```
 
 ## Current status
 !`git status --short`

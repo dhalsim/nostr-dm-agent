@@ -18,7 +18,8 @@ All mutating operations (create, update, delete) return a **draft** for user rev
 The user accepts/revises/declines via bot DM commands shown in the tool output.
 Never retry a mutating tool if it returned a Draft ID.
 
-## Available plugins
+## Skills
 
-Plugins are discovered from \`plugins.json\`. Load the relevant skill for each plugin:
-- \`.claude/skills/dm-bot-<alias>/SKILL.md\`
+**All** official agent guidance for this repo lives under `.claude/skills/`. When you work in this workspace, **read every skill** in that directory.
+
+Each skill is a folder: `.claude/skills/<skill_name>/SKILL.md` (OpenCode-compatible YAML frontmatter with `name` matching `<skill_name>`).

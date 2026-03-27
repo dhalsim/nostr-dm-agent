@@ -193,6 +193,9 @@ export async function handleBangCommand({
     case 'version':
       return `Version: ${version}`;
 
+    case 'ping':
+      return 'pong';
+
     case 'bot': {
       const sub = args[0]?.toLowerCase();
 

@@ -4,9 +4,13 @@ All notable changes for each version are listed under the corresponding `v*.*.*`
 Tags and this file are updated by the post-commit hook when you commit with `--patch`, `--minor`, or `--major` (see CONTRIBUTING.md).
 You can also run `bun run release:changelog` to rewrite this file from tags.
 
+## [v7.8.0] - 2026-03-27
+
+- publish skill and scripts (b945eee)
+
 ## [v7.7.0] - 2026-03-23
 
-- new prompt functionality for plugin interactive loops (c476b0a)
+- new prompt functionality for plugin interactive loops (045715b)
 
 ## [v7.6.0] - 2026-03-23
 
