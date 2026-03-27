@@ -11,6 +11,7 @@ import { SimplePool } from 'nostr-tools/pool';
 import { z } from 'zod';
 
 import { openCoreDb } from '@src/db';
+import { debug } from '@src/logger';
 import { bunkerSignEvent } from '@src/nostr/bunker';
 import { createConnectionsTable, getConnection } from '@src/nostr/connections';
 import {
@@ -94,7 +95,7 @@ async function runDraft(input: NoteDraftInput): Promise<string> {
       authorPubkey: bunkerData.userPubkey,
     });
 
-    console.log('Publishing to: ', publishRelays);
+    debug('Publishing to: ', publishRelays);
 
     let d: string;
     let template;
@@ -162,12 +163,12 @@ async function runDraft(input: NoteDraftInput): Promise<string> {
       );
     }
 
-    console.log(
+    debug(
       'Accepted relay URLs: ',
       accepted.map((r) => r.relay),
     );
 
-    console.log(
+    debug(
       'Rejected relay URLs: ',
       rejected.map((r) => `${r.relay}: ${r.error}`),
     );
@@ -189,7 +190,7 @@ async function main(): Promise<void> {
   const json = process.argv[2];
 
   if (json === undefined || json === '') {
-    console.error('Usage: bun scripts/publish/note-draft.ts <json>');
+    debug('Usage: bun scripts/publish/note-draft.ts <json>');
     process.exit(1);
   }
 
@@ -212,7 +213,9 @@ async function main(): Promise<void> {
   try {
     const naddr = await runDraft(parsed.data);
 
-    console.log(JSON.stringify(naddr));
+    process.stdout.write(naddr);
+
+    process.exit(0);
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);

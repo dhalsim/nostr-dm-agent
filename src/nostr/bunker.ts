@@ -21,6 +21,10 @@ import {
 } from 'nostr-tools';
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils';
 
+import { debug } from '@src/logger';
+
+import { isRelaySuccess, publishSignedEventToRelays } from './relay-publish';
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -103,7 +107,7 @@ function decryptContent(
   }
 }
 
-function sendNip46Request(params: {
+async function sendNip46Request(params: {
   pool: SimplePool;
   relays: string[];
   ephemeralSecret: Uint8Array;
@@ -137,76 +141,85 @@ function sendNip46Request(params: {
 
   const signedEvent = finalizeEvent(template, ephemeralSecret);
 
+  await Promise.all(pool.publish(relays, signedEvent)).catch((err) => {
+    console.error('Failed to publish NIP-46 request to a relay: ', err);
+
+    throw err;
+  });
+
+  const publishOutcomes = await publishSignedEventToRelays(relays, signedEvent);
+
+  const acceptedRelays = publishOutcomes
+    .filter(isRelaySuccess)
+    .map((r) => r.relay);
+
+  if (acceptedRelays.length === 0) {
+    throw new Error(`Failed to publish NIP-46 request to any relay`);
+  }
+
+  debug('NIP-46 sign request published to relays: ', acceptedRelays);
+
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       sub.close();
       reject(new Error(`NIP-46 request timed out (${method})`));
     }, REQUEST_TIMEOUT_MS);
 
-    const sub = pool.subscribe(
-      relays,
-      {
-        kinds: [NIP46_KIND],
-        authors: [remoteSignerPubkey],
-        '#p': [ephemeralPubkey],
-        limit: 1,
-      },
-      {
-        onevent: (event) => {
-          if (
-            event.kind !== NIP46_KIND ||
-            event.pubkey !== remoteSignerPubkey
-          ) {
-            return;
-          }
+    const subscriptionFilter = {
+      kinds: [NIP46_KIND],
+      authors: [remoteSignerPubkey],
+      '#p': [ephemeralPubkey],
+      limit: 1,
+    };
 
-          const decrypted = decryptContent(
-            event.content,
-            event.pubkey,
-            ephemeralSecret,
-          );
+    debug('Subscribing to: ', subscriptionFilter, 'Relays: ', relays);
 
-          if (!decrypted) {
-            clearTimeout(timer);
-            sub.close();
-            reject(new Error('Failed to decrypt NIP-46 response'));
+    const sub = pool.subscribe(relays, subscriptionFilter, {
+      onevent: (event) => {
+        if (event.kind !== NIP46_KIND || event.pubkey !== remoteSignerPubkey) {
+          return;
+        }
 
-            return;
-          }
+        const decrypted = decryptContent(
+          event.content,
+          event.pubkey,
+          ephemeralSecret,
+        );
 
-          let parsed: Nip46ResponsePayload;
-          try {
-            parsed = JSON.parse(decrypted) as Nip46ResponsePayload;
-          } catch (e) {
-            clearTimeout(timer);
-            sub.close();
-            reject(e);
-
-            return;
-          }
-
-          if (parsed.id !== id) {
-            return;
-          }
-
+        if (!decrypted) {
           clearTimeout(timer);
           sub.close();
+          reject(new Error('Failed to decrypt NIP-46 response'));
 
-          if (parsed.error) {
-            reject(new Error(parsed.error));
+          return;
+        }
 
-            return;
-          }
+        let parsed: Nip46ResponsePayload;
+        try {
+          parsed = JSON.parse(decrypted) as Nip46ResponsePayload;
+        } catch (e) {
+          clearTimeout(timer);
+          sub.close();
+          reject(e);
 
-          resolve(parsed);
-        },
+          return;
+        }
+
+        if (parsed.id !== id) {
+          return;
+        }
+
+        clearTimeout(timer);
+        sub.close();
+
+        if (parsed.error) {
+          reject(new Error(parsed.error));
+
+          return;
+        }
+
+        resolve(parsed);
       },
-    );
-
-    void Promise.allSettled(pool.publish(relays, signedEvent)).catch((err) => {
-      clearTimeout(timer);
-      sub.close();
-      reject(err);
     });
   });
 }

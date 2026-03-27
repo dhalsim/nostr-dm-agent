@@ -4,9 +4,13 @@ All notable changes for each version are listed under the corresponding `v*.*.*`
 Tags and this file are updated by the post-commit hook when you commit with `--patch`, `--minor`, or `--major` (see CONTRIBUTING.md).
 You can also run `bun run release:changelog` to rewrite this file from tags.
 
+## [v7.8.1] - 2026-03-27
+
+- fixes on publish scripts (b077613)
+
 ## [v7.8.0] - 2026-03-27
 
-- publish skill and scripts (b945eee)
+- publish skill and scripts (2378ec8)
 
 ## [v7.7.0] - 2026-03-23
 
