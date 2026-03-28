@@ -4,9 +4,13 @@ All notable changes for each version are listed under the corresponding `v*.*.*`
 Tags and this file are updated by the post-commit hook when you commit with `--patch`, `--minor`, or `--major` (see CONTRIBUTING.md).
 You can also run `bun run release:changelog` to rewrite this file from tags.
 
+## [v8.1.0] - 2026-03-29
+
+- bunker add list commands (586bf4e)
+
 ## [v8.0.0] - 2026-03-28
 
-- wot (6bbb7f0)
+- wot (1d78689)
 
 ## [v7.9.0] - 2026-03-28
 

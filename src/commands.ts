@@ -21,6 +21,7 @@ import {
   handleModel,
   handleModels,
 } from './commands/bot';
+import { handleBunker } from './commands/bunker';
 import {
   handleProviderAddModel,
   handleProviderBalance,
@@ -223,6 +224,13 @@ export async function handleBangCommand({
       }
 
       return 'Usage: !bot npub|restart';
+    }
+
+    case 'bunker': {
+      return handleError(
+        async () => handleBunker({ db: seenDb, pool, args }),
+        'Bunker command failed',
+      );
     }
 
     case 'help':

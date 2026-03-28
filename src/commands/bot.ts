@@ -413,6 +413,8 @@ export function getHelpText(): string {
 !ping — reply with pong
 !bot npub — print the bot's public key (npub) for sharing
 !bot restart — request bot restart (when running under watch)
+!bunker list — list saved bunker signer connections
+!bunker add <name> <bunker://...> — connect to and save a bunker signer
 !help — this message
 !local — reply only in local terminal
 !remote — resume sending replies over Nostr DMs
