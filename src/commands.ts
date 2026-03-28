@@ -6,6 +6,7 @@ import { writeFileSync } from 'fs';
 import { join } from 'path';
 
 import { nip19 } from 'nostr-tools';
+import type { SimplePool } from 'nostr-tools/pool';
 
 import type { AgentBackend } from './backends/types';
 import {
@@ -46,6 +47,7 @@ import {
   handleWalletReceive,
   handleWalletSend,
 } from './commands/wallet';
+import { handleWot } from './commands/wot';
 import { dispatchPluginCommand } from './core/registry';
 import type { CoreDb } from './db';
 import {
@@ -88,6 +90,7 @@ export type HandleBangCommandProps = {
   backend: AgentBackend;
   botPubkey: string | null;
   seenDb: CoreDb;
+  pool: SimplePool;
   walletDb: WalletDb | null;
   providerDb: ProviderDb | null;
   config: BotConfig;
@@ -96,6 +99,7 @@ export type HandleBangCommandProps = {
 export async function handleBangCommand({
   input,
   relayUrls,
+  pool,
   seenDb,
   providerDb,
   version,
@@ -654,6 +658,13 @@ export async function handleBangCommand({
         default:
           return `Usage: !provider set [${ProviderNameSchema.options.join('|')}] | !provider deposit <sats> [--new] | !provider refund | !provider balance | !provider budget <sats> | !provider status | !provider models [filter] | !provider sync-models | !provider add-model <id>`;
       }
+    }
+
+    case 'wot': {
+      return handleError(
+        async () => handleWot({ db: seenDb, pool, config, args }),
+        'WoT command failed',
+      );
     }
 
     case 'log': {

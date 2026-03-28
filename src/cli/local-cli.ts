@@ -6,9 +6,10 @@ import readline from 'readline';
 
 import { C, log } from '../logger';
 
+export let redrawPrompt: (() => void) | null = null;
+
 export type StartLocalCliProps = {
   onMessage: (content: string) => Promise<void>;
-  setRedrawPrompt: (fn: (() => void) | null) => void;
   /**
    * When a plugin interactive session is waiting on `promptFn`, the next line must resolve
    * that prompt **without** waiting behind `onMessage`'s queue — otherwise the CLI deadlocks
@@ -19,7 +20,6 @@ export type StartLocalCliProps = {
 
 export function startLocalCli({
   onMessage,
-  setRedrawPrompt,
   resolvePendingPromptFirst,
 }: StartLocalCliProps): void {
   console.log(
@@ -32,7 +32,7 @@ export function startLocalCli({
     prompt: `${C.bold}>${C.reset} `,
   });
 
-  setRedrawPrompt(() => localCli.prompt());
+  redrawPrompt = () => localCli.prompt();
 
   let localQueue = Promise.resolve();
 
@@ -74,7 +74,7 @@ export function startLocalCli({
   });
 
   localCli.on('close', () => {
-    setRedrawPrompt(null);
+    redrawPrompt = null;
     log.ok('Local terminal chat closed. Nostr DM listener continues running.');
   });
 

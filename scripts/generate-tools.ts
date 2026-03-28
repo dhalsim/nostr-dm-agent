@@ -5,6 +5,10 @@
 //
 // Usage: bun run plugin:generate  (see package.json)
 // Idempotent: all outputs are recreated each run.
+//
+// SKILL.md files under .claude/skills/dm-bot-*/ are auto-generated; edit each
+// plugin’s plugins/<alias>/ai.ts (agentInstructions, skillDescription, skillNotes,
+// ToolCallSchema) and re-run plugin:generate — do not edit SKILL.md by hand.
 // ---------------------------------------------------------------------------
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
@@ -77,10 +81,12 @@ function buildExampleArgs(branch: ToolCallBranch): Record<string, unknown> {
 
     const raw = rawSchema as z.ZodType;
 
-    const schema =
-      raw instanceof z.ZodOptional
-        ? (raw.def as unknown as { innerType: z.ZodType }).innerType
-        : raw;
+    // Minimal JSON: omit optional (and defaulted) fields so examples match common CLI usage (e.g. `todo list '{}'`).
+    if (raw instanceof z.ZodOptional || raw instanceof z.ZodDefault) {
+      continue;
+    }
+
+    const schema = raw;
 
     if (schema instanceof z.ZodString) {
       result[key] =
@@ -94,7 +100,19 @@ function buildExampleArgs(branch: ToolCallBranch): Record<string, unknown> {
     } else if (schema instanceof z.ZodNullable) {
       result[key] = null;
     } else if (schema instanceof z.ZodArray) {
-      result[key] = [];
+      const el = schema.element;
+
+      if (el instanceof z.ZodEnum && el.options.length > 0) {
+        result[key] = [el.options[0]];
+      } else if (el instanceof z.ZodString) {
+        result[key] = ['example'];
+      } else if (el instanceof z.ZodNumber) {
+        result[key] = [1];
+      } else if (el instanceof z.ZodBoolean) {
+        result[key] = [true];
+      } else {
+        result[key] = [];
+      }
     } else if (schema instanceof z.ZodObject) {
       result[key] = '<see schema>';
     } else {
@@ -147,6 +165,8 @@ name: dm-bot-${alias}
 description: ${skillDescription}
 allowed-tools: Bash
 ---
+
+> **Note:** This file is auto-generated — do not edit by hand. Change \`plugins/${alias}/ai.ts\` (\`agentInstructions\`, \`skillDescription\`, optional \`skillNotes\`, and \`ToolCallSchema\`), then run \`bun run plugin:generate\` (this script: \`scripts/generate-tools.ts\`).
 
 ${instructions.trim()}
 ${skillNotes ? `\n${skillNotes.trim()}\n` : ''}

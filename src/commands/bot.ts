@@ -440,6 +440,7 @@ export function getHelpText(): string {
 !provider models [filter] — list Routstr models, optional filter by name
 !provider sync-models — sync models from Routstr
 !provider add-model <id> — add a Routstr model to opencode.json
+!wot crawl [<pubkey>] — crawl a root-relative Web of Trust graph
 !exit — stop the bot process
 ${getPluginHelpTexts() ?? ''}`;
 }

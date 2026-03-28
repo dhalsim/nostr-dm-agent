@@ -11,6 +11,7 @@ import { unwrapEvent, wrapEvent } from 'nostr-tools/nip17';
 import type { SimplePool } from 'nostr-tools/pool';
 import { finalizeEvent } from 'nostr-tools/pure';
 
+import { redrawPrompt } from '../cli/local-cli';
 import type { CoreDb } from '../db';
 import { alreadyHaveEvent, getReplyTransport, markSeen } from '../db';
 import { ensureWss } from '../env';
@@ -81,7 +82,6 @@ export type SendDmProps = {
   recipientPubkey: string;
   message: string;
   signAuthEvent: (template: EventTemplate) => Promise<VerifiedEvent>;
-  redrawPrompt: (() => void) | null;
 };
 
 export async function sendDm({
@@ -91,7 +91,6 @@ export async function sendDm({
   recipientPubkey,
   message,
   signAuthEvent,
-  redrawPrompt,
 }: SendDmProps): Promise<void> {
   const plain = stripAnsi(message);
 
@@ -162,12 +161,8 @@ export async function sendDm({
   const tokensStyled = tokensLine ? `\n${C.dim}${tokensLine}${C.reset}` : '';
   const sentLine = `${C.green}[sent]${C.reset} ${bodyStyled}${tokensStyled}`;
 
-  if (redrawPrompt) {
-    process.stdout.write(`\n${sentLine}\n`);
-    redrawPrompt();
-  } else {
-    process.stdout.write(`\n${sentLine}\n`);
-  }
+  process.stdout.write(`\n${sentLine}\n`);
+  redrawPrompt?.();
 }
 
 export type CreateSendReplyForSourceProps = {
@@ -202,6 +197,7 @@ export function createSendReplyForSource({
       );
 
       console.log(message ?? '(no message)');
+      redrawPrompt?.();
 
       return;
     }
@@ -213,7 +209,6 @@ export function createSendReplyForSource({
       recipientPubkey,
       message,
       signAuthEvent,
-      redrawPrompt: null,
     });
   };
 }
@@ -233,7 +228,6 @@ export type CreateDmSubscriptionProps = {
   botSecretKey: Uint8Array;
   masterPubkey: string;
   onMessage: (content: string) => Promise<void>;
-  redrawPromptRef: { get: () => (() => void) | null };
   reconnectBaseMs: number;
   reconnectMaxMs: number;
 };
@@ -247,7 +241,6 @@ export function createDmSubscription({
   botSecretKey,
   masterPubkey,
   onMessage,
-  redrawPromptRef,
   reconnectBaseMs,
   reconnectMaxMs,
 }: CreateDmSubscriptionProps): () => void {
@@ -286,7 +279,7 @@ export function createDmSubscription({
             markSeen(seenDb, wrap.id);
             debug('Reply transport is local; ignoring incoming Nostr message.');
 
-            redrawPromptRef.get()?.();
+            redrawPrompt?.();
 
             return;
           }

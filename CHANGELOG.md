@@ -4,9 +4,13 @@ All notable changes for each version are listed under the corresponding `v*.*.*`
 Tags and this file are updated by the post-commit hook when you commit with `--patch`, `--minor`, or `--major` (see CONTRIBUTING.md).
 You can also run `bun run release:changelog` to rewrite this file from tags.
 
+## [v7.9.0] - 2026-03-28
+
+- redraw fixes and checkpoint for wot (8d83a53)
+
 ## [v7.8.1] - 2026-03-27
 
-- fixes on publish scripts (b077613)
+- fixes on publish scripts (2a4a084)
 
 ## [v7.8.0] - 2026-03-27
 

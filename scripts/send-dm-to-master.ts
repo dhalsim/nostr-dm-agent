@@ -43,7 +43,6 @@ async function main(): Promise<void> {
       recipientPubkey: config.masterPubkey,
       message,
       signAuthEvent,
-      redrawPrompt: null,
     });
 
     console.log('Sent DM to master.');

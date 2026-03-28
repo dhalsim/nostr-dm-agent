@@ -41,6 +41,7 @@ import {
   getModelOverride,
   getProviderName,
   getWorkspaceTarget,
+  getWotScore,
 } from './db';
 import { createGetAgentEnv, loadBotConfig } from './env';
 import { runAgentConversation } from './flow/agent-conversation';
@@ -52,13 +53,12 @@ import {
   createSignAuthEvent,
   sendDm,
 } from './nostr/nip17';
+import { normalizePubkeyInput } from './nostr/wot';
 import { dmBotRoot, RESTART_REQUESTED_PATH } from './paths';
 import { PROMPT_SESSION_EXIT } from './prompt-session';
 import { asProviderDb } from './providers/db';
 import { getOrCreateCurrentSession } from './session';
 import { openWalletDb } from './wallets/db';
-
-let redrawPrompt: (() => void) | null = null;
 
 async function main() {
   // --- Restart & config ---
@@ -155,7 +155,6 @@ async function main() {
         recipientPubkey: masterPubkey,
         message: `Agent is ready.`,
         signAuthEvent,
-        redrawPrompt,
       }).catch((err) => log.error(`Failed to send ready DM: ${String(err)}`))
     : Promise.resolve();
 
@@ -219,6 +218,17 @@ async function main() {
       return new Promise((resolve) => {
         pendingPrompt = resolve;
       });
+    },
+    getWotScore: (pubkey: string, rootPubkey = config.masterPubkey) => {
+      try {
+        return getWotScore(
+          seenDb,
+          normalizePubkeyInput(pubkey),
+          normalizePubkeyInput(rootPubkey),
+        );
+      } catch {
+        return null;
+      }
     },
 
     getAgentEnv,
@@ -297,6 +307,7 @@ async function main() {
       const reply = await handleBangCommand({
         input,
         relayUrls,
+        pool,
         seenDb,
         version: VERSION,
         parentOfBotRoot,
@@ -360,7 +371,6 @@ async function main() {
     botSecretKey,
     masterPubkey,
     onMessage: (content) => handleUserMessage(content, 'nostr'),
-    redrawPromptRef: { get: () => redrawPrompt },
     reconnectBaseMs: 2_000,
     reconnectMaxMs: 60_000,
   });
@@ -371,9 +381,6 @@ async function main() {
         onMessage: (input) => handleUserMessage(input, 'local'),
         resolvePendingPromptFirst: (line) =>
           resolvePendingPromptIfAny(line, 'local'),
-        setRedrawPrompt: (fn) => {
-          redrawPrompt = fn;
-        },
       }),
     );
   }

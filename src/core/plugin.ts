@@ -40,6 +40,7 @@ export type PluginContext = {
   runAgent: RunAgentFn | null;
   sendReply: SendReplyFn;
   promptFn: (message: string) => Promise<string>;
+  getWotScore: (pubkey: string, rootPubkey?: string) => number | null;
   // used by plugins/job/runner.ts
   getAgentEnv: () => Record<string, string | undefined>;
   defaults: PluginDefaults;
