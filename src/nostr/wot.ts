@@ -248,7 +248,7 @@ export async function crawlWot(input: CrawlWotParams): Promise<void> {
       storedPubkeys.add(event.pubkey);
 
       for (const follow of follows) {
-        if (depth < maxDepth - 1) {
+        if (!storedPubkeys.has(follow.pubkey)) {
           nextLevel.add(follow.pubkey);
         }
 
