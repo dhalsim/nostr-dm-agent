@@ -1,3 +1,4 @@
+import type { Database as BunDatabase } from 'bun:sqlite';
 import { z } from 'zod';
 
 import type { Msats } from '../types';
@@ -47,7 +48,7 @@ export const DEFAULT_WORKSPACE_TARGET: WorkspaceTarget = 'parent';
 export const DEFAULT_PROVIDER: ProviderName = 'local';
 export const DEFAULT_LINTING: Linting = 'off';
 
-export type CoreDb = Brand<import('bun:sqlite').Database, 'CoreDb'>;
+export type CoreDb = Brand<BunDatabase, 'CoreDb'>;
 export type RoutstrModelCache = {
   id: string;
   name?: string;

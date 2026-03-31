@@ -43,19 +43,14 @@ export type RunMessageProps = {
   content: string;
   mode: AgentMode;
   cwd: string;
-  env: Record<string, string | undefined>;
+  getRoutstrSkKey: () => string | null;
   modelOverride: string | null;
-};
-
-export type CreateSessionProps = {
-  cwd: string;
-  env: Record<string, string | undefined>;
 };
 
 export type AgentBackend = {
   name: AgentBackendName;
   modelName: string;
-  createSession(props: CreateSessionProps): Promise<string>;
+  createSession(cwd: string): Promise<string>;
   runMessage(props: RunMessageProps): Promise<AgentRunResult>;
   availableModels(): Promise<string[]>;
 };

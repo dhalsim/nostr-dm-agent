@@ -82,11 +82,10 @@ export async function handleError(
 
 export type HandleBangCommandProps = {
   input: string;
-  relayUrls: string[];
+  botRelayUrls: string[];
   version: string;
   parentOfBotRoot: string;
   dmBotRoot: string;
-  agentEnv: Record<string, string | undefined>;
   attachUrl: string | null;
   backend: AgentBackend;
   botPubkey: string | null;
@@ -99,14 +98,13 @@ export type HandleBangCommandProps = {
 
 export async function handleBangCommand({
   input,
-  relayUrls,
+  botRelayUrls,
   pool,
   seenDb,
   providerDb,
   version,
   parentOfBotRoot,
   dmBotRoot,
-  agentEnv,
   attachUrl,
   backend,
   botPubkey,
@@ -134,11 +132,10 @@ export async function handleBangCommand({
           seenDb,
           backend,
           cwd,
-          agentEnv,
         });
 
         const status = getStatusLines({
-          relayUrls,
+          botRelayUrls,
           seenDb,
           version,
           dmBotRoot,
@@ -185,7 +182,7 @@ export async function handleBangCommand({
       return handleError(
         async () =>
           getStatusLines({
-            relayUrls,
+            botRelayUrls,
             seenDb: seenDb,
             version,
             dmBotRoot,
@@ -257,12 +254,11 @@ export async function handleBangCommand({
           backend,
           dmBotRoot,
           parentOfBotRoot,
-          agentEnv,
           selected: args[0],
         });
 
         const status = getStatusLines({
-          relayUrls,
+          botRelayUrls,
           seenDb,
           version,
           dmBotRoot,
@@ -279,13 +275,12 @@ export async function handleBangCommand({
           db: seenDb,
           dmBotRoot,
           parentOfBotRoot,
-          agentEnv,
           attachUrl,
           selected: args[0],
         });
 
         const status = getStatusLines({
-          relayUrls,
+          botRelayUrls,
           seenDb,
           version,
           dmBotRoot,
@@ -306,7 +301,7 @@ export async function handleBangCommand({
         const out = handleMode({ db: seenDb, modeArg });
 
         const status = getStatusLines({
-          relayUrls,
+          botRelayUrls,
           seenDb,
           version,
           dmBotRoot,
@@ -334,7 +329,7 @@ export async function handleBangCommand({
         const out = handleModel({ db: seenDb, selected: args[0] });
 
         const status = getStatusLines({
-          relayUrls,
+          botRelayUrls,
           seenDb,
           version,
           dmBotRoot,
@@ -506,7 +501,7 @@ export async function handleBangCommand({
           const out = handleProviderSet({ seenDb, name });
 
           const status = getStatusLines({
-            relayUrls,
+            botRelayUrls,
             seenDb,
             version,
             dmBotRoot,

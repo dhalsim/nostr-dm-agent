@@ -51,7 +51,7 @@ const STATUS_EMOJI = {
 } as const;
 
 export type StatusProps = {
-  relayUrls: string[];
+  botRelayUrls: string[];
   seenDb: CoreDb;
   version: string;
   dmBotRoot: string;
@@ -59,7 +59,7 @@ export type StatusProps = {
 };
 
 export function getStatusLines({
-  relayUrls,
+  botRelayUrls,
   seenDb,
   version,
   dmBotRoot,
@@ -107,7 +107,7 @@ export function getStatusLines({
     `${lbl('Model')} ${modelDisplay}`,
     `${lbl('Workspace')} ${STATUS_EMOJI.workspace(workspace)} ${workspace}`,
     `${lbl('Transport')} ${STATUS_EMOJI.transport(replyTransport)} ${replyTransport}`,
-    `${lbl('Relays')} ${relayUrls.join(', ')}`,
+    `${lbl('Relays')} ${botRelayUrls.join(', ')}`,
     `${lbl('Session')} ${cur ?? `${C.gray}(none)${C.reset}`}`,
   ];
 
@@ -135,7 +135,6 @@ export type HandleWorkspaceProps = {
   backend: AgentBackend;
   parentOfBotRoot: string;
   dmBotRoot: string;
-  agentEnv: Record<string, string | undefined>;
   selected?: string;
 };
 
@@ -144,7 +143,6 @@ export async function handleWorkspace({
   backend,
   parentOfBotRoot,
   dmBotRoot,
-  agentEnv,
   selected,
 }: HandleWorkspaceProps): Promise<string> {
   const usageOpts = WorkspaceTargetSchema.options.join('|');
@@ -183,7 +181,6 @@ export async function handleWorkspace({
       db,
       backend,
       cwd,
-      env: agentEnv,
     });
 
     return `Workspace switched: ${prevTarget} -> ${nextTarget}\nNew session: ${sessionId}`;
@@ -197,7 +194,6 @@ export type HandleBackendProps = {
   dmBotRoot: string;
   parentOfBotRoot: string;
   attachUrl: string | null;
-  agentEnv: Record<string, string | undefined>;
   selected?: string;
 };
 
@@ -206,7 +202,6 @@ export async function handleBackend({
   dmBotRoot,
   parentOfBotRoot,
   attachUrl,
-  agentEnv,
   selected,
 }: HandleBackendProps): Promise<string> {
   if (!selected) {
@@ -248,7 +243,6 @@ export async function handleBackend({
       db,
       backend: newBackend,
       cwd,
-      env: agentEnv,
     });
 
     return `Backend switched: ${prevBackendName} -> ${nextBackendName}\nNew session: ${sessionId}`;

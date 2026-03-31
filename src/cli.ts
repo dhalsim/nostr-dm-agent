@@ -1,15 +1,60 @@
 #!/usr/bin/env bun
 // src/cli.ts — local CLI runner for plugin tool calls
 
+import { appendFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
+
+import type { Database } from 'bun:sqlite';
+import { SimplePool } from 'nostr-tools/pool';
 import { z } from 'zod';
 
 import { cliRegistry } from '../generated/cli-registry';
+
+import { getWotScore, openCoreDb } from './db';
+import { loadBotConfig } from './env';
+import { dmBotRoot } from './paths';
 
 type CliArgs = {
   alias: string | null;
   toolName: string | null;
   rawArgsJson: string | null;
 };
+
+type CliLogEntry = {
+  ts: string;
+  alias: string | null;
+  toolName: string | null;
+  stage: string;
+  duration_ms?: number;
+  ok?: boolean;
+  details?: Record<string, unknown>;
+};
+
+function getCliLogPath(): string {
+  return (
+    process.env.DM_BOT_CLI_LOG_PATH ||
+    join(dmBotRoot, '.logs', 'plugin-cli.jsonl')
+  );
+}
+
+function writeCliLog(entry: CliLogEntry): void {
+  if (process.env.DM_BOT_CLI_LOG !== '1') {
+    return;
+  }
+
+  const logPath = getCliLogPath();
+
+  mkdirSync(join(logPath, '..'), { recursive: true });
+  appendFileSync(logPath, `${JSON.stringify(entry)}\n`, 'utf8');
+}
+
+function previewValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.length > 500 ? `${value.slice(0, 500)}...` : value;
+  }
+
+  return value;
+}
 
 function parseArgs(argv: string[]): CliArgs {
   const alias = argv[0] ?? null;
@@ -74,8 +119,17 @@ function safeJsonParse(
 }
 
 async function main(): Promise<void> {
+  const startedAt = Date.now();
   const argv = process.argv.slice(2);
   const { alias, toolName, rawArgsJson } = parseArgs(argv);
+
+  writeCliLog({
+    ts: new Date().toISOString(),
+    alias,
+    toolName,
+    stage: 'start',
+    details: { argv },
+  });
 
   if (!alias) {
     printHelp();
@@ -131,17 +185,87 @@ async function main(): Promise<void> {
   const module = await import(`../plugins/${alias}/ai`);
 
   const { openDb, executeTool } = module as {
-    openDb: () => import('bun:sqlite').Database;
+    openDb: () => Database;
     executeTool: (props: {
       alias: string;
       call: unknown;
-      db: import('bun:sqlite').Database;
+      db: Database;
+      pool?: SimplePool;
+      masterPubkey?: string;
+      getWotScore?: (pubkey: string, rootPubkey?: string) => number | null;
     }) => Promise<string>;
   };
 
   const db = openDb();
-  const result = await executeTool({ alias, call: parsed.data, db });
-  console.log(result);
+  const coreDb = openCoreDb();
+  const config = loadBotConfig();
+  const pool = new SimplePool();
+
+  try {
+    writeCliLog({
+      ts: new Date().toISOString(),
+      alias,
+      toolName,
+      stage: 'executeTool:start',
+      details: {
+        call: parsed.data,
+        masterPubkey: config.masterPubkey,
+      },
+    });
+
+    const result = await executeTool({
+      alias,
+      call: parsed.data,
+      db,
+      pool,
+      masterPubkey: config.masterPubkey,
+      getWotScore: (pubkey: string, rootPubkey = config.masterPubkey) =>
+        getWotScore(coreDb, pubkey, rootPubkey),
+    });
+
+    if (alias === 'bm' && toolName === 'published_search') {
+      writeCliLog({
+        ts: new Date().toISOString(),
+        alias,
+        toolName,
+        stage: 'published_search:note',
+        details: {
+          note: 'See plugin output/logging for per-search debug if instrumented there.',
+        },
+      });
+    }
+
+    writeCliLog({
+      ts: new Date().toISOString(),
+      alias,
+      toolName,
+      stage: 'executeTool:finish',
+      ok: true,
+      duration_ms: Date.now() - startedAt,
+      details: {
+        output_preview: previewValue(result),
+      },
+    });
+
+    console.log(result);
+  } catch (error) {
+    writeCliLog({
+      ts: new Date().toISOString(),
+      alias,
+      toolName,
+      stage: 'executeTool:error',
+      ok: false,
+      duration_ms: Date.now() - startedAt,
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
+
+    throw error;
+  } finally {
+    coreDb.close();
+    pool.destroy();
+  }
 }
 
 void main();

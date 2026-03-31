@@ -11,6 +11,7 @@ import {
   getLinting,
   getModelOverride,
   getRoutstrModel,
+  getRoutstrSkKey,
 } from '../db';
 import { runPostAgentLint, formatLintSummary } from '../lint';
 import { C, log } from '../logger';
@@ -26,8 +27,7 @@ export type RunAgentWithLintFollowUpProps = {
   configuredProviderName: ProviderName | null;
   sessionId: string;
   cwd: string;
-  getAgentEnv: () => Record<string, string | undefined>;
-  seenDb: CoreDb;
+  coreDb: CoreDb;
   effectiveContent: string;
   currentWorkspace: string;
   backendName: AgentBackendName;
@@ -40,8 +40,7 @@ export async function runAgentWithLintFollowUp({
   configuredProviderName,
   sessionId,
   cwd,
-  getAgentEnv,
-  seenDb,
+  coreDb,
   effectiveContent,
   currentWorkspace,
   backendName,
@@ -55,9 +54,9 @@ export async function runAgentWithLintFollowUp({
   ): Promise<AgentRunResult> => {
     log.info(startLog);
 
-    const backendNameFromDb = getAgentBackend(seenDb);
-    const modelOverride = getModelOverride(seenDb, backendNameFromDb);
-    const routstrModel = getRoutstrModel(seenDb);
+    const backendNameFromDb = getAgentBackend(coreDb);
+    const modelOverride = getModelOverride(coreDb, backendNameFromDb);
+    const routstrModel = getRoutstrModel(coreDb);
 
     const effectiveModelOverride =
       configuredProviderName === 'routstr' && routstrModel
@@ -80,7 +79,7 @@ export async function runAgentWithLintFollowUp({
       content: roundContent,
       mode,
       cwd,
-      env: getAgentEnv(),
+      getRoutstrSkKey: () => getRoutstrSkKey(coreDb),
       modelOverride: effectiveModelOverride,
     });
   };
@@ -97,7 +96,7 @@ export async function runAgentWithLintFollowUp({
     return { output: finalOutput, result: finalResult };
   }
 
-  const linting = getLinting(seenDb);
+  const linting = getLinting(coreDb);
 
   if (mode !== 'agent' || linting === 'off') {
     return { output: finalOutput, result: finalResult };
@@ -123,7 +122,7 @@ export async function runAgentWithLintFollowUp({
   }
 
   const lintPrompt = `${POST_AGENT_LINT_PROMPT_PREFIX}\n${lintSummary}\n\nFix any lint issues and provide your final summary.`;
-  insertSessionMessage(seenDb, sessionId, 'user', lintPrompt);
+  insertSessionMessage(coreDb, sessionId, 'user', lintPrompt);
 
   try {
     const fixResult = await runAgentRound(

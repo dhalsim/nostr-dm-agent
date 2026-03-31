@@ -33,12 +33,11 @@ async function main(): Promise<void> {
 
   const pool = new SimplePool({ enablePing: true, enableReconnect: true });
   const signAuthEvent = createSignAuthEvent({ botSecretKey });
-  const primaryRelay = config.relayUrls[0];
 
   try {
     await sendDm({
       pool,
-      botRelayUrl: primaryRelay,
+      botRelayUrls: config.botRelayUrls,
       senderSecretKey: botSecretKey,
       recipientPubkey: config.masterPubkey,
       message,
@@ -49,7 +48,7 @@ async function main(): Promise<void> {
 
     process.exit(0);
   } finally {
-    pool.close(config.relayUrls);
+    pool.destroy();
   }
 }
 

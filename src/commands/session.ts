@@ -11,20 +11,17 @@ export type HandleNewSessionProps = {
   seenDb: CoreDb;
   backend: AgentBackend;
   cwd: string;
-  agentEnv: Record<string, string | undefined>;
 };
 
 export async function handleNewSession({
   seenDb,
   backend,
   cwd,
-  agentEnv,
 }: HandleNewSessionProps): Promise<string> {
   const id = await createNewSession({
     db: seenDb,
     backend,
     cwd,
-    env: agentEnv,
   });
 
   return `New session: ${id}`;

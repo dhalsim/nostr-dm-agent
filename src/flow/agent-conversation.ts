@@ -38,7 +38,6 @@ export type RunAgentConversationProps = {
   dmBotRoot: string;
   parentOfBotRoot: string;
   opencodeServeUrl: string | null;
-  getAgentEnv: () => Record<string, string | undefined>;
   config: BotConfig;
   walletDb: WalletDb | null;
   providerDb: ProviderDb | null;
@@ -54,7 +53,6 @@ export async function runAgentConversation({
   dmBotRoot,
   parentOfBotRoot,
   opencodeServeUrl,
-  getAgentEnv,
   config,
   walletDb,
   providerDb,
@@ -69,7 +67,6 @@ export async function runAgentConversation({
     db: seenDb,
     backend,
     cwd,
-    env: getAgentEnv(),
   });
 
   insertSessionMessage(seenDb, sessionId, 'user', content);
@@ -130,8 +127,7 @@ export async function runAgentConversation({
       configuredProviderName,
       sessionId,
       cwd,
-      getAgentEnv,
-      seenDb,
+      coreDb: seenDb,
       effectiveContent,
       currentWorkspace,
       backendName: backend.name,

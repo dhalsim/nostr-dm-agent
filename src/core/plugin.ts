@@ -4,6 +4,7 @@
 import { readFileSync } from 'fs';
 import { basename, join } from 'path';
 
+import type { EventTemplate, NostrEvent, SimplePool } from 'nostr-tools';
 import { z } from 'zod';
 
 import type { AgentRunResult } from '@src/backends/types';
@@ -30,19 +31,22 @@ export type PluginDefaults = {
 /**
  * Shared context for plugins. Mutating handlers run after `onInit(ctx)` has been called.
  *
- * - **getAgentEnv** — Environment passed to agent backends (merged process env, PATH, Routstr
- *   key from DB when applicable). The job runner calls this when spawning a run so values stay
- *   current; it is not a frozen snapshot of `process.env` at startup.
+ * - **getRoutstrSkKey** — Routstr API key from DB when applicable.
  * - **defaults** — UI defaults when a user message is handled; for authoritative DB state prefer
  *   `openCoreDb()` inside the plugin (see job plugin CLI tools).
  */
 export type PluginContext = {
+  pool: SimplePool;
+  masterPubkey: string;
   runAgent: RunAgentFn | null;
   sendReply: SendReplyFn;
   promptFn: (message: string) => Promise<string>;
   getWotScore: (pubkey: string, rootPubkey?: string) => number | null;
-  // used by plugins/job/runner.ts
-  getAgentEnv: () => Record<string, string | undefined>;
+  signWithBunker: (
+    eventTemplate: EventTemplate,
+    bunkerName?: string,
+  ) => Promise<NostrEvent>;
+  getRoutstrSkKey: () => string | null;
   defaults: PluginDefaults;
 };
 

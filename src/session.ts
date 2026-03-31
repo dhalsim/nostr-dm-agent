@@ -9,16 +9,14 @@ export type CreateNewSessionProps = {
   db: CoreDb;
   backend: AgentBackend;
   cwd: string;
-  env: Record<string, string | undefined>;
 };
 
 export async function createNewSession({
   db,
   backend,
   cwd,
-  env,
 }: CreateNewSessionProps): Promise<string> {
-  const id = await backend.createSession({ cwd, env });
+  const id = await backend.createSession(cwd);
   const now = Math.floor(Date.now() / 1000);
 
   db.run(
@@ -48,14 +46,12 @@ export type GetOrCreateSessionProps = {
   db: CoreDb;
   backend: AgentBackend;
   cwd: string;
-  env: Record<string, string | undefined>;
 };
 
 export async function getOrCreateCurrentSession({
   db,
   backend,
   cwd,
-  env,
 }: GetOrCreateSessionProps): Promise<string> {
   const cur = db
     .prepare('SELECT value FROM state WHERE key = ?')
@@ -71,7 +67,7 @@ export async function getOrCreateCurrentSession({
     }
   }
 
-  return createNewSession({ db, backend, cwd, env });
+  return createNewSession({ db, backend, cwd });
 }
 
 export function setCurrentSession(db: CoreDb, sessionId: string): boolean {

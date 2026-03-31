@@ -42,11 +42,13 @@ import {
   getProviderName,
   getWorkspaceTarget,
   getWotScore,
+  getRoutstrSkKey,
 } from './db';
-import { createGetAgentEnv, loadBotConfig } from './env';
+import { loadBotConfig } from './env';
 import { runAgentConversation } from './flow/agent-conversation';
 import { C, debug, log } from './logger';
 import type { MessageSource } from './messaging';
+import { signWithBunkerInteractive } from './nostr/bunker-sign';
 import {
   createDmSubscription,
   createSendReplyForSource,
@@ -77,14 +79,11 @@ async function main() {
     botKeyHex,
     botPubkey: botPubkeyFromEnv,
     masterPubkey,
-    relayUrls,
-    agentPath,
+    botRelayUrls,
     opencodeServeUrl,
     cashuMnemonic,
     routstrBaseUrl,
   } = config;
-
-  const primaryRelay = relayUrls[0];
 
   const botSecretKey = hexToBytes(botKeyHex);
   const botPubkey = botPubkeyFromEnv ?? getPublicKey(botSecretKey);
@@ -107,13 +106,6 @@ async function main() {
 
   const parentOfBotRoot = join(dmBotRoot, '..');
 
-  const agentEnv: Record<string, string | undefined> = {
-    ...process.env,
-    PATH: agentPath,
-  };
-
-  const getAgentEnv = createGetAgentEnv({ baseEnv: agentEnv, seenDb });
-
   const packageJson = readFileSync(join(dmBotRoot, 'package.json'), 'utf-8');
   const packageJsonData = JSON.parse(packageJson) as { version: string };
   const VERSION = packageJsonData.version;
@@ -125,7 +117,7 @@ async function main() {
   log.info(`${C.bold}Master:${C.reset} ${masterPubkey}`);
 
   const statusLines = getStatusLines({
-    relayUrls,
+    botRelayUrls,
     seenDb,
     version: VERSION,
     dmBotRoot,
@@ -150,7 +142,7 @@ async function main() {
   const readyDmPromise = readyDmEnabled
     ? sendDm({
         pool,
-        botRelayUrl: primaryRelay,
+        botRelayUrls,
         senderSecretKey: botSecretKey,
         recipientPubkey: masterPubkey,
         message: `Agent is ready.`,
@@ -170,7 +162,7 @@ async function main() {
   const sendReplyForSource = createSendReplyForSource({
     seenDb,
     pool,
-    botRelayUrl: primaryRelay,
+    botRelayUrls,
     senderSecretKey: botSecretKey,
     recipientPubkey: masterPubkey,
     signAuthEvent,
@@ -210,6 +202,8 @@ async function main() {
 
   // --- Plugins ---
   const pluginContext: PluginContext = {
+    pool,
+    masterPubkey,
     runAgent: null, // will set later in the conversation loop
     sendReply: (message: string) => sendReplyForSource(replySource, message),
     promptFn: async (message: string): Promise<string> => {
@@ -230,8 +224,25 @@ async function main() {
         return null;
       }
     },
+    signWithBunker: (eventTemplate, bunkerName) =>
+      signWithBunkerInteractive({
+        db: seenDb,
+        pool,
+        eventTemplate,
+        sendReply: (message: string) =>
+          sendReplyForSource(replySource, message),
+        promptFn: async (message: string): Promise<string> => {
+          await sendReplyForSource(replySource, message);
 
-    getAgentEnv,
+          return new Promise((resolve) => {
+            pendingPrompt = resolve;
+          });
+        },
+        runAgent: pluginContext.runAgent,
+        bunkerName,
+      }),
+
+    getRoutstrSkKey: () => getRoutstrSkKey(seenDb),
     defaults: {
       backend: backendName,
       provider: getProviderName(seenDb),
@@ -280,8 +291,6 @@ async function main() {
 
     const input = content.trim();
 
-    const agentEnv = getAgentEnv();
-
     const cwd =
       getWorkspaceTarget(seenDb) === 'bot' ? dmBotRoot : parentOfBotRoot;
 
@@ -289,7 +298,6 @@ async function main() {
       db: seenDb,
       backend,
       cwd,
-      env: agentEnv,
     });
 
     pluginContext.runAgent = async (prompt: string) =>
@@ -298,7 +306,7 @@ async function main() {
         content: prompt,
         mode,
         cwd,
-        env: agentEnv,
+        getRoutstrSkKey: () => getRoutstrSkKey(seenDb),
         modelOverride,
       });
 
@@ -306,13 +314,12 @@ async function main() {
     if (input.startsWith('!')) {
       const reply = await handleBangCommand({
         input,
-        relayUrls,
+        botRelayUrls,
         pool,
         seenDb,
         version: VERSION,
         parentOfBotRoot,
         dmBotRoot,
-        agentEnv,
         attachUrl: opencodeServeUrl,
         backend,
         botPubkey,
@@ -353,7 +360,6 @@ async function main() {
       dmBotRoot,
       parentOfBotRoot,
       opencodeServeUrl,
-      getAgentEnv,
       config,
       walletDb,
       providerDb,
@@ -364,7 +370,7 @@ async function main() {
   // --- Start DM subscription and optional local CLI ---
   const startDmSubscription = createDmSubscription({
     pool,
-    relayUrls,
+    botRelayUrls,
     dmFilter,
     signAuthEvent,
     seenDb,

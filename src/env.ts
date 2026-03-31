@@ -3,45 +3,13 @@
 // ---------------------------------------------------------------------------
 import { delimiter } from 'path';
 
-import type { CoreDb } from './db';
-import { getAgentBackend, getProviderName, getRoutstrSkKey } from './db';
 import { log } from './logger';
-
-export type CreateGetAgentEnvProps = {
-  baseEnv: Record<string, string | undefined>;
-  seenDb: CoreDb;
-};
-
-export function createGetAgentEnv({
-  baseEnv,
-  seenDb,
-}: CreateGetAgentEnvProps): () => Record<string, string | undefined> {
-  return function getAgentEnv(): Record<string, string | undefined> {
-    const env = { ...baseEnv };
-
-    const backendName = getAgentBackend(seenDb);
-
-    if (
-      getProviderName(seenDb) === 'routstr' &&
-      (backendName === 'opencode' || backendName === 'opencode-sdk')
-    ) {
-      const skKey = getRoutstrSkKey(seenDb);
-
-      if (skKey) {
-        env.ROUTSTR_API_KEY = skKey;
-      }
-    }
-
-    return env;
-  };
-}
 
 export type BotConfig = {
   botKeyHex: string;
   botPubkey: string | null;
   masterPubkey: string;
-  relayUrls: string[];
-  agentPath: string;
+  botRelayUrls: string[];
   opencodeServeUrl: string | null;
   cashuMnemonic: string | null;
   cashuDefaultMintUrl: string | null;
@@ -51,7 +19,7 @@ export type BotConfig = {
 /** BOT_KEY + BOT_RELAYS only — for Nostr file share without loading full bot config. */
 export type FileShareNostrConfig = {
   botKeyHex: string;
-  relayUrls: string[];
+  botRelayUrls: string[];
 };
 
 export function requireEnv(name: string): string {
@@ -104,19 +72,18 @@ export function loadFileShareNostrConfig(): FileShareNostrConfig {
     process.exit(1);
   }
 
-  return { botKeyHex, relayUrls };
+  return { botKeyHex, botRelayUrls: relayUrls };
 }
 
 export function loadBotConfig(): BotConfig {
-  const { botKeyHex, relayUrls } = loadFileShareNostrConfig();
+  const { botKeyHex, botRelayUrls: relayUrls } = loadFileShareNostrConfig();
   const masterPubkey = requireEnv('BOT_MASTER_PUBKEY');
 
   return {
     botKeyHex,
     botPubkey: process.env.BOT_PUBKEY ?? null,
     masterPubkey,
-    relayUrls,
-    agentPath: normalizePath(process.env.PATH ?? ''),
+    botRelayUrls: relayUrls,
     opencodeServeUrl: process.env.BOT_OPENCODE_SERVE_URL ?? null,
     cashuMnemonic: process.env.CASHU_MNEMONIC ?? null,
     cashuDefaultMintUrl: process.env.CASHU_DEFAULT_MINT_URL ?? null,

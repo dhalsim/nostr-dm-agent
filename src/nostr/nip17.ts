@@ -43,11 +43,11 @@ export function createSignAuthEvent({
 
 export async function getMasterDmRelays(
   pool: SimplePool,
-  botRelayUrl: string,
+  botRelayUrls: string[],
   masterPubkey: string,
 ): Promise<string[]> {
   try {
-    const relays = Array.from(PROFILE_RELAYS).concat(botRelayUrl);
+    const relays = Array.from(PROFILE_RELAYS).concat(botRelayUrls);
 
     const event = await pool.get(relays, {
       kinds: [10050],
@@ -72,12 +72,12 @@ export async function getMasterDmRelays(
 
   debug('No kind:10050 for master, using bot relay');
 
-  return [botRelayUrl];
+  return botRelayUrls;
 }
 
 export type SendDmProps = {
   pool: SimplePool;
-  botRelayUrl: string;
+  botRelayUrls: string[];
   senderSecretKey: Uint8Array;
   recipientPubkey: string;
   message: string;
@@ -86,7 +86,7 @@ export type SendDmProps = {
 
 export async function sendDm({
   pool,
-  botRelayUrl,
+  botRelayUrls,
   senderSecretKey,
   recipientPubkey,
   message,
@@ -96,11 +96,11 @@ export async function sendDm({
 
   const targetRelays = await getMasterDmRelays(
     pool,
-    botRelayUrl,
+    botRelayUrls,
     recipientPubkey,
   );
 
-  const recipientRelayHint = targetRelays[0] ?? botRelayUrl;
+  const recipientRelayHint = targetRelays[0] ?? botRelayUrls[0];
 
   const giftWrap = wrapEvent(
     senderSecretKey,
@@ -168,7 +168,7 @@ export async function sendDm({
 export type CreateSendReplyForSourceProps = {
   seenDb: CoreDb;
   pool: SimplePool;
-  botRelayUrl: string;
+  botRelayUrls: string[];
   senderSecretKey: Uint8Array;
   recipientPubkey: string;
   signAuthEvent: (template: EventTemplate) => Promise<VerifiedEvent>;
@@ -177,7 +177,7 @@ export type CreateSendReplyForSourceProps = {
 export function createSendReplyForSource({
   seenDb,
   pool,
-  botRelayUrl,
+  botRelayUrls,
   senderSecretKey,
   recipientPubkey,
   signAuthEvent,
@@ -204,7 +204,7 @@ export function createSendReplyForSource({
 
     await sendDm({
       pool,
-      botRelayUrl,
+      botRelayUrls,
       senderSecretKey,
       recipientPubkey,
       message,
@@ -221,7 +221,7 @@ export type DmFilter = {
 
 export type CreateDmSubscriptionProps = {
   pool: SimplePool;
-  relayUrls: string[];
+  botRelayUrls: string[];
   dmFilter: DmFilter;
   signAuthEvent: (authTemplate: EventTemplate) => Promise<VerifiedEvent>;
   seenDb: CoreDb;
@@ -234,7 +234,7 @@ export type CreateDmSubscriptionProps = {
 
 export function createDmSubscription({
   pool,
-  relayUrls,
+  botRelayUrls,
   dmFilter,
   signAuthEvent,
   seenDb,
@@ -247,9 +247,9 @@ export function createDmSubscription({
   let reconnectAttempt = 0;
 
   function start(): void {
-    debug('Subscribing to DM relays:', relayUrls.join(', '));
+    debug('Subscribing to DM relays:', botRelayUrls.join(', '));
 
-    pool.subscribe(relayUrls, dmFilter, {
+    pool.subscribe(botRelayUrls, dmFilter, {
       onauth: signAuthEvent,
       alreadyHaveEvent: alreadyHaveEvent(seenDb),
       onevent: async (wrap: NostrEvent) => {
